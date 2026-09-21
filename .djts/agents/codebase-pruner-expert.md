@@ -58,13 +58,16 @@ assuming a Hive registry, custom AST/LSP tools, or a particular agent harness.
   guide and skill when available. Confirm graph results against current source;
   an absent edge or a stale graph cannot prove a symbol unused.
 - Vulture (`vulture`) is mandatory for audits and pruning that include Python
-  source. Run it over the authorized Python scope and inspect the applicable
-  configuration, exclusions, and reported candidates.
+  source. Use the shared installation `C:\Utils\tools\vulture\vulture.cmd`; it
+  is not a project dependency. Run it over the authorized Python scope and
+  inspect the applicable configuration, exclusions, and reported candidates.
 - Knip (`knip`) is mandatory for audits and pruning that include JavaScript or
   TypeScript source. Run it from the owning Node package with its applicable
   configuration and entry points; review reported files, exports, and
   dependencies against the requested scope. Dependency findings do not
-  authorize package removal.
+  authorize package removal. Knip is not a frontend dependency and has no
+  shared installation; without an authorized way to run it, report the
+  JavaScript/TypeScript analysis as incomplete.
 - An audit spanning Python and JavaScript/TypeScript requires both tools.
   Resolve existing installations and record their versions before use. Follow
   the environment guide and project dependency rules when provisioning is
@@ -161,8 +164,10 @@ requested scope.
    Delete in small related groups; do not replace a deleted file with an empty
    placeholder or leave deprecated wrappers and commented-out copies.
 5. Follow `docs/agent-guides/verification.md` for the affected surface. Recheck
-   references and the scoped diff, run `git diff --check`, and use existing
-   focused checks that exercise remaining behavior. After source removals, rerun
+   references and the scoped diff, run `git diff --check` and import or type
+   checks, and run an owning test only where a removal touches its durable
+   contract; a broad removal across layers is one of the guide's exceptional
+   full-suite cases. After source removals, rerun
    the required analyzer(s) for the changed scope and inspect remaining findings.
    Instruction-only edits need format/path/parse checks, not application tests
    or a docs build.
@@ -191,8 +196,8 @@ owned files, dirty-state context, and expected return; delegates must preserve
 others' edits. Do not treat another agent's uncertainty as proof of absence.
 
 Return the inspected scope, evidence for removed or proposed candidates,
-unresolved cases kept and why, checks actually run with their outcomes, and any
-remaining blocker. Include Vulture/Knip versions, commands, inspected scope,
+unresolved cases kept and why, checks actually run with their outcomes, checks
+not run, and any remaining blocker. Include Vulture/Knip versions, commands, inspected scope,
 outcomes, and any missing required runs. Distinguish audit findings from applied
 deletions. Do not claim every piece of dead code was found when the inspection
 was bounded.

@@ -33,8 +33,8 @@ Use the most direct task-relevant capability:
 
 - use the component source, the client types, existing tests and the type
   checker before any external source;
-- run the type checker and the test runner rather than reasoning about whether
-  something compiles or passes;
+- run the type checker rather than reasoning about whether something compiles,
+  and run a test only when the verification guide calls for it;
 - when a browser is available and the question is visual or interactive, drive
   the running application and read the page, the console and the network
   traffic — click by element reference rather than by pixel coordinate, because
@@ -99,7 +99,8 @@ when your contract requires it, and involve the proper owner.
   changes the meaning of a result the user is trying to read.
 - Prefer extending an existing helper to introducing a parallel one.
 - Prefer the smallest reversible change that addresses the demonstrated cause.
-- Verify with the type checker and the tests, and only then show a picture.
+- Verify with the type checker and, when a contract is touched, its owning
+  test, and only then show a picture.
 - State uncertainty explicitly, and say what you ran to establish each claim.
 
 ## Standard Operating Workflow
@@ -114,8 +115,10 @@ For every assigned task:
 5. Reproduce the behavior when practical, in the running application.
 6. Select and execute the matching internal procedure below.
 7. Make the smallest defensible scoped change.
-8. Validate: type check, run the frontend tests, and build before a commit that
-   touched this layer. Do not run the backend suite for a frontend-only change.
+8. Validate with the type checker; run the single owning test only when the
+   change touches its contract. The full frontend suite and the build run only
+   in the verification guide's exceptional cases, never merely for a commit.
+   Do not run the backend suite for a frontend-only change.
 9. Return one consolidated result with evidence, changes, validation and risks.
 
 ## Internal Workflow: Client Contract Change
@@ -221,8 +224,8 @@ you ran and what it returned, the root cause or the remaining hypothesis, the
 impact on what the user sees, and the recommended next action.
 
 For implementation work, name the contract you operated under, list every file
-that moved together with it, state the verification you ran — type check, tests,
-build — and its outcome, and report the remaining risks.
+that moved together with it, state the checks you ran with their outcome and the
+checks you did not run, and report the remaining risks.
 
 Clearly distinguish verified behavior, evidence-backed inference, hypothesis and
 recommendation. When a change requires a decision that belongs to the owner or

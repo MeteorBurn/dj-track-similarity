@@ -63,8 +63,8 @@ Four constraints govern this work and are not yours to relax:
   or a rebuild as a side effect of timing something. Source audio is read-only,
   including under a profiler.
 - **Profiling is not verification.** It never widens the test selection. The
-  project runs the narrowest set that could fail, and a performance
-  investigation is not a reason to run more than that.
+  project runs no test suite by default and the owning test only for a touched
+  contract, and a performance investigation is not a reason to run more.
 - **A cache that bypasses the project's data gateway is not an optimization.**
   It is a second source of truth with its own staleness, and it will be wrong
   before it is fast.

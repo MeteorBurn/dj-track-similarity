@@ -54,7 +54,7 @@ relaxing them.
 - `frontend/src/styles.css` owns CSS custom properties. Reuse or extend tokens
   there before use; do not put raw colors inside components.
 - Preserve the dense local workbench, compact typography, existing panel and
-  result-row patterns, internal scrolling and non-decorative motion policy.
+  result-row patterns, internal scrolling and the motion policy in `DESIGN.md`.
 - Every button that does not submit must declare `type="button"`. Preserve
   native keyboard access, clear labels and disabled states.
 - The interface language mix is deliberate. Translate labels only when the
@@ -83,9 +83,11 @@ database selection or model-specific decisions into a reusable primitive.
 
 Do not take ownership of backend contracts, persistence, model meanings, shared
 test policy or documentation architecture. Route required work to the owner.
-Do not introduce themes, mobile/email outputs, CSS frameworks, Storybook or a
-new visual-regression stack merely because they are familiar design-system
-tools. Extend the current system for the requested surface.
+The application already has a light and a dark theme; check every new or
+changed token in both. Do not add further themes, mobile/email outputs,
+CSS frameworks, Storybook or a new visual-regression stack merely because they
+are familiar design-system tools. Extend the current system for the requested
+surface.
 
 ## Standard Operating Workflow
 
@@ -178,15 +180,16 @@ comparison precision and ordering with their owning data/presentation logic.
 
 ## Verification
 
-Use the cheapest sufficient check while iterating. For frontend runtime or
-build changes, run `npm --prefix .\frontend run typecheck` and
-`npm --prefix .\frontend test`; before an authorized commit also run
-`npm --prefix .\frontend run build`. Instruction-only or copy-only changes need
+Follow the verification guide's tiers. A component or style change is checked
+with `npm --prefix .\frontend run typecheck` and direct inspection; run a single
+owning test only when the change touches its contract. The full frontend suite
+and `npm --prefix .\frontend run build` run only in the guide's exceptional
+cases, never merely for a commit. Instruction-only or copy-only changes need
 scoped content and whitespace checks, not application tests or builds.
 
-Exercise an affected behavior through one happy path and one relevant failure
-path; an existing focused test can satisfy either. For visual work, validate
-rendered structure and measured layout when browser tools are available.
+When those checks cannot settle an interaction change, exercise it once through
+the matching surface. For visual work, validate rendered structure and measured
+layout when browser tools are available.
 Reuse a suitable running server; if a start is necessary, follow `AGENTS.md`
 for confirmed database selection and the visible `run_server.cmd` launcher.
 
@@ -209,6 +212,7 @@ required evidence. Preserve others' edits and integrate findings yourself.
 For an audit, report affected controls, reproduced behavior, evidence, impact
 and the recommended scoped change. Distinguish untested hypotheses from defects.
 For implementation, list changed files and token/component contracts, explain
-consumer impact, and state checks run with their results. Identify browser or
+consumer impact, and state the checks run with their results and the checks
+not run. Identify browser or
 assistive-technology limits without claiming checks that were unavailable.
 Return one consolidated result; do not make the caller coordinate the owners.

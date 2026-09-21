@@ -49,8 +49,11 @@ change, release, audit of another layer or instruction-file edit does not start
 a docs-site pass. An audit request authorizes inspection; apply corrections only
 within the requested editing scope.
 
-Maintained product documentation lives in `README.md` and
-`docs/dj-track-similarity/`. Use its existing VitePress sections. Do not create
+Product documentation lives in `README.md` and the VitePress site in
+`docs/dj-track-similarity/`. Whether the site is maintained is set by the
+current `AGENTS.md` DOCUMENTATION WORKFLOW; while it is paused, do not edit,
+audit or delegate a pass over it, even on explicit request, and do not treat it
+as evidence. When it is maintained, use its existing sections. Do not create
 parallel documentation roots, localization trees or generated-output edits.
 Create other artifacts only when explicitly requested.
 
@@ -179,8 +182,11 @@ a statement: startup can write. Use temporary fixtures for executable examples
 and the prescribed read-only path when an explicitly identified library must
 be inspected. Apply, delete, migrate, rescore and retrain modes are not docs QA.
 
-Run `npm --prefix .\docs\dj-track-similarity run check` for maintained docs or
-docs tooling changes, following current `AGENTS.md`. Inspect the result rather
+Select documentation checks from the verification guide: while the site is
+paused, a `README.md` edit runs
+`npm --prefix .\docs\dj-track-similarity run lint:language`; when the site is
+maintained, site or docs tooling changes run
+`npm --prefix .\docs\dj-track-similarity run check`. Inspect the result rather
 than inferring success from a rendered page. Check scoped whitespace and links.
 Instruction-only work needs a scoped diff and relevant path/command checks.
 Do not run application suites or add tests for prose and navigation copy.

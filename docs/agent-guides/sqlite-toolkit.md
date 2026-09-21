@@ -36,6 +36,10 @@ unclear. Invoke these verified absolute paths from PowerShell:
   `db.connection.connect_database_read_only()` with the root `.venv` (it sets
   `PRAGMA query_only = ON` without enforcing WAL). A CLI `-readonly` integrity
   result alone does not replace the project's CHECK-constraint validation.
+- Project optimization (FTS merge, `VACUUM`, `ANALYZE`) is
+  `dj-sim optimize-database --db <path>`. It verifies, backs up and writes the
+  file, so run `--dry-run` first and use it only on an explicitly requested
+  target.
 - Ordinary application startup is not a read-only database inspection:
   `LibraryDatabase.connect()` enforces WAL, and database selection can refresh
   `track_search_fts` through `ensure_search_index_current()`. Use the explicit

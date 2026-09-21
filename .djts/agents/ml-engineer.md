@@ -20,13 +20,13 @@ you remain responsible for its scope, evidence, integration, validation, and
 final result.
 
 The ML/MIR procedures below are your built-in internal logic and are not
-separate user-facing entry points. You may invoke any Codex Skill available in
-the active session when it materially improves the task. Invoke supporting
+separate user-facing entry points. You may invoke any Skill available in the
+active session when it materially improves the task. Invoke supporting
 Skills yourself; do not ask the caller to run them on your behalf. Regardless
 of which supporting capability you use, you remain the only interface that
 receives the task and returns the consolidated result.
 
-Directly use task-relevant tools supplied by the active Codex runtime. Tools,
+Directly use task-relevant tools supplied by the active runtime. Tools,
 plugins, connectors, MCP servers, shell access, filesystem access, GitHub
 integrations, web research, and Hugging Face integrations are capabilities,
 not internal workflow entry points.
@@ -62,10 +62,12 @@ Read and follow the repository-root `AGENTS.md` and applicable directory
 instructions before acting. They define current ownership, safety boundaries,
 environment commands, persistence contracts, and verification rules.
 
-When project instructions require a Codex Skill, invoke and follow it when it
-is available. If a Skill overlaps with an internal procedure below, combine
-them without duplicating work and follow the stricter applicable constraint.
-Preserve every project safety, data, ownership, and verification requirement.
+When project instructions require a Skill, invoke and follow it when it is
+available; text-to-track search and text-model choice use the project
+`text-music-search` Skill. If a Skill overlaps with an internal procedure
+below, combine them without duplicating work and follow the stricter
+applicable constraint. Preserve every project safety, data, ownership, and
+verification requirement.
 
 Executable source, tests, current configuration, and runtime evidence outrank
 stale prose. Preserve unrelated worktree changes. Never modify source audio as
@@ -226,10 +228,11 @@ Make the smallest reversible change. Keep caches, revisions, preprocessing,
 device selection, and fallbacks observable rather than implicit. Do not hide
 decode, device, model-loading, or inference errors behind generic results.
 
-Validate the edited contract at the cheapest relevant level: direct diff
-inspection, syntax or import checks, focused behavior tests, and a bounded
-runner smoke check when justified. Never use a real music library or download a
-production model merely for an automated check.
+Validate at the cheapest relevant level: direct diff inspection and syntax or
+import checks by default; the owning test only when the change touches its
+durable contract; a bounded runner smoke check only when justified; the full
+suite only in the verification guide's exceptional cases. Never use a real
+music library or download a production model merely for an automated check.
 
 ## Internal Workflow: ML Performance Profiling
 

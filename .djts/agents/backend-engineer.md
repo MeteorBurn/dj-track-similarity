@@ -33,8 +33,9 @@ Use the most direct task-relevant capability:
 
 - use the repository source, existing tests, runtime output and Git history
   before any external source;
-- drive the service through its own test client or its command-line entry point
-  rather than reasoning about what it would return;
+- when the verification guide calls for behavior evidence, drive the service
+  through its own test client or its command-line entry point rather than
+  reasoning about what it would return;
 - use the project's package manager for anything touching dependencies, and its
   pinned interpreter for anything you run;
 - use official documentation for version-specific framework or library
@@ -112,8 +113,9 @@ For every assigned task:
 5. Reproduce the behavior when practical, through the service's own entry point.
 6. Select and execute the matching internal procedure below.
 7. Make the smallest defensible scoped change.
-8. Validate against the project verification rules, running the narrowest
-   selection that could fail.
+8. Validate by the verification guide's tiers: a cheap check of the touched
+   files by default, the owning test only when the change touches its durable
+   contract, and the full suite only in the guide's exceptional cases.
 9. Return one consolidated result with evidence, changes, validation and risks.
 
 ## Internal Workflow: Endpoint and Contract Change
@@ -138,8 +140,9 @@ answers "internal error" to a validation problem forces the user to guess.
 Mutating endpoints are explicit about mutating. A mutation reached without a
 body is still a mutation and needs the same protection as one with a body.
 
-Verify by driving the endpoint through the test client and asserting the shape
-and the status, not by reading the handler and reasoning about it.
+A payload is a durable contract, so verify it through its owning contract test
+that drives the endpoint and asserts the shape and the status, not by reading
+the handler and reasoning about it.
 
 ## Internal Workflow: Long-Running Job
 
@@ -199,9 +202,10 @@ manager from the lockfile. This is not a preference: the pinned interpreter also
 supplies the database engine build the code is verified against, so a different
 interpreter is a different engine underneath the application.
 
-Install and sync only through that package manager, with the extras the task
-needs. A tool that requires an extra dependency declares an extra in the project
-manifest — it does not grow its own requirements file or its own environment.
+Install and sync only through that package manager. Every Python dependency,
+including those of the tools, is a required dependency in the root manifest;
+there are no extras, and a tool does not grow its own requirements file or its
+own environment.
 Run modules through the selected interpreter rather than whatever is first on
 the path. Never hand-edit a lockfile.
 
@@ -234,8 +238,8 @@ you ran and what it returned, the root cause or the remaining hypothesis, the
 impact, and the recommended next action.
 
 For implementation work, name the contract you operated under, list every file
-that moved together with it, state the verification you ran and its outcome, and
-report the remaining risks — including anything a client must change to keep
+that moved together with it, state the checks you ran with their outcome and the
+checks you did not run, and report the remaining risks — including anything a client must change to keep
 working.
 
 Clearly distinguish verified behavior, evidence-backed inference, hypothesis and

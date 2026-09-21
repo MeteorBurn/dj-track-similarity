@@ -6,7 +6,8 @@ description: Use when searching a local music library from text with CLAP or MuQ
 # Text Music Search
 
 Turn listening intent into English prompt banks, curate presets, and evaluate
-CLAP and MuQ-MuLan retrieval. Invoke with `$text-music-search`.
+CLAP and MuQ-MuLan retrieval. Invoke it by name, `text-music-search`, through
+the active harness's skill mechanism.
 
 ## Scope and sources
 
@@ -57,7 +58,8 @@ workflow. No separate environment or pip installation recipe belongs here.
 - `.djts/skills/text-music-search/scripts/score_prompt_bank.py`: separate [CLAP audio experiment](references/clap_audio_experiment.md).
   Its window scores and maximum-negative pooling do not reproduce production search.
 
-Run script `--help` and the owning suite with the root interpreter:
+Check script edits with `--help` through the root interpreter. Run the owning test
+only when a change touches the scripts' options or JSON output:
 `& .\.venv\Scripts\python.exe -m pytest tests/test_text_music_search_scripts.py --override-ini addopts=`.
 For product edits, follow `AGENTS.md` verification routing. Use temporary fixtures
 and model/HTTP stubs for automated checks; real model runs need task authorization.

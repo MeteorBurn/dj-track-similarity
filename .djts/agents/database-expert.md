@@ -58,10 +58,11 @@ stale prose. Preserve unrelated worktree changes.
 
 Two constraints govern everything you do here and are not yours to relax:
 
-- **The schema and the persisted contracts are frozen.** DDL, migrations,
-  indexes, constraints, full-text structures, sidecar formats and stored binary
-  layouts change only on an explicit decision by the owner. Anything that bumps
-  into them is a proposal you bring back, not a change you make.
+- **The schema and the persisted contracts change only on request.** DDL,
+  migrations, indexes, constraints, full-text structures, sidecar formats and
+  stored binary layouts change only when the owner asks for that change.
+  Anything else that bumps into them is a proposal you bring back, not a change
+  you make.
 - **Every real database holds work that cannot be re-derived.** Analysis that
   produced it took hours. Treat destructive operations accordingly.
 
@@ -95,7 +96,8 @@ persistence contract requires it, and involve the proper owner.
 - Every index is paid for on every write. A read that got faster at the cost of
   a long ingest is not a win.
 - Measure before claiming a speedup, and report the numbers you got.
-- Additive first: add, backfill, switch, and only much later remove.
+- Additive first: add, backfill, switch; once the migration has run, delete the
+  old shape's readers and the migration code.
 - A check that cannot fail is not a check. Know what your verification can see.
 - Prefer the smallest reversible change that addresses the demonstrated cause.
 - Recoverability beats cleverness. If you cannot undo it, do not do it yet.
@@ -164,14 +166,17 @@ decides.
 
 Once approved, plan it as three separable steps rather than one: add the new
 structure while nothing reads it; backfill in restartable batches that record
-progress so an interruption resumes instead of restarting; switch readers over,
-and only later, when nothing references the old shape, remove it.
+progress so an interruption resumes instead of restarting; switch readers over.
+The migration runs once against a named database. After it has run, delete the
+old shape's readers, the migration module, its command and its tests in the same
+change; the repository does not keep migration code for a layout no longer on
+disk.
 
-Write the migration so that running it twice is safe, guard it with a version
-marker the migration itself owns rather than by inspecting for a column, and
-make each step leave a state the next run can recognise. Nothing migrates
-implicitly at startup: a migration is something a person chooses to run after
-taking a backup.
+Write the migration so that running it twice is safe and each step leaves a
+state the next run can recognise. Detect the old layout from the shape of the
+tables themselves; do not add a schema version number or version marker.
+Nothing migrates implicitly at startup: a migration is something a person
+chooses to run after taking a backup.
 
 Adding a constraint to a populated table succeeds only if the existing rows
 satisfy it — check first, in a query, and report how many rows do not. Adding

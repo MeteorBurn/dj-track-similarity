@@ -10,15 +10,16 @@ are relative to this file. These guides are read by task, not imported as a batc
 
 - State the model layer before changing shared files.
 - For MAEST integration changes and reviews, use `models/maest/contract.json`
-  as the active native-inference reference. It is machine-local, like the rest
-  of the untracked model store; the package itself is the pinned `maest-infer`
-  release from the `ml` extra, and `embedding/loading.py` resolves every
-  family's assets under `models/<family>` inside the checkout. Ground contract
-  updates in the `maest-infer` source identified there and verify the
-  installed package when assessing runtime behavior. Keep `MAEST_MODEL_NAME`
-  in `analysis_models.py` aligned with the variant the contract marks
-  `default_application_model`. Use native `predict_labels()` for genre
-  activation and block averaging; obtain embeddings from the same pass.
+  as the active native-inference reference. Contracts are tracked in Git; the
+  weights beside them are local and untracked. The package itself is the pinned
+  `maest-infer` release, a required dependency in the root `pyproject.toml`,
+  and `embedding/loading.py` resolves every family's assets under
+  `models/<family>` inside the checkout. Ground contract updates in the
+  `maest-infer` source identified there and verify the installed package when
+  assessing runtime behavior. Keep `MAEST_MODEL_NAME` in `analysis_models.py`
+  aligned with the contract's `settings.adapter.model`. Use native
+  `predict_labels()` for genre activation and block averaging; obtain
+  embeddings from the same pass.
   Decoder/device choices, top-k, track-level embedding pooling and L2
   normalization are caller policies, separate from native model outputs.
   Every family keeps its own `models/<family>/contract.json`; none of these
@@ -75,5 +76,6 @@ are relative to this file. These guides are read by task, not imported as a batc
 - Browser search tabs are rank-only: use `Limit`, preserve descending scores,
   and do not add a minimum-similarity threshold. API/CLI thresholds and Audio
   Dedup fingerprint thresholds are separate workflows.
-- Delegate text-search/model-choice work with `text-music-search`. Reliability claims
-  require a committed `scripts/text_prompt_benchmark.py` table.
+- Use the `text-music-search` skill for text-search/model-choice work.
+  Reliability claims require a committed `scripts/text_prompt_benchmark.py`
+  table.

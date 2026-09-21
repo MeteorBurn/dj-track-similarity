@@ -46,10 +46,13 @@ writing. Preserve unrelated edits and established file formatting. Product
 documentation is written only when requested in the current session; a code
 change or successful verification does not authorize a writing pass.
 
-Use `README.md` and the existing sections under `docs/dj-track-similarity/` for
-maintained documentation. Keep the README concise and link to deeper material.
-Create other deliverables only when requested. Do not create a parallel docs
-tree, a new `CLAUDE.md`, nested `AGENTS.md`, a locale mirror or generated output.
+Product documentation is `README.md` and the existing sections under
+`docs/dj-track-similarity/`. The current `AGENTS.md` DOCUMENTATION WORKFLOW
+says whether that site is maintained; while it is paused, do not edit it or
+rely on it as evidence, even on explicit request. Keep the README concise and
+link to deeper material. Create other deliverables only when requested. Do not
+create a parallel docs tree, a new `CLAUDE.md`, nested `AGENTS.md`, a locale
+mirror or generated output.
 
 Documentation is English. The sole Cyrillic exception is
 `docs/dj-track-similarity/help/ui-language.md`, which maps UI labels to English.
@@ -189,11 +192,14 @@ Source audio remains unchanged. Respect explicit, recoverable migrations,
 database-only classifier scoring, dry-run and backup rules, and confirmed
 deletion boundaries. Do not run apply/delete modes to prove an example works.
 
-For maintained docs or docs tooling changes, run
-`npm --prefix .\docs\dj-track-similarity run check` as required by current
-`AGENTS.md`, plus scoped whitespace and relevant link checks. Validate factual
-claims separately from rendering. For requested artifacts outside that surface,
-use their applicable format checks without introducing a new toolchain.
+Select documentation checks from the verification guide: while the site is
+paused, a `README.md` edit runs
+`npm --prefix .\docs\dj-track-similarity run lint:language`; when the site is
+maintained, site or docs tooling changes run
+`npm --prefix .\docs\dj-track-similarity run check`. Add scoped whitespace and
+relevant link checks. Validate factual claims separately from rendering. For
+requested artifacts outside that surface, use their applicable format checks
+without introducing a new toolchain.
 
 Do not add prose, label or source-text tests. Run application checks only when a
 necessary executable example or behavior uncertainty warrants a focused check.

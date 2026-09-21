@@ -43,10 +43,11 @@ Use the most direct task-relevant capability:
 - confirm the graph's answer with a textual search, because a dynamic
   reference — a name assembled at runtime, a registry key, a string in
   configuration — will not appear in a static graph;
-- use the type checker and the test runner after every atomic step, not once at
-  the end;
-- use Git to keep each step separable, so a mistake is one revert rather than an
-  archaeology exercise;
+- use the type checker or an import check after every atomic step, not once at
+  the end, and run tests as the verification rule below allows;
+- use Git to inspect each step's diff and keep steps separable, so a mistake is
+  one revert rather than an archaeology exercise; commit only when the task
+  asks for commits;
 - use documentation only for a framework convention local evidence cannot
   settle;
 - use delegated agents for the parts that belong to another owner.
@@ -79,9 +80,11 @@ Five constraints govern this work and are not yours to relax:
 - **Scope stays where it was set.** Do not expand a requested move into
   repository-wide cleanup because a pattern annoyed you on the way past. Report
   what you saw and leave it.
-- **Verification stays narrow.** Run the selection that covers what moved. A
-  refactor is not a reason to run everything, and a green full suite would not
-  prove more than a green targeted one.
+- **Verification follows the refactor's reach.** A local move needs an import
+  or type check and the owning tests of any durable contract that moved; it is
+  not a reason to run everything. A cross-layer refactor is one of the
+  exceptional cases in the verification guide: run the full suite once, at the
+  end, not after every step.
 - **The suite does not grow.** A refactor adds no tests. If moving code broke a
   test, that is information about the test, not a reason to write another one.
 
@@ -126,7 +129,8 @@ For every assigned task:
 4. Separate verified references, likely dynamic references, and unknowns.
 5. Plan the order of operations so nothing is broken between steps.
 6. Execute the matching internal procedure below, one atomic step at a time.
-7. After each step: type check, run the covering selection, keep it separable.
+7. After each step: type or import check, keep it separable; run the owning
+   tests of a moved durable contract.
 8. Verify behavior is unchanged, and that nothing was left behind.
 9. Return one consolidated result with the map, the steps, the verification and
    the risks.
@@ -168,8 +172,9 @@ narrow enough to describe in a sentence. A cut that leaves two modules importing
 each other's internals has moved the problem, not solved it.
 
 Move the slice with its tests, its fixtures and its imports in one step. Then
-update every reference found in the mapping, then run the covering selection.
-Only after that is green do you consider the next slice.
+update every reference found in the mapping, then run the type or import check
+and, when the slice carries a durable contract, its owning tests. Only after
+that is green do you consider the next slice.
 
 Do not leave the old module re-exporting the new one for convenience. Callers
 are updated in the same change; a re-export is a shim, and this project does not
@@ -203,18 +208,20 @@ wearing a refactor's clothes.
 Use this while carrying out any plan produced above.
 
 Work in atomic steps: one move or one extraction, all its references updated,
-type check, covering tests, and only then the next. The tree compiles and passes
-after every step, never only at the end. Keep the steps separable in version
-control so a mistake is one revert.
+type or import check, and only then the next. The tree compiles after every
+step, never only at the end. Keep the steps separable in the diff
+so a mistake is one revert; use separate commits only when commits were
+requested.
 
 Verify that nothing was left behind: no orphaned file, no import of a module
 that no longer exists, no test fixture pointing at an old path, no reference in
 configuration or in a launcher script.
 
 Then verify that behavior is unchanged. The type checker proves references
-resolve; it proves nothing about behavior. The covering tests are what stand in
-for that, which is why the selection must actually cover what moved. When a test
-fails after a move, decide honestly which of two things happened: the move broke
+resolve; it proves nothing about behavior. The owning tests of the moved
+contracts stand in for that, and for a cross-layer refactor the full run does.
+Where no test owns the moved behavior, say so rather than adding one. When a
+test fails after a move, decide honestly which of two things happened: the move broke
 behavior, or the test was asserting where the code lived rather than what it
 does. Fix the first; route the second to the test owner.
 

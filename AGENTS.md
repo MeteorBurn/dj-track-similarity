@@ -66,14 +66,16 @@ work unverified rather than inventing its instructions.
   similar) are inactive here: `DESIGN.md` and `design-system-engineer` own UI
   decisions, and this file owns diff scope and output length. Invoke one only
   on explicit request, and keep its result subject to these rules.
-- For development and server startup, use `database/test.sqlite` relative to
+- For development and server startup, use `database/Volumes.sqlite` relative to
   the repository root unless another database is explicitly specified.
   This is the user-confirmed default; do not ask for
   database-selection confirmation again when using it. Pass it explicitly:
-  tool defaults are not the dev database (`run_server.cmd` prompt:
-  `database\volumes.sqlite`; Audio Dedup `--db`: `database/volumes.sqlite`;
-  Rhythm Lab CLI data-command `--source` and `collection-save --source-db`:
-  `C:\db\abstracted.sqlite`; `serve --source` has no default).
+  tool defaults are not the dev database (`run_server.cmd` has none: it lists
+  `database/*.sqlite` or takes a path, and empty input cancels;
+  `run_rhythm-lab.cmd` standalone prompt: `database\volumes.sqlite`; Audio Dedup
+  `--db`: `database/volumes.sqlite`; Rhythm Lab CLI data-command `--source` and
+  `collection-save --source-db`: `C:\db\abstracted.sqlite`; `serve --source`
+  has no default).
   For other database access, identify an explicitly named or already confirmed
   database. Never infer the active library from launcher defaults, filenames,
   timestamps, or a previous session. Ask only if the target remains unknown.
@@ -84,12 +86,14 @@ work unverified rather than inventing its instructions.
 - SONARA and ML never share a run on any entry point: a pipeline job has one
   `stage` (`sonara` or `ml`), `dj-sim analyze --models` takes `sonara` alone or
   ML models only, and a job rejects the other layer's settings (SONARA BPM
-  range, ML staged mode). ML refuses to start without any current SONARA track
-  and skips tracks lacking it. A SONARA write needs all four outputs and stores
-  them together: core, timeline, embedding, fingerprint. Readiness is a stored
-  current-track row, not a payload check; payloads are validated on write
-  (SONARA Core also on read), and `dj-sim validate-database` checks SONARA Core,
-  embedding and fingerprint rows but not timeline rows.
+  range, ML staged mode). The first SONARA job locks the library's BPM range;
+  only a SONARA reset or a library clear releases it. ML refuses to start
+  without any current SONARA track and skips tracks lacking it. A SONARA write
+  needs all four outputs and stores them together: core, timeline, embedding,
+  fingerprint. Readiness is a stored current-track row, not a payload check;
+  payloads are validated on write (SONARA Core and stored embeddings also on
+  read), and `dj-sim validate-database` checks SONARA Core, embedding and
+  fingerprint rows but not timeline rows.
   A library without the `sonara_timeline` table gets an explicit error and is
   never migrated automatically.
 - Start project servers only through `run_server.cmd` in a visible interactive
@@ -183,8 +187,10 @@ work unverified rather than inventing its instructions.
   `--backup-dir` under `--apply`) drops both backup and rollback. Audio Dedup
   finds duplicates from stored SONARA fingerprints alone; a fingerprint match is
   evidence, never authorization. It is report-first: deletion needs
-  `APPLY DELETE`, stays inside the report root, rechecks track identity and file
-  facts, and keeps at least one copy on disk per group. Its CLI is report-only;
+  `APPLY DELETE` and a report written against the open database, stays inside
+  the reviewer's path filter (rechecked on delete; an empty filter covers the
+  whole report), rechecks track identity and file facts, and keeps at least one
+  copy on disk per group. Its CLI is report-only;
   the browser deletes reviewer-selected copies (any group member, recycle bin by
   default). Never run apply modes for QA.
 - Classifier scoring is database-only, scoped by classifier key, and must
@@ -193,7 +199,12 @@ work unverified rather than inventing its instructions.
   stubs, never real project databases, music files, or downloaded model runs.
   Keep Audio Dedup's `DEFAULT_RHYTHM_LAB_DB` as its single default constant;
   isolate tests with `tmp_path` and `monkeypatch`, not additional runtime
-  configuration switches.
+  configuration switches. Manual measurements and probes read audio only from
+  tracks of the selected library (located through the database, read-only),
+  the test corpus `C:/projects/tracks`, or generated signals in a temp
+  directory; never browse or open other folders, such as parts of the music
+  drive that are not in the database. Agents never load models on the GPU while
+  an owner's analysis job runs; check `nvidia-smi` and use `device=cpu`.
 
 ## TEST POLICY
 
@@ -268,8 +279,12 @@ change starts with a new test: admit a test only under the rules below.
 - Instruction-only edits need a scoped diff, whitespace and relevant path/command
   checks, not application tests or a docs-site build. These task guides belong to
   instruction maintenance; changing them does not authorize product-docs work.
-- For implementation work, follow the verification guide. Use the smallest
-  meaningful check; broaden only to resolve concrete affected contracts or risk.
-  Reuse checks that still cover the final state; do not rerun only for delivery.
-- Report checks actually run and blocked verification. Do not imply source
-  inspection proves live behavior or claim CI ran without execution evidence.
+- For implementation work, follow the verification guide: by default no test
+  suite, only a cheap check of the touched file (diff, syntax, import, type
+  check, lint); a single owning test only when the change touches its durable
+  contract; the full suite only for cardinal changes that can really break the
+  application (schema or persistence, shared infrastructure, cross-layer
+  refactors, dependency or runtime upgrades, concurrency or file-write safety)
+  or on the owner's explicit request, never for delivery, commits or reassurance.
+- Report which checks ran and which did not. Do not imply source inspection
+  proves live behavior or claim CI ran without execution evidence.

@@ -69,7 +69,8 @@ are relative to this file. These guides are read by task, not imported as a batc
   `av`. Discovery checks `libs/ffmpeg/bin/` first, then the DLL directory in
   `DJTS_FFMPEG`, then PATH, skipping missing or invalid candidates. Verify
   with `inspect_audio_runtime()`, which also checks project PyAV; finding
-  `ffmpeg.exe` alone is insufficient. Nothing in the project launches a program.
+  `ffmpeg.exe` alone is insufficient. No project code launches an FFmpeg
+  executable.
 - On Windows x64 with Python 3.10.20, the lock selects PyTorch/TorchAudio
   `2.11.0+cu130`, TorchVision `0.26.0+cu130`, TorchCodec `0.16.0+cu130` and PyAV
   `17.1.0`. The binaries provide the CUDA 13.0 runtime. A separate CUDA Toolkit
@@ -107,5 +108,5 @@ server itself. Never run `rhythm_lab_cli.py serve` directly.
 .\run_server.cmd local --db 'C:\path\selected.sqlite'
 & .\.venv\Scripts\python.exe -c 'import sys, sqlite3; print(sys.executable); print(sys.version); print(sqlite3.sqlite_version)'
 & .\.venv\Scripts\python.exe -c 'from dj_track_similarity.audio.ffmpeg_runtime import inspect_audio_runtime; print(inspect_audio_runtime())'
-npm --prefix .\frontend run build        # frontend runtime/build changes; before a commit
+npm --prefix .\frontend run build        # full runs only; see the verification guide
 ```

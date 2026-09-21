@@ -9,8 +9,8 @@ are relative to this file. These guides are read by task, not imported as a batc
 ## AGENT LAYER
 
 - `.djts/` is the shared plugin source: `agents/`, `skills/`, `scripts/`,
-  matching `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json`, and
-  `dj-track-similarity-note.svg` at its root.
+  `.claude-plugin/plugin.json` with its `marketplace.json`,
+  `.codex-plugin/plugin.json`, and `dj-track-similarity-note.svg` at its root.
 - Edit agent/skill Markdown there. After agent edits, explicitly run
   `.\.djts\scripts\sync-codex-agents.ps1` to regenerate `.codex/agents/*.toml`;
   never edit the generated launchers. Skills are not projected as agents.
@@ -75,4 +75,3 @@ configuration and source instead of duplicating model lists, paths, or threshold
 Delegate work across these ownership boundaries and integrate it into one answer.
 Give each worker a bounded scope, relevant instructions, and dirty-state context;
 workers must preserve others' edits. Honor the active harness's delegation rules.
-`context: fork` in a skill is effective only in harnesses that support it.

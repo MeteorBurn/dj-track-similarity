@@ -77,8 +77,9 @@ up:
 - **Fixtures are temporary and synthetic.** Never a real project database, never
   real music, never a downloaded model run.
 
-The runner layout: the root configuration collects one directory; scripts and
-each tool carry their own focused suites. Know which one you are in.
+The runner layout: the root configuration collects `tests/`, which also holds
+the tests for `scripts/`; each package under `tools/` carries its own `tests/`
+suite, and the frontend runs its own Node tests. Know which one you are in.
 
 ## Ownership
 

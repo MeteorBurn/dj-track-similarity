@@ -6,32 +6,29 @@ Project instructions: [AGENTS.md](../../AGENTS.md). Commands and inline code pat
 are relative to the repository root unless explicitly absolute; Markdown links
 are relative to this file. These guides are read by task, not imported as a batch.
 
-The dated workspace inventory below is a recorded snapshot. Inspect the live
-tree before relying on it; this guide does not establish current file existence.
-
 ## STRUCTURE
 
 | Area | Purpose |
 |---|---|
 | `database/`, `logs/`, `reports/` | Local user state; never use as automated-test fixtures |
 | `frontend/dist/`, `graphify-out/` | Generated output; do not hand-edit |
-| `.workspace/` | Local working output only: `audits/`, `handoffs/`, `ideas/`, `reports/`, `specs/`, and `tools/firecrawl/`; never a source of agents or skills |
+| `tools/` | Audio Dedup, Audio Doctor, Audio Online and Rhythm Lab; each has its own `tests/` suite |
+| `libs/` | Tracked FFmpeg shared libraries and the PyAV wheel built against them |
+| `models/` | Tracked per-family `contract.json`; downloaded weights are local and untracked |
+| `.workspace/` | Local working output only: `audits/`, `handoffs/`, `ideas/`, `reports/`, `specs/`, `graphify/` (Graphify memory) and `tools/` (Firecrawl output, temporary test directories); never a source of agents or skills |
 | `.djts/` | The one tracked plugin root: `agents/`, `skills/`, plugin manifests, icon, and projection scripts |
 
-The local inventory verified on 2026-09-08 after the owner's cleanup contains
-only `.workspace/.gitignore` and three backlogs in `.workspace/specs/`:
-`engineering-reliability.md`, `mir-quality-evaluation.md`, and
-`prompt-search-and-personalization.md`. Earlier supporting artifact paths are
-absent from this workspace; transcribed results are historical summaries.
-Inspect the live tree before reusing a path. Do not recreate deleted artifacts
-or create cleanup archives unless requested. Consolidate related pending work
-and remove obsolete notes and empty nested directories during requested cleanup.
-The plans remain local and ignored by Git.
+Inspect the live `.workspace/` tree before reusing a path; it is local, ignored
+by Git and changes between sessions. Do not recreate deleted artifacts or
+create cleanup archives unless requested. Consolidate related pending work and
+remove obsolete notes and empty nested directories during requested cleanup.
 
-`database/` can hold multiple libraries. The interactive launcher lists them;
-its default is not evidence of the user's active library. Use an explicitly
+`database/` can hold multiple libraries. `run_server.cmd` lists them without a
+default. For development and server startup use the confirmed default in
+[AGENTS.md](../../AGENTS.md#execution-and-scope); otherwise use an explicitly
 named or already confirmed database. Ask only when the target remains unknown;
-never infer it from `volumes.sqlite`, timestamps, or a previous session.
+never infer it from launcher or tool defaults, filenames, timestamps, or a
+previous session.
 
 Python packages under `src/dj_track_similarity/` follow responsibility boundaries:
 
@@ -67,6 +64,8 @@ respective package owners.
 | `api.state.AppDatabaseState` | Owns the selected database's managers and queue; replaces and closes their resources |
 | `embedding.registry.create_embedding_adapter` | Typed lazy construction shared by analysis and text API |
 | `embedding.text_cache.TextEmbeddingAdapterCache` | Application-owned text adapters, leases and idle expiry |
+| `audio_dedup_bridge.load_audio_dedup_module` | Single import boundary from the server into `tools/audio-dedup`; scan jobs and report review build on it |
+| `rhythm_lab_launcher` | Starts, stops and switches the managed Rhythm Lab (`127.0.0.1:8777`) and pins its source library |
 | `analysis_models` contracts | Shared family/output/reset types; changes affect backend, tests, and UI |
 | `frontend App` | Main UI controller for database, jobs, search, preview, and export |
 | `frontend api` | High-centrality client used by the UI; keep backend types aligned |

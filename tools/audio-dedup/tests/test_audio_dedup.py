@@ -11,6 +11,7 @@ import zipfile
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.audio_dedup_jobs import AudioDedupJobManager
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 TOOL_ROOT = Path(__file__).resolve().parents[1]
@@ -243,6 +244,42 @@ def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
     mp3 = _record(3, "M:/Volumes/Abstracted/c.mp3", size=30_000_000, mtime=300.0)
 
     assert keeper_module.choose_keeper([low_bitrate_flac, high_bitrate_flac, mp3]).track_id == 2
+
+
+def test_cancellation_during_last_spectral_file_does_not_publish_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    out_dir = tmp_path / "reports"
+    _create_library_db(db_path)
+    for track_id, name in enumerate(("first.flac", "last.flac"), start=1):
+        path = tmp_path / name
+        path.write_bytes(b"decoder fixture")
+        _insert_track(
+            db_path, track_id=track_id, path=str(path),
+            fingerprint=DUPLICATE_FINGERPRINT,
+        )
+    manager = AudioDedupJobManager(LibraryDatabase(db_path), out_dir=out_dir)
+    analyzed: list[str] = []
+
+    def analyze(path: str, **_kwargs: object) -> core_module.SpectralResult:
+        analyzed.append(Path(path).name)
+        if len(analyzed) == 2:
+            job = manager.latest()
+            assert job is not None
+            manager.cancel(job.job_id)
+        return core_module.skipped_result("stubbed decode")
+
+    monkeypatch.setattr(core_module, "decoder_available", lambda: True)
+    monkeypatch.setattr(core_module, "analyze_file", analyze)
+
+    status = manager.run_sync(detect_fake_bitrate=True)
+
+    assert analyzed == ["first.flac", "last.flac"]
+    assert status.state == "cancelled"
+    assert status.cancel_requested is True
+    assert status.report_id is None
+    assert not out_dir.exists()
 
 
 def test_ambiguous_chain_group_is_flagged_for_review() -> None:

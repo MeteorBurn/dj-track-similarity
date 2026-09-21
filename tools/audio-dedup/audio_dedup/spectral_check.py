@@ -10,7 +10,6 @@ from typing import Callable, Iterable
 from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
 
 from .spectral import (
-    LOSSY_EXTENSIONS,
     SpectralResult,
     analyze_file,
     decoder_available,
@@ -18,7 +17,7 @@ from .spectral import (
 )
 
 
-LOSSLESS_EXTENSIONS = (
+AUDIO_EXTENSIONS = (
     ".flac",
     ".wav",
     ".wave",
@@ -28,8 +27,13 @@ LOSSLESS_EXTENSIONS = (
     ".alac",
     ".m4a",
     ".mp4",
+    ".mp3",
+    ".aac",
+    ".ogg",
+    ".oga",
+    ".opus",
+    ".wma",
 )
-AUDIO_EXTENSIONS = LOSSLESS_EXTENSIONS + LOSSY_EXTENSIONS
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,15 +131,15 @@ def run_checks(
         if not path.is_file():
             result = skipped_result("file not reachable")
         else:
-            sample_rate, duration_seconds, bit_rate = selected_prober(path)
+            _, duration_seconds, _ = selected_prober(path)
             result = selected_analyzer(
                 str(path),
-                sample_rate=sample_rate,
                 duration_seconds=duration_seconds,
-                declared_bitrate_bps=bit_rate,
             )
         if result.cutoff_hz is None:
             verdict = "skipped"
+        elif result.suspected_transcode is None:
+            verdict = "inconclusive"
         elif result.suspected_transcode:
             verdict = "suspected_transcode"
         else:
@@ -163,15 +167,18 @@ def run_checks(
 def write_output(rows: list[dict[str, object]], *, csv_path: Path | None) -> None:
     suspects = [row for row in rows if row["verdict"] == "suspected_transcode"]
     skipped = [row for row in rows if row["verdict"] == "skipped"]
+    inconclusive = [row for row in rows if row["verdict"] == "inconclusive"]
     print(
         f"analyzed: {len(rows) - len(skipped)}  suspected transcodes: {len(suspects)}  "
-        f"skipped: {len(skipped)}",
+        f"inconclusive: {len(inconclusive)}  skipped: {len(skipped)}",
         flush=True,
     )
     for row in suspects:
         print(f"  {row['note']} | {row['path']}", flush=True)
     for row in skipped:
         print(f"  SKIPPED ({row['note']}): {row['path']}", flush=True)
+    for row in inconclusive:
+        print(f"  INCONCLUSIVE ({row['note']}): {row['path']}", flush=True)
     if csv_path is not None:
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with csv_path.open("w", encoding="utf-8", newline="") as handle:

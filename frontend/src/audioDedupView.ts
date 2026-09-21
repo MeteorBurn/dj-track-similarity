@@ -107,6 +107,18 @@ const masterFactLabels: Record<string, string> = {
  */
 const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
   [
+    /^No spectral transcode warning$/i,
+    () => "Измеренный спектр не вызвал подозрения на транскод"
+  ],
+  [
+    /^Spectral verdict available; another copy could not be assessed$/i,
+    () => "Спектр оценён; для другой копии оценка недоступна"
+  ],
+  [
+    /^spectral comparison is incomplete: at least one copy could not be assessed$/i,
+    () => "Сравнение спектров неполное: не все копии удалось оценить"
+  ],
+  [
     // Stated on the kept copy, and only where the technical lines read alike:
     // where they differ, the reviewer already sees the difference.
     /^Best (.+?) in group: (.+)$/i,
@@ -168,6 +180,10 @@ const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> =
     // not the chain, decides whether it is the same recording.
     /^no direct fingerprint match with the keeper$/i,
     () => "Нет прямого совпадения отпечатков с сохраняемой копией"
+  ],
+  [
+    /^candidate spectrum looks transcoded \((.+)\)$/i,
+    (m) => `Спектр копии похож на транскод (${spectralNoteText(m[1])})`
   ],
   [
     /^candidate spectrum looks transcoded \((.+)\); the keeper holds the wider band$/i,
@@ -455,28 +471,13 @@ function sampleRateLabel(hertz: number | null) {
 }
 
 /**
- * The rate cell, which must not repeat a header the spectrum has contradicted.
- *
- * An upsampled copy states a rate its audio never reaches, and the plain cell
- * made it look like the better copy of the pair: the number is larger and the
- * cards lift whatever differs. Where the spectrum established a lower source
- * rate, the cell carries both, measured first.
- */
-function sampleRateCellText(file: AudioDedupFile) {
-  const declared = sampleRateLabel(file.sample_rate_hz);
-  const source = measuredSourceRateHz(file);
-  if (source === null || declared === null) return declared ?? "—";
-  return `${sampleRateLabel(source)} из заявленных ${declared}`;
-}
-
-/**
- * The measured source rate, or null when there is none to report.
+ * A historical source-rate estimate, not a measured fact about the file.
  *
  * A report written before this measurement existed carries no such key at all,
  * so the value arrives as undefined rather than null and a `!== null` test lets
  * it through. Every reader goes through this one check.
  */
-function measuredSourceRateHz(file: AudioDedupFile): number | null {
+function reportedSourceRateHz(file: AudioDedupFile): number | null {
   const source = file.effective_source_rate_hz;
   return typeof source === "number" && Number.isFinite(source) && source > 0 ? source : null;
 }
@@ -502,7 +503,7 @@ export function fileSpecCells(file: AudioDedupFile): DedupSpecCell[] {
   return [
     { key: "format", text: file.audio_format || "—" },
     { key: "bitrate", text: fileBitrateLabel(file) ?? "—" },
-    { key: "sample_rate", text: sampleRateCellText(file) },
+    { key: "sample_rate", text: sampleRateLabel(file.sample_rate_hz) ?? "—" },
     { key: "bit_depth", text: bitDepthLabel(file.bit_depth) ?? "—" },
     { key: "size", text: formatBytes(file.size) },
     { key: "duration", text: formatSeconds(file.duration) }
@@ -779,16 +780,12 @@ export function fileSpectralBadge(
     return { text: note ? spectralNoteText(note) : "спектр не проверен", tone: "muted" };
   }
   const band = `до ${formatCutoff(file.spectral_cutoff_hz)}`;
-  // Stated rate above what the audio carries is the plainest thing the spectrum
-  // can say about a copy, and it leads: the band above the source ceiling is
-  // empty, so the measured cutoff there describes the resampler, not the music.
-  const sourceRateHz = measuredSourceRateHz(file);
+  // Older saved reports carry a source-rate inference. Keep it visibly uncertain
+  // and never substitute it for the file's sample rate.
+  const sourceRateHz = reportedSourceRateHz(file);
   if (sourceRateHz !== null) {
-    const stated = Number.isFinite(file.sample_rate_hz as number)
-      ? ` · заявлено ${((file.sample_rate_hz as number) / 1000).toFixed(1)} кГц`
-      : "";
     return {
-      text: `апсемпл из ${(sourceRateHz / 1000).toFixed(1)} кГц${stated}`,
+      text: `возможный апсемпл · ${band}`,
       tone: "warn",
       kind: "upsampled"
     };
@@ -800,15 +797,21 @@ export function fileSpectralBadge(
     // tells a re-encode at a higher rate from lossy audio in a lossless container.
     const recompressed = /below declared/i.test(note);
     return {
-      text: `${recompressed ? "пережат" : "транскод"}${source ? ` из ${source}` : ""} · ${band}`,
+      text: `${recompressed ? "возможно пережат" : "похож на транскод"}${source ? ` (${source})` : ""} · ${band}`,
       tone: "warn",
       kind: recompressed ? "recompressed" : "transcoded"
     };
   }
   // A lossy copy walled where its own bitrate puts the wall is the encoder at
   // work, and its gap to a lossless copy is expected, so the match is all it says.
-  const honest = note.match(/matches declared (\d+) kbps/i);
-  if (honest) return { text: `честные ${honest[1]} kbps · ${band}`, tone: "ok" };
+  const matching = note.match(/matches declared (\d+) kbps/i);
+  if (matching) return { text: `полоса соответствует ${matching[1]} kbps · ${band}`, tone: "ok" };
+  if (/codec quality class unknown/i.test(note)) {
+    return { text: `тип сжатия не определён · ${band}`, tone: "muted" };
+  }
+  if (file.suspected_transcode === null) {
+    return { text: `оценка пережатия недоступна · ${band}`, tone: "muted" };
+  }
   if (/^brickwall /i.test(note) && file.spectral_cutoff_hz < SPECTRAL_ALLOWED_CUTOFF_HZ) {
     return { text: `похоже на MP3${source ? ` ${source}` : ""} · ${band}`, tone: "ok", kind: "wall" };
   }

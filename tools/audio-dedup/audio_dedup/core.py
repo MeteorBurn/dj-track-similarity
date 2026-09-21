@@ -168,6 +168,7 @@ def run_report(
         progress_callback=progress_callback,
         should_cancel=should_cancel,
     )
+    progress_module._raise_if_cancelled(should_cancel)
     progress_module._report_progress(progress_callback, 0, 0, "Writing reports")
     payload = report_payload_module.build_report(
         groups,
@@ -225,13 +226,11 @@ def _spectral_results_for_groups(
         elif not Path(track.path).is_file():
             results[track_id] = skipped_result("file not reachable")
         else:
-            sample_rate = track.metadata.get("sample_rate_hz")
-            bit_rate = track.metadata.get("bit_rate_bps")
             results[track_id] = analyze_file(
                 track.path,
-                sample_rate=sample_rate if isinstance(sample_rate, int) else None,
                 duration_seconds=track.duration,
-                declared_bitrate_bps=bit_rate if isinstance(bit_rate, int) else None,
+                should_cancel=should_cancel,
             )
+        progress_module._raise_if_cancelled(should_cancel)
         progress_module._report_progress(progress_callback, index, total, message)
     return results

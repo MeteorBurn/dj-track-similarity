@@ -80,7 +80,8 @@ test("the spectral chip survives a report that predates the source-rate measurem
 
   const upsampled = { ...base, effective_source_rate_hz: 44_100 };
   assert.equal(fileSpectralBadge(upsampled, null).kind, "upsampled");
-  assert.equal(rate(upsampled), "44,100 Hz из заявленных 48,000 Hz");
+  // Historical inferred rates must not overwrite the file's actual sample rate.
+  assert.equal(rate(upsampled), rate(base));
 });
 
 test("a delete batch carries the confirmation phrase the delete endpoint requires", () => {

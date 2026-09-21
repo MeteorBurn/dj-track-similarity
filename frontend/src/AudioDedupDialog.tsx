@@ -111,8 +111,10 @@ export function AudioDedupDialog({
   onDeleted: (message: string) => void;
 }) {
   const dedup = useAudioDedup({ open, databaseIdentity, job, setJob: onJobChange });
-  const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint_scan");
-  const [detectFakeBitrate, setDetectFakeBitrate] = useState(false);
+  const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>(job?.search_mode ?? "fingerprint_scan");
+  const [detectFakeBitrate, setDetectFakeBitrate] = useState(job?.detect_fake_bitrate ?? false);
+  const displayedSearchMode = jobRunning && job ? job.search_mode : searchMode;
+  const displayedDetectFakeBitrate = jobRunning && job ? job.detect_fake_bitrate : detectFakeBitrate;
   const [deletionMode, setDeletionMode] = useState<AudioDedupDeletionMode>("trash");
   const [draftFilters, setDraftFilters] = useState<AudioDedupFilters>(dedup.filters);
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
@@ -265,7 +267,7 @@ export function AudioDedupDialog({
                 <span>Режим</span>
                 <select
                   name="dedup-search-mode"
-                  value={searchMode}
+                  value={displayedSearchMode}
                   disabled={jobRunning}
                   onChange={(event) => setSearchMode(event.target.value as AudioDedupSearchMode)}
                 >
@@ -278,16 +280,16 @@ export function AudioDedupDialog({
                 </select>
               </label>
               <button
-                className={`dedup-toggle ${detectFakeBitrate ? "active" : ""}`}
+                className={`dedup-toggle ${displayedDetectFakeBitrate ? "active" : ""}`}
                 name="dedup-detect-fake-bitrate"
                 role="switch"
-                aria-checked={detectFakeBitrate}
+                aria-checked={displayedDetectFakeBitrate}
                 disabled={jobRunning}
                 onClick={() => setDetectFakeBitrate(!detectFakeBitrate)}
                 type="button"
               >
                 <span className="dedup-toggle-checkbox" aria-hidden="true">
-                  {detectFakeBitrate ? <Check size={11} strokeWidth={2.6} /> : null}
+                  {displayedDetectFakeBitrate ? <Check size={11} strokeWidth={2.6} /> : null}
                 </span>
                 <AudioLines size={15} />
                 Анализ спектрограммы
@@ -322,9 +324,9 @@ export function AudioDedupDialog({
                 tooltip: these are the two choices made before a long run. */}
             <div className="dedup-scan-notes">
               <p className="dedup-mode-description">
-                <b>{audioDedupModeLabel[searchMode]}.</b> {audioDedupModeDescription[searchMode]}
+                <b>{audioDedupModeLabel[displayedSearchMode]}.</b> {audioDedupModeDescription[displayedSearchMode]}
               </p>
-              {detectFakeBitrate ? (
+              {displayedDetectFakeBitrate ? (
                 <p className="dedup-mode-description">
                   <b>Анализ спектрограммы:</b> {audioDedupFakeBitrateDescription}
                 </p>

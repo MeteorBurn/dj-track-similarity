@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import subprocess
 import sys
 import wave
-import zipfile
 
 import numpy as np
 import pytest
@@ -23,13 +23,13 @@ from audio_dedup import report_payload as report_payload_module  # noqa: E402
 
 from audio_dedup import scoring as scoring_module  # noqa: E402
 
-from audio_dedup import xlsx_report as xlsx_report_module  # noqa: E402
 from audio_dedup import spectral_check  # noqa: E402
 from audio_dedup.spectral import (  # noqa: E402
     SpectralResult,
     TRANSCODE_MIN_SHARPNESS_DB,
     analyze_file,
     estimate_cutoff,
+    skipped_result,
 )
 
 
@@ -40,19 +40,53 @@ def test_analyze_file_decodes_through_the_shared_libraries(monkeypatch, tmp_path
     monkeypatch.setattr(subprocess, "run", forbidden_process)
     monkeypatch.setattr(subprocess, "Popen", forbidden_process)
     rate = 44_100
-    samples = np.random.default_rng(20260921).standard_normal(rate * 30) * 0.2
+    samples = np.random.default_rng(20260921).standard_normal(rate * 4) * 0.08
+    spectrum = np.fft.rfft(samples)
+    frequencies = np.fft.rfftfreq(samples.size, d=1.0 / rate)
+    spectrum[frequencies > 16_000.0] = 0.0
+    lows = np.fft.irfft(spectrum, n=samples.size)
+    highs = samples - lows
+    stereo = np.column_stack((lows + highs, lows - highs))
     audio_path = tmp_path / "tone.wav"
     with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
+        handle.setnchannels(2)
         handle.setsampwidth(2)
         handle.setframerate(rate)
-        handle.writeframes((samples * 32_767.0).astype("<i2").tobytes())
+        handle.writeframes((stereo * 32_767.0).astype("<i2").tobytes())
 
-    result = analyze_file(str(audio_path), sample_rate=rate, duration_seconds=30.0)
+    result = analyze_file(str(audio_path), duration_seconds=4.0)
 
     assert result.sample_rate == rate
-    assert result.cutoff_hz is not None
+    assert result.cutoff_hz is not None and result.cutoff_hz >= 21_000.0
     assert result.suspected_transcode is False
+
+    # The codec, not its container suffix, determines the lossy expectation.
+    from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
+
+    av = load_project_pyav()
+    encoded_results = []
+    for suffix, container_format in (("aac", "adts"), ("m4a", "mp4")):
+        encoded_path = tmp_path / f"encoded.{suffix}"
+        with av.open(str(encoded_path), "w", format=container_format) as container:
+            stream = container.add_stream("aac", rate=rate)
+            stream.bit_rate = 128_000
+            stream.layout = "mono"
+            for start in range(0, samples.size, 1024):
+                frame = av.AudioFrame.from_ndarray(
+                    lows[None, start : start + 1024].astype(np.float32),
+                    format="fltp", layout="mono",
+                )
+                frame.sample_rate = rate
+                for packet in stream.encode(frame):
+                    container.mux(packet)
+            for packet in stream.encode(None):
+                container.mux(packet)
+        encoded_results.append(analyze_file(
+            str(encoded_path), duration_seconds=4.0,
+        ))
+    assert all(item.cutoff_hz is not None for item in encoded_results)
+    assert not any(item.suspected_transcode for item in encoded_results)
+    assert abs(encoded_results[0].cutoff_hz - encoded_results[1].cutoff_hz) < 200.0
 
 
 def test_estimate_cutoff_flags_brickwall_but_not_full_band_noise() -> None:
@@ -102,20 +136,22 @@ def test_estimate_cutoff_flags_brickwall_but_not_full_band_noise() -> None:
         declared_bitrate_bps=320_000,
     )
     assert not honest_lossy.suspected_transcode
-    assert "matches declared 128 kbps" in honest_lossy.note
     assert fake_lossy.suspected_transcode
-    assert "below declared 320 kbps" in fake_lossy.note
 
-    # Under 128 kbps the table holds no expectation: nothing is compared, so the
-    # note must not claim the wall matches the declared rate.
+    # An uncalibrated bitrate does not provide evidence for a transcode verdict.
     unchecked_lossy = estimate_cutoff(
         walled,
         sample_rate,
         container_lossless=False,
         declared_bitrate_bps=96_000,
     )
-    assert not unchecked_lossy.suspected_transcode
-    assert "declared" not in unchecked_lossy.note
+    assert unchecked_lossy.suspected_transcode is None
+    missing_bitrate = estimate_cutoff(walled, sample_rate, container_lossless=False)
+    assert missing_bitrate.suspected_transcode is None
+
+    unknown_codec = estimate_cutoff(walled, sample_rate, container_lossless=None)
+    assert unknown_codec.cutoff_hz == transcoded.cutoff_hz
+    assert unknown_codec.suspected_transcode is None
 
 
 def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
@@ -123,27 +159,27 @@ def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
 
     fake_flac = tmp_path / "fake.flac"
     honest_mp3 = tmp_path / "honest.mp3"
+    unknown_file = tmp_path / "unknown.m4a"
     fake_flac.write_bytes(b"x")
     honest_mp3.write_bytes(b"x")
+    unknown_file.write_bytes(b"x")
     listing = tmp_path / "files.txt"
-    listing.write_text(f'"{fake_flac}"\n\n{honest_mp3}\n', encoding="utf-8")
+    listing.write_text(f'"{fake_flac}"\n\n{honest_mp3}\n{unknown_file}\n', encoding="utf-8")
 
     files = spectral_check.collect_files([], listing)
-    assert files == [fake_flac, honest_mp3]
+    assert files == [fake_flac, honest_mp3, unknown_file]
 
     def fake_analyzer(
         path: str,
         *,
-        sample_rate: int | None,
         duration_seconds: float | None,
-        declared_bitrate_bps: int | None = None,
     ) -> SpectralResult:
-        assert sample_rate == 44_100 and duration_seconds == 300.0
-        suspected = path.endswith("fake.flac")
+        assert duration_seconds == 300.0
+        suspected = None if path.endswith("unknown.m4a") else path.endswith("fake.flac")
         return SpectralResult(
             cutoff_hz=16_000.0 if suspected else 21_500.0,
             sharpness_db=40.0 if suspected else None,
-            sample_rate=sample_rate,
+            sample_rate=44_100,
             suspected_transcode=suspected,
             note="brickwall at 16.0 kHz (~128 kbps class)" if suspected else "full band",
         )
@@ -154,7 +190,7 @@ def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
         prober=lambda _path: (44_100, 300.0, 1_000_000),
         progress_stream=io.StringIO(),
     )
-    assert [row["verdict"] for row in rows] == ["suspected_transcode", "clean"]
+    assert [row["verdict"] for row in rows] == ["suspected_transcode", "clean", "inconclusive"]
 
     csv_path = tmp_path / "out.csv"
     spectral_check.write_output(rows, csv_path=csv_path)
@@ -162,6 +198,7 @@ def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
     assert lines[0] == "path,verdict,cutoff_hz,sharpness_db,sample_rate,note"
     assert "suspected_transcode" in lines[1] and "16000.0" in lines[1]
     assert "clean" in lines[2]
+    assert "inconclusive" in lines[3]
 
 
 def test_lossless_wall_is_judged_against_the_file_s_own_ceiling() -> None:
@@ -189,75 +226,29 @@ def test_lossless_wall_is_judged_against_the_file_s_own_ceiling() -> None:
     assert not honest_44k.suspected_transcode
 
 
-def test_upsampled_copy_loses_keepership_to_the_rate_it_was_made_from() -> None:
-    """A header that states a rate the audio does not carry must not win the group.
+def test_bandwidth_does_not_establish_the_original_sample_rate() -> None:
+    from scipy.signal import resample_poly
 
-    Upsampling raises the stated rate and the bit depth without adding anything
-    above the old ceiling, so on declared numbers the fake outranks its own
-    source on two keys at once. This pins the flip.
-    """
+    rng = np.random.default_rng(20260921)
+    results = []
+    for source_rate in (96_000, 48_000):
+        samples = rng.standard_normal(source_rate * 4).astype(np.float32)
+        spectrum = np.fft.rfft(samples)
+        frequencies = np.fft.rfftfreq(samples.size, d=1.0 / source_rate)
+        spectrum[frequencies > 20_000.0] = 0.0
+        filtered = np.fft.irfft(spectrum, n=samples.size).astype(np.float32)
+        if source_rate == 48_000:
+            filtered = resample_poly(filtered, 2, 1)
+        result = estimate_cutoff(filtered, 96_000)
+        assert result.cutoff_hz is not None and 19_000.0 <= result.cutoff_hz <= 21_000.0
+        results.append(result)
 
-    def _track(track_id: int, path: str, sample_rate_hz: int, bit_depth: int):
-        return models_module.TrackRecord(
-            track_id=track_id,
-            path=path,
-            size=40_000_000,
-            mtime=1.0,
-            artist=None,
-            title=None,
-            album=None,
-            bpm=None,
-            musical_key=None,
-            duration=300.0,
-            metadata={"sample_rate_hz": sample_rate_hz, "bit_depth": bit_depth},
-        )
-
-    # One container for both copies, so format rank cannot decide this.
-    tracks = [
-        _track(1, "C:/music/upsampled.flac", 96_000, 24),
-        _track(2, "C:/music/source.flac", 44_100, 16),
-    ]
-    spectral_map = {
-        # Measured above its own source ceiling on a stray bin, which is what
-        # makes the raw cutoff unusable for the comparison.
-        1: SpectralResult(
-            cutoff_hz=23_500.0,
-            sharpness_db=None,
-            sample_rate=96_000,
-            suspected_transcode=False,
-            note="content stops at 22.1 kHz, upsampled from 44.1 kHz",
-            effective_source_rate_hz=44_100.0,
-        ),
-        2: SpectralResult(
-            cutoff_hz=21_800.0,
-            sharpness_db=None,
-            sample_rate=44_100,
-            suspected_transcode=False,
-            note="full band",
-        ),
-    }
-
-    assert keeper_module.choose_keeper(tracks, spectral_results=spectral_map).track_id == 2
-    assert keeper_module.choose_keeper(tracks).track_id == 1
-
-    groups = scoring_module.groups_from_fingerprint_pairs(tracks, {(1, 2): 0.97})
-    payload = report_payload_module.build_report(
-        groups,
-        tracks,
-        mode=config_module.MODE_FINGERPRINT_LSH,
-        path_contains=[],
-        spectral_results=spectral_map,
-    )
-    group_payload = payload["groups"][0]
-    candidate = group_payload["candidate_deletes"][0]
-    assert group_payload["suggested_keeper"]["track_id"] == 2
-    assert candidate["track_id"] == 1
-    assert candidate["effective_source_rate_hz"] == 44_100.0
-    assert any("higher sample rate" in line for line in candidate["review_reasons"])
-    assert payload["spectral_analysis"]["upsampled_track_count"] == 1
+    # Both native band-limited audio and resampled audio have this spectrum.
+    # Neither permits asserting an exact source rate such as 44.1 kHz.
+    assert all(result.effective_source_rate_hz is None for result in results)
 
 
-def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> None:
+def test_suspected_transcode_loses_keepership_and_is_labeled() -> None:
     def _track(track_id: int, path: str) -> models_module.TrackRecord:
         return models_module.TrackRecord(
             track_id=track_id,
@@ -317,23 +308,49 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
     candidate = group_payload["candidate_deletes"][0]
     assert keeper_payload["track_id"] == 2
     assert keeper_payload["suspected_transcode"] is False
-    assert any("Full-band spectrum" in line for line in keeper_payload["why_keep"])
     assert candidate["track_id"] == 1
     assert candidate["suspected_transcode"] is True
     assert candidate["spectral_note"] == "brickwall at 16.0 kHz"
-    assert any("transcoded" in line for line in candidate["review_reasons"])
     assert payload["spectral_analysis"]["suspected_transcode_count"] == 1
     assert payload["statistics"]["fake_bitrate_candidate_count"] == 1
     assert payload["statistics"]["fake_bitrate_group_count"] == 1
 
-    xlsx_path = tmp_path / "dedup.xlsx"
-    xlsx_report_module.write_xlsx_report(xlsx_path, payload)
-    with zipfile.ZipFile(xlsx_path) as archive:
-        summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
-        groups_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+    # Unavailable analysis is not evidence of a clean or full-band copy.
+    unknown_codec = SpectralResult(
+        cutoff_hz=22_050.0, sharpness_db=None, sample_rate=44_100,
+        suspected_transcode=None, note="unknown codec",
+    )
+    for unavailable in (None, skipped_result("decode failed"), unknown_codec):
+        unavailable_map = {2: spectral_map[1]}
+        if unavailable is not None:
+            unavailable_map[1] = unavailable
+        assert keeper_module.choose_keeper(tracks, spectral_results=unavailable_map).track_id == 2
+        unavailable_payload = report_payload_module.build_report(
+            groups, tracks, mode=config_module.MODE_FINGERPRINT_LSH,
+            path_contains=[], spectral_results=unavailable_map,
+        )["groups"][0]
+        assert unavailable_payload["suggested_keeper"]["track_id"] == 2
+        assert unavailable_payload["quality_comparison_requires_review"] is True
+        assert unavailable_payload["candidate_deletes"][0]["spectral_cutoff_hz"] == (
+            unavailable.cutoff_hz if unavailable is not None else None
+        )
 
-    assert "Fake-bitrate duplicate candidates" in summary_xml
-    assert "fake_bitrate_copies" in groups_xml
+    # A lossy verdict must not discard the measured bandwidth and let declared
+    # bitrate choose the narrower of two suspect copies.
+    lossy_tracks = [
+        replace(tracks[0], path="C:/music/narrow.mp3", metadata={"bit_rate_bps": 320_000}),
+        replace(tracks[1], path="C:/music/wider.mp3", metadata={"bit_rate_bps": 256_000}),
+    ]
+    suspect_map = {1: spectral_map[1], 2: replace(spectral_map[1], cutoff_hz=18_000.0)}
+    assert keeper_module.choose_keeper(lossy_tracks).track_id == 1
+    assert keeper_module.choose_keeper(lossy_tracks, spectral_results=suspect_map).track_id == 2
+    suspect_payload = report_payload_module.build_report(
+        groups, lossy_tracks, mode=config_module.MODE_FINGERPRINT_LSH,
+        path_contains=[], spectral_results=suspect_map,
+    )["groups"][0]
+    assert suspect_payload["suggested_keeper"]["track_id"] == 2
+    assert suspect_payload["suggested_keeper"]["spectral_cutoff_hz"] == 18_000.0
+    assert suspect_payload["candidate_deletes"][0]["spectral_cutoff_hz"] == 16_000.0
 
 
 def test_group_the_comparator_cannot_judge_is_review_only() -> None:

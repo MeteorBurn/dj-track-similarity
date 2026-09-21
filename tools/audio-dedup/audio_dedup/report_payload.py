@@ -42,10 +42,16 @@ def build_report(
         if ambiguous:
             group_reasons.append("ambiguous chain: not every copy matched the keeper's fingerprint directly")
         keeper_spectral = selected_spectral.get(keeper.track_id)
-        if keeper_spectral is not None and keeper_spectral.suspected_transcode:
-            group_reasons.append("every remaining copy is a suspected transcode; verify spectra by ear")
         master_reasons = keeper_module.master_difference_reasons(group_tracks)
         comparison_review_reasons = keeper_module.keeper_review_reasons(group_tracks)
+        group_spectral = [selected_spectral.get(track.track_id) for track in group_tracks]
+        if selected_spectral and any(
+            result is None or result.cutoff_hz is None or result.suspected_transcode is None
+            for result in group_spectral
+        ):
+            comparison_review_reasons.append("spectral comparison is incomplete: at least one copy could not be assessed")
+        if all(result is not None and result.suspected_transcode for result in group_spectral):
+            comparison_review_reasons.append("every remaining copy is a suspected transcode; verify spectra by ear")
         group_reasons.extend(comparison_review_reasons)
         candidates = []
         for track in group_tracks:
@@ -58,7 +64,7 @@ def build_report(
             candidate_spectral = selected_spectral.get(track.track_id)
             if candidate_spectral is not None and candidate_spectral.suspected_transcode:
                 candidate_reasons.append(
-                    f"candidate spectrum looks transcoded ({candidate_spectral.note}); the keeper holds the wider band"
+                    f"candidate spectrum looks transcoded ({candidate_spectral.note})"
                 )
             if candidate_spectral is not None and candidate_spectral.effective_source_rate_hz is not None:
                 candidate_reasons.append(

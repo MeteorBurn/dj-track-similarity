@@ -668,7 +668,7 @@ export type AudioDedupFile = {
   spectral_cutoff_hz: number | null;
   spectral_sharpness_db: number | null;
   effective_source_rate_hz: number | null;
-  suspected_transcode: boolean;
+  suspected_transcode: boolean | null;
   spectral_note: string | null;
   fingerprint_vs_keeper: number | null;
   // Non-empty only on the keeper, which carries its own why_keep lines.

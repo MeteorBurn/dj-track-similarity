@@ -11,7 +11,6 @@ from .spectral import (
 
 from . import config as config_module
 from . import models as models_module
-from . import values as values_module
 
 # Deterministic library-format preference, not an audio-quality rank.
 # Equal lossless PCM samples are equal audio; this key runs only after stronger
@@ -119,7 +118,7 @@ def keeper_keys(
     a container cannot prove where the codec is ambiguous. A key that sits out
     returns one constant for every copy, so it can neither rank nor explain.
     """
-    verdicts = dict(spectral_results or {})
+    verdicts = spectral_results or {}
     same_master = is_same_master(tracks)
     mixed_dsd_family = _has_mixed_dsd_family(tracks)
     ambiguous_codec = any(has_ambiguous_codec_container(track) for track in tracks)
@@ -127,7 +126,9 @@ def keeper_keys(
 
     def full_band(track: models_module.TrackRecord) -> int:
         result = verdicts.get(track.track_id)
-        return 0 if result is not None and result.suspected_transcode else 1
+        if result is None or result.cutoff_hz is None or result.suspected_transcode is None:
+            return -1
+        return 0 if result.suspected_transcode else 1
 
     def measured_bandwidth(track: models_module.TrackRecord) -> int:
         """Measured spectral cutoff in whole steps — the one figure tags cannot fake.
@@ -147,13 +148,7 @@ def keeper_keys(
         calibrated transcode flag is not allowed to judge.
         """
         result = verdicts.get(track.track_id)
-        if result is None or result.suspected_transcode or result.cutoff_hz is None:
-            return 0
-        if result.effective_source_rate_hz is not None:
-            # An upsampled copy measures up to the resampler's ceiling rather
-            # than to anything it carries, which would let it out-measure the
-            # very file it was made from. The reading is contaminated, so this
-            # key sits out for it exactly as it does for a transcode.
+        if result is None or result.cutoff_hz is None:
             return 0
         return int(result.cutoff_hz // MEASURED_BANDWIDTH_STEP_HZ)
 
@@ -179,18 +174,8 @@ def keeper_keys(
         return 0 if mixed_dsd_family else declared_bit_depth(track)
 
     def sample_rate(track: models_module.TrackRecord) -> int:
-        """The rate the audio occupies, not the one its header states.
-
-        Upsampling raises the stated rate without adding anything above the old
-        ceiling, so on declared numbers a fake outranks the very copy it was made
-        from. Where the spectrum established a lower source rate, this key ranks
-        on that instead, and falls back to the header only when nothing measured.
-        """
         if mixed_dsd_family:
             return 0
-        result = verdicts.get(track.track_id)
-        if result is not None and result.effective_source_rate_hz is not None:
-            return int(result.effective_source_rate_hz)
         return declared_sample_rate_hz(track)
 
     def dynamic_range(track: models_module.TrackRecord) -> int:
@@ -231,7 +216,11 @@ def keeper_keys(
         KeeperKey(
             "spectrum",
             full_band,
-            lambda keeper: "Full-band spectrum in group.",
+            lambda keeper: (
+                "No spectral transcode warning."
+                if verdicts[keeper.track_id].suspected_transcode is False
+                else "Spectral verdict available; another copy could not be assessed."
+            ),
         ),
         KeeperKey(
             "measured bandwidth",

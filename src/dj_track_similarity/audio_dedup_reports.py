@@ -71,7 +71,7 @@ class AudioDedupFile:
     spectral_cutoff_hz: float | None
     spectral_sharpness_db: float | None
     effective_source_rate_hz: float | None
-    suspected_transcode: bool
+    suspected_transcode: bool | None
     spectral_note: str | None
     fingerprint_vs_keeper: float | None
     reasons: list[str] = field(default_factory=list)
@@ -505,7 +505,9 @@ def _file(
         spectral_cutoff_hz=_float_or_none(entry.get("spectral_cutoff_hz")),
         spectral_sharpness_db=_float_or_none(entry.get("spectral_sharpness_db")),
         effective_source_rate_hz=_float_or_none(entry.get("effective_source_rate_hz")),
-        suspected_transcode=bool(entry.get("suspected_transcode", False)),
+        suspected_transcode=(
+            bool(entry["suspected_transcode"]) if entry.get("suspected_transcode") is not None else None
+        ),
         spectral_note=_text_or_none(entry.get("spectral_note")),
         fingerprint_vs_keeper=_float_or_none(source.get("fingerprint_vs_keeper")),
         reasons=reasons,

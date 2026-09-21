@@ -8,6 +8,7 @@ import numpy as np
 
 from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
 
+from .progress import _raise_if_cancelled
 
 SPECTRAL_SEGMENT_SECONDS = 24.0
 SPECTRAL_WINDOW_POSITIONS = (0.15, 0.5, 0.8)
@@ -42,7 +43,6 @@ TRANSCODE_MAX_SCALED_NYQUIST_HZ = 24_000.0
 TRANSCODE_MIN_SHARPNESS_DB = 14.0
 FULL_BAND_MIN_CUTOFF_HZ = 21_000.0
 DECODE_TIMEOUT_SECONDS = 120
-LOSSY_EXTENSIONS = (".mp3", ".aac", ".ogg", ".oga", ".opus", ".wma")
 # Boundaries sit in the gaps between the classes measured in the Fakin' The Funk
 # reference, which pairs a cutoff with the real bitrate it came from: 128 kbps
 # spans 16000-16891 Hz, 160 spans 16938-17717, 192 spans 18019-18709, and
@@ -64,19 +64,6 @@ DECLARED_BITRATE_MIN_CUTOFF_HZ = (
     (128_000, 15_200.0),
 )
 
-# An upsampled file keeps the ceiling of the rate it came from: content stops at
-# that rate's Nyquist and the band above is empty rather than rolled off, because
-# nothing ever populated it. Measured 2026-09-21 over every hi-res file in the
-# library (146 above 48 kHz): genuine masters carry -12 to -58 dB above 22.05 kHz
-# relative to the band below it, upsampled ones -63 to -105 dB. The gate sits in
-# that gap. 16 of the 146 measured as upsampled, 10 of the 26 declaring 192 kHz.
-UPSAMPLE_VOID_DB = 60.0
-UPSAMPLE_SOURCE_RATES_HZ = (44_100, 48_000, 88_200, 96_000)
-UPSAMPLE_REFERENCE_BAND_BELOW_HZ = (12_000.0, 2_000.0)
-UPSAMPLE_VOID_GAP_HZ = 250.0
-UPSAMPLE_MIN_VOID_WIDTH_HZ = 1_000.0
-
-
 @dataclass(frozen=True)
 class SpectralResult:
     """Spectral evidence for one duplicate-group file; a heuristic, never a deletion verdict."""
@@ -84,11 +71,19 @@ class SpectralResult:
     cutoff_hz: float | None
     sharpness_db: float | None
     sample_rate: int | None
-    suspected_transcode: bool
+    suspected_transcode: bool | None
     note: str
-    # None when nothing lower was established: either the file fills its own
-    # band or the check did not run.
+    # Retained for saved-report compatibility. Bandwidth cannot establish the
+    # source sample rate, so new measurements leave this unset.
     effective_source_rate_hz: float | None = None
+
+
+@dataclass(frozen=True)
+class _DecodedWindow:
+    samples: np.ndarray  # channels, samples; never summed across channels
+    sample_rate: int
+    container_lossless: bool | None
+    bit_rate: int | None
 
 
 def skipped_result(note: str) -> SpectralResult:
@@ -113,15 +108,10 @@ def decoder_available() -> bool:
 def analyze_file(
     path: str,
     *,
-    sample_rate: int | None,
     duration_seconds: float | None,
-    declared_bitrate_bps: int | None = None,
-    decoder: Callable[[str, float], bytes] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> SpectralResult:
-    """Estimate the effective frequency cutoff of one audio file from a mid-track segment."""
-    if sample_rate is None or sample_rate <= 0:
-        return skipped_result("unknown sample rate")
-    selected_decoder = decoder or _pyav_decode
+    """Measure duplicate-copy bandwidth using decoded stream facts and channel power."""
     if duration_seconds is not None and duration_seconds > SPECTRAL_SEGMENT_SECONDS:
         starts = sorted(
             {
@@ -134,12 +124,14 @@ def analyze_file(
     window_results: list[SpectralResult] = []
     skip_note = "decode failed"
     for start_seconds in starts:
+        _raise_if_cancelled(should_cancel)
         try:
-            payload = selected_decoder(path, start_seconds)
+            decoded = _pyav_decode(path, start_seconds, should_cancel=should_cancel)
         except (OSError, ValueError):
             continue
-        samples = np.frombuffer(payload, dtype="<f4")
-        if samples.size < SPECTRAL_WINDOW_SAMPLES * 4:
+        _raise_if_cancelled(should_cancel)
+        samples = decoded.samples
+        if samples.shape[-1] < SPECTRAL_WINDOW_SAMPLES * 4:
             skip_note = "decoded segment too short"
             continue
         if not np.all(np.isfinite(samples)) or float(np.max(np.abs(samples))) <= 0.0:
@@ -148,15 +140,16 @@ def analyze_file(
         window_results.append(
             estimate_cutoff(
                 samples,
-                int(sample_rate),
-                container_lossless=not path.casefold().endswith(LOSSY_EXTENSIONS),
-                declared_bitrate_bps=declared_bitrate_bps,
+                decoded.sample_rate,
+                container_lossless=decoded.container_lossless,
+                declared_bitrate_bps=decoded.bit_rate,
             )
         )
+    _raise_if_cancelled(should_cancel)
     if not window_results:
         return skipped_result(skip_note)
-    # The widest window decides: one full-band window proves the file was never
-    # band-limited, while a true transcode stays walled in every window.
+    # Use the widest observed window; this is bandwidth evidence, not proof of
+    # the file's encoding or mastering history.
     return max(window_results, key=lambda result: result.cutoff_hz or 0.0)
 
 
@@ -164,7 +157,7 @@ def estimate_cutoff(
     samples: np.ndarray,
     sample_rate: int,
     *,
-    container_lossless: bool = True,
+    container_lossless: bool | None = True,
     declared_bitrate_bps: int | None = None,
 ) -> SpectralResult:
     """Locate the highest sustained frequency and how brickwalled the drop above it is.
@@ -174,6 +167,10 @@ def estimate_cutoff(
     faint transient bleed above an encoder's lowpass stays under it. The floor
     sits SPECTRAL_ENERGY_FLOOR_DB below the 1-8 kHz reference median.
     """
+    if sample_rate <= 0:
+        return skipped_result("unknown sample rate")
+    if samples.ndim not in (1, 2) or samples.shape[-1] < SPECTRAL_WINDOW_SAMPLES * 4:
+        return skipped_result("decoded segment too short")
     frames_db, frequencies = _frame_spectra_db(
         samples.astype(np.float32, copy=False),
         sample_rate,
@@ -220,7 +217,6 @@ def estimate_cutoff(
         and sharpness_db is not None
         and sharpness_db >= TRANSCODE_MIN_SHARPNESS_DB
     )
-    source_rate_hz = _effective_source_rate_hz(smoothed, frequencies, sample_rate)
     full_band_floor = min(FULL_BAND_MIN_CUTOFF_HZ, nyquist - SPECTRAL_SHARPNESS_GAP_HZ)
     if brickwall and cutoff_hz < full_band_floor:
         note = f"brickwall at {cutoff_hz / 1000.0:.1f} kHz ({_bitrate_class(cutoff_hz)})"
@@ -229,74 +225,31 @@ def estimate_cutoff(
     else:
         note = f"rolls off near {cutoff_hz / 1000.0:.1f} kHz"
 
-    if source_rate_hz is not None:
-        source_ceiling_hz = source_rate_hz / 2.0
-        if cutoff_hz >= source_ceiling_hz:
-            note = f"content stops at {source_ceiling_hz / 1000.0:.1f} kHz"
-        note = f"{note}, upsampled from {source_rate_hz / 1000.0:.1f} kHz"
-
-    if container_lossless:
+    if container_lossless is True:
         scaled_nyquist = min(nyquist, TRANSCODE_MAX_SCALED_NYQUIST_HZ)
         max_cutoff_hz = TRANSCODE_MAX_CUTOFF_HZ * (
             scaled_nyquist / TRANSCODE_CALIBRATION_NYQUIST_HZ
         )
         suspected = brickwall and cutoff_hz < max_cutoff_hz
-    else:
+    elif container_lossless is False:
         expected_cutoff = _declared_min_cutoff(declared_bitrate_bps)
-        suspected = (
-            brickwall
-            and expected_cutoff is not None
-            and cutoff_hz < expected_cutoff
-        )
+        suspected = None if expected_cutoff is None else brickwall and cutoff_hz < expected_cutoff
         # Below the table nothing was compared, so the note claims no relation.
         if expected_cutoff is not None and brickwall:
             relation = "below" if suspected else "matches"
             note = f"{note}, {relation} declared {declared_bitrate_bps // 1000} kbps"
+        elif expected_cutoff is None:
+            note = f"{note}, declared bitrate unavailable or outside comparison range"
+    else:
+        suspected = None
+        note = f"{note}, codec quality class unknown"
     return SpectralResult(
         cutoff_hz=round(cutoff_hz, 1),
         sharpness_db=None if sharpness_db is None else round(sharpness_db, 1),
         sample_rate=int(sample_rate),
-        effective_source_rate_hz=source_rate_hz,
-        suspected_transcode=bool(suspected),
+        suspected_transcode=bool(suspected) if suspected is not None else None,
         note=note,
     )
-
-
-def _effective_source_rate_hz(
-    spectrum_db: np.ndarray,
-    frequencies: np.ndarray,
-    sample_rate: int,
-) -> float | None:
-    """The lower rate this content actually came from, or None when it fills its own band.
-
-    Upsampling cannot invent content above the source Nyquist, so it leaves a
-    void there rather than the gradual roll-off a real recording has. Candidates
-    are tried from the lowest rate upwards, so the narrowest genuine ceiling wins
-    and a master that merely runs out of energy higher up keeps its own rate.
-
-    This is evidence for ranking copies, never authority to delete one.
-    """
-    nyquist = sample_rate / 2.0
-    below_hz, above_hz = UPSAMPLE_REFERENCE_BAND_BELOW_HZ
-    for source_rate_hz in UPSAMPLE_SOURCE_RATES_HZ:
-        if source_rate_hz >= sample_rate:
-            break
-        source_nyquist = source_rate_hz / 2.0
-        void_start_hz = source_nyquist + UPSAMPLE_VOID_GAP_HZ
-        if nyquist - void_start_hz < UPSAMPLE_MIN_VOID_WIDTH_HZ:
-            continue
-        reference_mask = (frequencies >= source_nyquist - below_hz) & (
-            frequencies <= source_nyquist - above_hz
-        )
-        void_mask = frequencies >= void_start_hz
-        if not np.any(reference_mask) or not np.any(void_mask):
-            continue
-        drop_db = float(
-            np.mean(spectrum_db[void_mask]) - np.mean(spectrum_db[reference_mask])
-        )
-        if drop_db < -UPSAMPLE_VOID_DB:
-            return float(source_rate_hz)
-    return None
 
 
 def _bitrate_class(cutoff_hz: float) -> str:
@@ -335,24 +288,26 @@ def _frame_spectra_db(
     samples: np.ndarray,
     sample_rate: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    window_count = samples.size // SPECTRAL_WINDOW_SAMPLES
-    trimmed = samples[: window_count * SPECTRAL_WINDOW_SAMPLES]
-    windows = trimmed.reshape(window_count, SPECTRAL_WINDOW_SAMPLES)
+    channels = np.atleast_2d(samples)
+    window_count = channels.shape[-1] // SPECTRAL_WINDOW_SAMPLES
+    trimmed = channels[:, : window_count * SPECTRAL_WINDOW_SAMPLES]
+    windows = trimmed.reshape(channels.shape[0], window_count, SPECTRAL_WINDOW_SAMPLES)
     hann = np.hanning(SPECTRAL_WINDOW_SAMPLES).astype(np.float32)
-    spectra = np.abs(np.fft.rfft(windows * hann, axis=1))
-    power = np.square(spectra, dtype=np.float64)
+    spectra = np.abs(np.fft.rfft(windows * hann, axis=-1))
+    power = np.square(spectra, dtype=np.float64).mean(axis=0)
     frames_db = 10.0 * np.log10(np.maximum(power, 1e-20))
     frequencies = np.fft.rfftfreq(SPECTRAL_WINDOW_SAMPLES, d=1.0 / sample_rate)
     return frames_db, frequencies
 
 
-def _pyav_decode(path: str, start_seconds: float) -> bytes:
-    """Decode one mono float32 segment at the file's own sample rate, in process.
+def _pyav_decode(
+    path: str, start_seconds: float, *, should_cancel: Callable[[], bool] | None = None,
+) -> _DecodedWindow:
+    """Decode one planar float32 segment without mixing channels or changing rate.
 
     The segment has to line up with the window the caller asked for, so the
-    decoder starts before it and the run-up is dropped here. The mix down to mono
-    stays FFmpeg's own rematrix, and nothing is resampled: the frequency axis of
-    the caller's FFT is the source rate.
+    decoder starts before it and the run-up is dropped here. The FFT uses the
+    decoded rate, independently of potentially stale catalog metadata.
     """
 
     try:
@@ -361,7 +316,7 @@ def _pyav_decode(path: str, start_seconds: float) -> bytes:
         # One unusable window skips a window; it must not abort the run.
         raise ValueError(f"FFmpeg runtime unavailable: {error}") from error
     deadline = time.monotonic() + DECODE_TIMEOUT_SECONDS
-    chunks: list[np.ndarray] = []
+    chunks: list[list[np.ndarray]] = []
     collected = 0
     wanted = 0
     skip: int | None = None
@@ -371,7 +326,13 @@ def _pyav_decode(path: str, start_seconds: float) -> bytes:
             if not streams:
                 raise ValueError(f"no audio stream: {path}")
             stream = streams[0]
-            resampler = av.AudioResampler(format="flt", layout="mono", rate=None)
+            codec = stream.codec_context.codec
+            codec_lossless = (
+                bool(codec.lossless) if codec.lossless != codec.lossy else None
+            )
+            bit_rate = stream.bit_rate if stream.bit_rate and stream.bit_rate > 0 else None
+            rate = stream.codec_context.sample_rate
+            resampler = av.AudioResampler(format="fltp")
             origin = (
                 float(stream.start_time * stream.time_base)
                 if stream.start_time is not None
@@ -386,6 +347,7 @@ def _pyav_decode(path: str, start_seconds: float) -> bytes:
             # on different samples than one decoded from the first packet.
             container.seek(int(start / stream.time_base), stream=stream, backward=True)
             for frame in container.decode(stream):
+                _raise_if_cancelled(should_cancel)
                 if time.monotonic() > deadline:
                     raise ValueError(
                         f"decode timed out after {DECODE_TIMEOUT_SECONDS} seconds: {path}"
@@ -402,18 +364,25 @@ def _pyav_decode(path: str, start_seconds: float) -> bytes:
                     skip = max(0, target - frame_index)
                     wanted = int(SPECTRAL_SEGMENT_SECONDS * rate + 0.5)
                 for resampled in resampler.resample(frame):
-                    samples = np.asarray(resampled.to_ndarray(), dtype=np.float32).reshape(-1)
-                    if skip:
-                        dropped = min(skip, samples.size)
-                        samples = samples[dropped:]
-                        skip -= dropped
-                    if samples.size:
-                        chunks.append(samples.copy())
-                        collected += samples.size
+                    dropped = min(skip or 0, resampled.samples)
+                    skip -= dropped
+                    take = min(resampled.samples - dropped, wanted - collected)
+                    if take:
+                        if not chunks:
+                            chunks = [[] for _ in resampled.planes]
+                        for channel, plane in enumerate(resampled.planes):
+                            # The views retain their AV buffers until the final
+                            # contiguous array is filled, without per-frame copies.
+                            samples = np.frombuffer(
+                                plane, dtype=np.float32, count=resampled.samples,
+                            )
+                            chunks[channel].append(samples[dropped : dropped + take])
+                        collected += take
                 if collected >= wanted:
                     break
     except av.FFmpegError as error:
         raise ValueError(f"segment decode failed: {path}: {error}") from error
-    if not chunks:
-        return b""
-    return np.concatenate(chunks)[:wanted].tobytes()
+    samples = np.empty((len(chunks) or 1, collected), dtype=np.float32)
+    for channel, parts in enumerate(chunks):
+        np.concatenate(parts, out=samples[channel])
+    return _DecodedWindow(samples, rate, codec_lossless, bit_rate)

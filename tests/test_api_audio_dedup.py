@@ -165,6 +165,13 @@ def _fixture(tmp_path: Path):
 
 def test_audio_dedup_report_groups_expose_evidence_and_live_staleness(tmp_path, monkeypatch) -> None:
     db_path, out_dir, _, keeper, duplicate, _, duplicate_path, report_id = _fixture(tmp_path)
+    report_path = out_dir / report_id / f"{report_id}.json"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    for entry in payload["groups"][0]["tracks"]:
+        if entry["track_id"] == duplicate.track_id:
+            entry["suspected_transcode"] = None
+            entry["spectral_note"] = "full band, codec quality class unknown"
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
     client = _client(monkeypatch, db_path, out_dir)
 
     listing = client.get("/api/audio-dedup/reports")
@@ -184,6 +191,8 @@ def test_audio_dedup_report_groups_expose_evidence_and_live_staleness(tmp_path, 
     assert files[keeper.track_id]["role"] == "keeper"
     assert files[duplicate.track_id]["role"] == "duplicate"
     assert files[duplicate.track_id]["fingerprint_vs_keeper"] == 1.0
+    assert files[duplicate.track_id]["spectral_cutoff_hz"] == 22050.0
+    assert files[duplicate.track_id]["suspected_transcode"] is None
     assert files[duplicate.track_id]["review_reasons"] == [
         "codec is not stored for ambiguous container(s)"
     ]

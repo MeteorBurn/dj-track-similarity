@@ -60,6 +60,11 @@ def build_report(
                 candidate_reasons.append(
                     f"candidate spectrum looks transcoded ({candidate_spectral.note}); the keeper holds the wider band"
                 )
+            if candidate_spectral is not None and candidate_spectral.effective_source_rate_hz is not None:
+                candidate_reasons.append(
+                    "candidate states a higher sample rate than its audio carries "
+                    f"({candidate_spectral.note})"
+                )
             candidates.append(
                 {
                     "role": "DUPLICATE",
@@ -77,6 +82,9 @@ def build_report(
                     "size_per_second": values_module._round_float(keeper_module.size_per_second(track)),
                     "metadata_completeness": keeper_module.metadata_completeness(track),
                     "spectral_cutoff_hz": candidate_spectral.cutoff_hz if candidate_spectral else None,
+                    "effective_source_rate_hz": (
+                        candidate_spectral.effective_source_rate_hz if candidate_spectral else None
+                    ),
                     "suspected_transcode": candidate_spectral.suspected_transcode if candidate_spectral else None,
                     "spectral_note": candidate_spectral.note if candidate_spectral else None,
                 }
@@ -142,6 +150,11 @@ def build_report(
             "suspected_transcode_count": sum(
                 1 for result in selected_spectral.values() if result.suspected_transcode
             ),
+            "upsampled_track_count": sum(
+                1
+                for result in selected_spectral.values()
+                if result.effective_source_rate_hz is not None
+            ),
         },
         "database_track_count": database_track_count if database_track_count is not None else len(tracks),
         "scoped_track_count": len(tracks),
@@ -199,6 +212,7 @@ def track_payload(
         "channel_count": keeper_module._optional_metadata_int(track, "channel_count"),
         "spectral_cutoff_hz": spectral.cutoff_hz if spectral else None,
         "spectral_sharpness_db": spectral.sharpness_db if spectral else None,
+        "effective_source_rate_hz": spectral.effective_source_rate_hz if spectral else None,
         "suspected_transcode": spectral.suspected_transcode if spectral else None,
         "spectral_note": spectral.note if spectral else None,
     }

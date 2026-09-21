@@ -229,13 +229,18 @@ def sonara_duplicate_clusters(
     `durations` carries SONARA's own `duration_sec`, the length the fingerprint
     was computed over, because that is the value the upstream recipe buckets on.
 
-    A track is offered to the representatives of its own bucket and of the two
+    A track is offered to the representatives of its own bucket and of the one
     below it: rounding to whole seconds splits copies that differ by hundredths,
-    and copies of one recording often differ by a second or two outright.
+    and copies of one recording often differ by a second outright.
+
+    Each further bucket of slack costs a whole pass over every representative.
+    Measured 2026-09-21 over the library's 45 624 analysed tracks: no slack is
+    3 966 498 comparisons, one bucket is 10 818 424 and two are 17 803 643, which
+    at 423 us a comparison is 28 minutes against 1.3 hours against 2.1 hours.
     Measured against an LSH run over the same library, strict bucketing missed
     190 pairs; one bucket of slack reaches 132 of them and two reach 159. The
-    remainder differ by seconds to a minute, where each further bucket buys a
-    handful of pairs for another pass over every representative.
+    second bucket therefore buys 27 pairs for another 49 minutes, so the slack
+    stops at one.
     """
     total_tracks = len(track_uuids)
     if not _has_fingerprint_table(connection):
@@ -339,11 +344,11 @@ def sonara_duplicate_clusters(
     )
 
 
-_BUCKET_SLACK = 2
+_BUCKET_SLACK = 1
 
 
 def _candidate_bucket_keys(bucket_key: float | None) -> tuple[float | None, ...]:
-    """The buckets a track may join: its own and the two seconds below it.
+    """The buckets a track may join: its own and the second below it.
 
     Copies of one recording differ by a couple of seconds often enough that a
     whole-second bucket cannot hold them together. Only the lower neighbours are

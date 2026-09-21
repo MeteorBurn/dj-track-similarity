@@ -26,7 +26,8 @@ const spectralHints = {
   clean: helpText.audioDedupSpectralClean,
   recompressed: helpText.audioDedupSpectralRecompressed,
   transcoded: helpText.audioDedupSpectralTranscoded,
-  wall: helpText.audioDedupSpectralWall
+  wall: helpText.audioDedupSpectralWall,
+  upsampled: helpText.audioDedupSpectralUpsampled
 };
 
 function FileCard({
@@ -107,15 +108,19 @@ function FileCard({
             </span>
           ))}
         </span>
-        <span
-          className={`dedup-spectral dedup-spectral-${spectral.tone}`}
-          title={spectral.kind ? spectralHints[spectral.kind] : undefined}
-        >
-          {spectral.tone === "warn" ? <AlertTriangle size={12} /> : null}
-          {spectral.text}
-        </span>
         {quality ? <span className="dedup-spec-muted">{quality}</span> : null}
       </div>
+
+      {/* A verdict about this copy, not a fact to compare against the other
+          one, so it stands with the card's other tinted notices instead of
+          splitting the two rows the eye reads across columns. */}
+      <span
+        className={`dedup-spectral dedup-spectral-${spectral.tone}`}
+        title={spectral.kind ? spectralHints[spectral.kind] : undefined}
+      >
+        {spectral.tone === "warn" ? <AlertTriangle size={12} /> : null}
+        {spectral.text}
+      </span>
 
       {file.stale && file.stale_reason ? (
         <p className="dedup-copy-stale-note">

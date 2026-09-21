@@ -164,6 +164,99 @@ def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
     assert "clean" in lines[2]
 
 
+def test_lossless_wall_is_judged_against_the_file_s_own_ceiling() -> None:
+    """A 48 kHz container must not be judged by a 44.1 kHz number.
+
+    Opus walls at about 20.3 kHz and decodes at 48 kHz, so against the 44.1 kHz
+    calibration it reads as honest. Against its own Nyquist it does not. The
+    44.1 kHz side of the same rule must not move.
+    """
+    rng = np.random.default_rng(20260921)
+
+    def walled(sample_rate: int, cutoff_hz: float) -> np.ndarray:
+        noise = rng.standard_normal(sample_rate * 20).astype(np.float32)
+        spectrum = np.fft.rfft(noise)
+        frequencies = np.fft.rfftfreq(noise.size, d=1.0 / sample_rate)
+        spectrum[frequencies > cutoff_hz] = 0.0
+        return np.fft.irfft(spectrum, n=noise.size).astype(np.float32)
+
+    opus_like = estimate_cutoff(walled(48_000, 20_300.0), 48_000)
+    assert opus_like.suspected_transcode
+
+    # The same wall inside a 44.1 kHz file sits above that file's own ceiling and
+    # stays unflagged, which is the calibrated behaviour this must not disturb.
+    honest_44k = estimate_cutoff(walled(44_100, 19_900.0), 44_100)
+    assert not honest_44k.suspected_transcode
+
+
+def test_upsampled_copy_loses_keepership_to_the_rate_it_was_made_from() -> None:
+    """A header that states a rate the audio does not carry must not win the group.
+
+    Upsampling raises the stated rate and the bit depth without adding anything
+    above the old ceiling, so on declared numbers the fake outranks its own
+    source on two keys at once. This pins the flip.
+    """
+
+    def _track(track_id: int, path: str, sample_rate_hz: int, bit_depth: int):
+        return models_module.TrackRecord(
+            track_id=track_id,
+            path=path,
+            size=40_000_000,
+            mtime=1.0,
+            artist=None,
+            title=None,
+            album=None,
+            bpm=None,
+            musical_key=None,
+            duration=300.0,
+            metadata={"sample_rate_hz": sample_rate_hz, "bit_depth": bit_depth},
+        )
+
+    # One container for both copies, so format rank cannot decide this.
+    tracks = [
+        _track(1, "C:/music/upsampled.flac", 96_000, 24),
+        _track(2, "C:/music/source.flac", 44_100, 16),
+    ]
+    spectral_map = {
+        # Measured above its own source ceiling on a stray bin, which is what
+        # makes the raw cutoff unusable for the comparison.
+        1: SpectralResult(
+            cutoff_hz=23_500.0,
+            sharpness_db=None,
+            sample_rate=96_000,
+            suspected_transcode=False,
+            note="content stops at 22.1 kHz, upsampled from 44.1 kHz",
+            effective_source_rate_hz=44_100.0,
+        ),
+        2: SpectralResult(
+            cutoff_hz=21_800.0,
+            sharpness_db=None,
+            sample_rate=44_100,
+            suspected_transcode=False,
+            note="full band",
+        ),
+    }
+
+    assert keeper_module.choose_keeper(tracks, spectral_results=spectral_map).track_id == 2
+    assert keeper_module.choose_keeper(tracks).track_id == 1
+
+    groups = scoring_module.groups_from_fingerprint_pairs(tracks, {(1, 2): 0.97})
+    payload = report_payload_module.build_report(
+        groups,
+        tracks,
+        mode=config_module.MODE_FINGERPRINT_LSH,
+        path_contains=[],
+        spectral_results=spectral_map,
+    )
+    group_payload = payload["groups"][0]
+    candidate = group_payload["candidate_deletes"][0]
+    assert group_payload["suggested_keeper"]["track_id"] == 2
+    assert candidate["track_id"] == 1
+    assert candidate["effective_source_rate_hz"] == 44_100.0
+    assert any("higher sample rate" in line for line in candidate["review_reasons"])
+    assert payload["spectral_analysis"]["upsampled_track_count"] == 1
+
+
 def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> None:
     def _track(track_id: int, path: str) -> models_module.TrackRecord:
         return models_module.TrackRecord(

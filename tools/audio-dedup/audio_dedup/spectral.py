@@ -23,6 +23,22 @@ SPECTRAL_SHARPNESS_SPAN_HZ = 1_500.0
 # the ~224-256 kbps class. Raising the ceiling or the sharpness gate re-misses
 # 128-192 kbps fakes; lowering them flags dark but honest masters.
 TRANSCODE_MAX_CUTOFF_HZ = 19_450.0
+# That calibration is a 44.1 kHz measurement, and a 48 kHz file judged against it
+# is judged against a ceiling that is not its own: Opus walls at ~20.3 kHz and
+# decodes at 48 kHz, so the absolute form flagged 0 of 14 Opus transcodes. The
+# share of Nyquist travels instead. Measured 2026-09-21 on 300 of the library's
+# 3 791 lossless-container files at 48 kHz: the absolute form found 5 walls, the
+# share found 20, and each of the 15 it added carried an encoder-shaped wall at
+# 20.0-20.8 kHz with 15-69 dB of sharpness. Genuine 48 kHz masters sit far above
+# it, with a 24.0 kHz median cutoff and a 21.4 kHz tenth percentile.
+#
+# The scale stops at 48 kHz because the evidence does. An encoder picks its
+# lowpass from the bitrate, as an absolute frequency, and no lossy format runs
+# above 48 kHz, so there is no such thing as a 42 kHz encoder wall to look for.
+# Scaling on to 96 kHz only moved the line past genuine hi-res: it took the flag
+# count on the library's 146 hi-res files from 4 to 26.
+TRANSCODE_CALIBRATION_NYQUIST_HZ = 22_050.0
+TRANSCODE_MAX_SCALED_NYQUIST_HZ = 24_000.0
 TRANSCODE_MIN_SHARPNESS_DB = 14.0
 FULL_BAND_MIN_CUTOFF_HZ = 21_000.0
 DECODE_TIMEOUT_SECONDS = 120
@@ -48,6 +64,18 @@ DECLARED_BITRATE_MIN_CUTOFF_HZ = (
     (128_000, 15_200.0),
 )
 
+# An upsampled file keeps the ceiling of the rate it came from: content stops at
+# that rate's Nyquist and the band above is empty rather than rolled off, because
+# nothing ever populated it. Measured 2026-09-21 over every hi-res file in the
+# library (146 above 48 kHz): genuine masters carry -12 to -58 dB above 22.05 kHz
+# relative to the band below it, upsampled ones -63 to -105 dB. The gate sits in
+# that gap. 16 of the 146 measured as upsampled, 10 of the 26 declaring 192 kHz.
+UPSAMPLE_VOID_DB = 60.0
+UPSAMPLE_SOURCE_RATES_HZ = (44_100, 48_000, 88_200, 96_000)
+UPSAMPLE_REFERENCE_BAND_BELOW_HZ = (12_000.0, 2_000.0)
+UPSAMPLE_VOID_GAP_HZ = 250.0
+UPSAMPLE_MIN_VOID_WIDTH_HZ = 1_000.0
+
 
 @dataclass(frozen=True)
 class SpectralResult:
@@ -58,6 +86,9 @@ class SpectralResult:
     sample_rate: int | None
     suspected_transcode: bool
     note: str
+    # None when nothing lower was established: either the file fills its own
+    # band or the check did not run.
+    effective_source_rate_hz: float | None = None
 
 
 def skipped_result(note: str) -> SpectralResult:
@@ -65,6 +96,7 @@ def skipped_result(note: str) -> SpectralResult:
         cutoff_hz=None,
         sharpness_db=None,
         sample_rate=None,
+        effective_source_rate_hz=None,
         suspected_transcode=False,
         note=note,
     )
@@ -188,6 +220,7 @@ def estimate_cutoff(
         and sharpness_db is not None
         and sharpness_db >= TRANSCODE_MIN_SHARPNESS_DB
     )
+    source_rate_hz = _effective_source_rate_hz(smoothed, frequencies, sample_rate)
     full_band_floor = min(FULL_BAND_MIN_CUTOFF_HZ, nyquist - SPECTRAL_SHARPNESS_GAP_HZ)
     if brickwall and cutoff_hz < full_band_floor:
         note = f"brickwall at {cutoff_hz / 1000.0:.1f} kHz ({_bitrate_class(cutoff_hz)})"
@@ -196,8 +229,18 @@ def estimate_cutoff(
     else:
         note = f"rolls off near {cutoff_hz / 1000.0:.1f} kHz"
 
+    if source_rate_hz is not None:
+        source_ceiling_hz = source_rate_hz / 2.0
+        if cutoff_hz >= source_ceiling_hz:
+            note = f"content stops at {source_ceiling_hz / 1000.0:.1f} kHz"
+        note = f"{note}, upsampled from {source_rate_hz / 1000.0:.1f} kHz"
+
     if container_lossless:
-        suspected = brickwall and cutoff_hz < TRANSCODE_MAX_CUTOFF_HZ
+        scaled_nyquist = min(nyquist, TRANSCODE_MAX_SCALED_NYQUIST_HZ)
+        max_cutoff_hz = TRANSCODE_MAX_CUTOFF_HZ * (
+            scaled_nyquist / TRANSCODE_CALIBRATION_NYQUIST_HZ
+        )
+        suspected = brickwall and cutoff_hz < max_cutoff_hz
     else:
         expected_cutoff = _declared_min_cutoff(declared_bitrate_bps)
         suspected = (
@@ -213,9 +256,47 @@ def estimate_cutoff(
         cutoff_hz=round(cutoff_hz, 1),
         sharpness_db=None if sharpness_db is None else round(sharpness_db, 1),
         sample_rate=int(sample_rate),
+        effective_source_rate_hz=source_rate_hz,
         suspected_transcode=bool(suspected),
         note=note,
     )
+
+
+def _effective_source_rate_hz(
+    spectrum_db: np.ndarray,
+    frequencies: np.ndarray,
+    sample_rate: int,
+) -> float | None:
+    """The lower rate this content actually came from, or None when it fills its own band.
+
+    Upsampling cannot invent content above the source Nyquist, so it leaves a
+    void there rather than the gradual roll-off a real recording has. Candidates
+    are tried from the lowest rate upwards, so the narrowest genuine ceiling wins
+    and a master that merely runs out of energy higher up keeps its own rate.
+
+    This is evidence for ranking copies, never authority to delete one.
+    """
+    nyquist = sample_rate / 2.0
+    below_hz, above_hz = UPSAMPLE_REFERENCE_BAND_BELOW_HZ
+    for source_rate_hz in UPSAMPLE_SOURCE_RATES_HZ:
+        if source_rate_hz >= sample_rate:
+            break
+        source_nyquist = source_rate_hz / 2.0
+        void_start_hz = source_nyquist + UPSAMPLE_VOID_GAP_HZ
+        if nyquist - void_start_hz < UPSAMPLE_MIN_VOID_WIDTH_HZ:
+            continue
+        reference_mask = (frequencies >= source_nyquist - below_hz) & (
+            frequencies <= source_nyquist - above_hz
+        )
+        void_mask = frequencies >= void_start_hz
+        if not np.any(reference_mask) or not np.any(void_mask):
+            continue
+        drop_db = float(
+            np.mean(spectrum_db[void_mask]) - np.mean(spectrum_db[reference_mask])
+        )
+        if drop_db < -UPSAMPLE_VOID_DB:
+            return float(source_rate_hz)
+    return None
 
 
 def _bitrate_class(cutoff_hz: float) -> str:

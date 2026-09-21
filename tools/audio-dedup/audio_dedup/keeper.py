@@ -149,6 +149,12 @@ def keeper_keys(
         result = verdicts.get(track.track_id)
         if result is None or result.suspected_transcode or result.cutoff_hz is None:
             return 0
+        if result.effective_source_rate_hz is not None:
+            # An upsampled copy measures up to the resampler's ceiling rather
+            # than to anything it carries, which would let it out-measure the
+            # very file it was made from. The reading is contaminated, so this
+            # key sits out for it exactly as it does for a transcode.
+            return 0
         return int(result.cutoff_hz // MEASURED_BANDWIDTH_STEP_HZ)
 
     def lossless(track: models_module.TrackRecord) -> int:
@@ -173,7 +179,19 @@ def keeper_keys(
         return 0 if mixed_dsd_family else declared_bit_depth(track)
 
     def sample_rate(track: models_module.TrackRecord) -> int:
-        return 0 if mixed_dsd_family else declared_sample_rate_hz(track)
+        """The rate the audio occupies, not the one its header states.
+
+        Upsampling raises the stated rate without adding anything above the old
+        ceiling, so on declared numbers a fake outranks the very copy it was made
+        from. Where the spectrum established a lower source rate, this key ranks
+        on that instead, and falls back to the header only when nothing measured.
+        """
+        if mixed_dsd_family:
+            return 0
+        result = verdicts.get(track.track_id)
+        if result is not None and result.effective_source_rate_hz is not None:
+            return int(result.effective_source_rate_hz)
+        return declared_sample_rate_hz(track)
 
     def dynamic_range(track: models_module.TrackRecord) -> int:
         return dynamic_range_rank(track) if same_master else 0

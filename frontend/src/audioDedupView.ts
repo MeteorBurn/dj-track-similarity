@@ -3,7 +3,9 @@ import type {
   AudioDedupDeletionMode,
   AudioDedupFile,
   AudioDedupGroup,
-  AudioDedupReportSummary
+  AudioDedupJobStatus,
+  AudioDedupReportSummary,
+  AudioDedupSearchMode
 } from "./api";
 
 /**
@@ -452,6 +454,33 @@ function sampleRateLabel(hertz: number | null) {
   return `${hertz.toLocaleString("en-US")} Hz`;
 }
 
+/**
+ * The rate cell, which must not repeat a header the spectrum has contradicted.
+ *
+ * An upsampled copy states a rate its audio never reaches, and the plain cell
+ * made it look like the better copy of the pair: the number is larger and the
+ * cards lift whatever differs. Where the spectrum established a lower source
+ * rate, the cell carries both, measured first.
+ */
+function sampleRateCellText(file: AudioDedupFile) {
+  const declared = sampleRateLabel(file.sample_rate_hz);
+  const source = measuredSourceRateHz(file);
+  if (source === null || declared === null) return declared ?? "—";
+  return `${sampleRateLabel(source)} из заявленных ${declared}`;
+}
+
+/**
+ * The measured source rate, or null when there is none to report.
+ *
+ * A report written before this measurement existed carries no such key at all,
+ * so the value arrives as undefined rather than null and a `!== null` test lets
+ * it through. Every reader goes through this one check.
+ */
+function measuredSourceRateHz(file: AudioDedupFile): number | null {
+  const source = file.effective_source_rate_hz;
+  return typeof source === "number" && Number.isFinite(source) && source > 0 ? source : null;
+}
+
 function bitDepthLabel(bits: number | null) {
   if (bits === null || !Number.isFinite(bits) || bits <= 0) return null;
   return `${bits}-bit`;
@@ -473,7 +502,7 @@ export function fileSpecCells(file: AudioDedupFile): DedupSpecCell[] {
   return [
     { key: "format", text: file.audio_format || "—" },
     { key: "bitrate", text: fileBitrateLabel(file) ?? "—" },
-    { key: "sample_rate", text: sampleRateLabel(file.sample_rate_hz) ?? "—" },
+    { key: "sample_rate", text: sampleRateCellText(file) },
     { key: "bit_depth", text: bitDepthLabel(file.bit_depth) ?? "—" },
     { key: "size", text: formatBytes(file.size) },
     { key: "duration", text: formatSeconds(file.duration) }
@@ -550,6 +579,50 @@ export function scanStepLabel(step: string) {
 
 export function scanStateLabel(state: string) {
   return scanStateTranslations[state] ?? state;
+}
+
+/**
+ * The stages a run walks, in order, grouped by the steps the engine reports.
+ *
+ * Each step counts from zero, so the bar only ever shows the step in flight and
+ * says nothing about how much of the run is left. The stage position is what
+ * answers that, and it is read from the run's own mode and spectral choice
+ * rather than guessed: the two modes retrieve pairs differently, and the
+ * spectral pass runs only when it was asked for.
+ */
+const scanModeStages: Record<AudioDedupSearchMode, readonly (readonly string[])[]> = {
+  fingerprint_scan: [
+    ["Reading database", "Loading scoped tracks"],
+    ["Matching SONARA fingerprints"],
+    ["Building duplicate groups", "No fingerprint duplicates"]
+  ],
+  fingerprint_lsh: [
+    ["Reading database", "Loading scoped tracks"],
+    ["Loading saved SONARA fingerprint sketches"],
+    ["Verifying SONARA fingerprint candidates"],
+    ["Searching duplicate pairs", "No fingerprint duplicates"]
+  ]
+};
+
+const spectralStageSteps = ["Analyzing spectra of duplicate-group files"];
+const reportStageSteps = ["Writing reports", "Reports written"];
+
+/** Which stage of how many the reported step belongs to, or nothing if unknown. */
+export function scanStagePosition(
+  job: AudioDedupJobStatus
+): { index: number; total: number } | null {
+  if (!job.current_step) return null;
+  const stages = [
+    ...scanModeStages[job.search_mode],
+    ...(job.detect_fake_bitrate ? [spectralStageSteps] : []),
+    reportStageSteps
+  ];
+  // The one step that carries its own number belongs to the stage that loaded them.
+  const step = /^Loaded \d+ scoped tracks$/.test(job.current_step)
+    ? "Loading scoped tracks"
+    : job.current_step;
+  const index = stages.findIndex((steps) => steps.includes(step));
+  return index < 0 ? null : { index: index + 1, total: stages.length };
 }
 
 /**
@@ -683,7 +756,7 @@ export type DedupSpectralBadge = {
   text: string;
   tone: "warn" | "ok" | "muted";
   /** Which explanation the chip's tooltip carries; absent where the text needs none. */
-  kind?: "recompressed" | "transcoded" | "wall" | "clean";
+  kind?: "recompressed" | "transcoded" | "wall" | "clean" | "upsampled";
 };
 
 /**
@@ -706,6 +779,20 @@ export function fileSpectralBadge(
     return { text: note ? spectralNoteText(note) : "спектр не проверен", tone: "muted" };
   }
   const band = `до ${formatCutoff(file.spectral_cutoff_hz)}`;
+  // Stated rate above what the audio carries is the plainest thing the spectrum
+  // can say about a copy, and it leads: the band above the source ceiling is
+  // empty, so the measured cutoff there describes the resampler, not the music.
+  const sourceRateHz = measuredSourceRateHz(file);
+  if (sourceRateHz !== null) {
+    const stated = Number.isFinite(file.sample_rate_hz as number)
+      ? ` · заявлено ${((file.sample_rate_hz as number) / 1000).toFixed(1)} кГц`
+      : "";
+    return {
+      text: `апсемпл из ${(sourceRateHz / 1000).toFixed(1)} кГц${stated}`,
+      tone: "warn",
+      kind: "upsampled"
+    };
+  }
   const sourceClass = note.match(/\((.+) class\)/i);
   const source = sourceClass ? bitrateClassText(sourceClass[1]) : null;
   if (file.suspected_transcode) {

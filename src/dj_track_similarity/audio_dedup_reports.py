@@ -70,6 +70,7 @@ class AudioDedupFile:
     loudness_range_lu: float | None
     spectral_cutoff_hz: float | None
     spectral_sharpness_db: float | None
+    effective_source_rate_hz: float | None
     suspected_transcode: bool
     spectral_note: str | None
     fingerprint_vs_keeper: float | None
@@ -96,6 +97,7 @@ class AudioDedupGroup:
     confidence: str
     fingerprint_similarity: float | None
     suspected_transcode_count: int
+    upsampled_file_count: int
     stale_file_count: int
     files: list[AudioDedupFile] = field(default_factory=list)
     pairs: list[AudioDedupPair] = field(default_factory=list)
@@ -454,6 +456,9 @@ def _group(
         confidence=confidence,
         fingerprint_similarity=max(fingerprint_scores) if fingerprint_scores else None,
         suspected_transcode_count=sum(1 for item in files if item.suspected_transcode),
+        upsampled_file_count=sum(
+            1 for item in files if item.effective_source_rate_hz is not None
+        ),
         stale_file_count=sum(1 for item in files if item.stale),
         files=files,
         pairs=pairs,
@@ -499,6 +504,7 @@ def _file(
         loudness_range_lu=_float_or_none(entry.get("loudness_range_lu")),
         spectral_cutoff_hz=_float_or_none(entry.get("spectral_cutoff_hz")),
         spectral_sharpness_db=_float_or_none(entry.get("spectral_sharpness_db")),
+        effective_source_rate_hz=_float_or_none(entry.get("effective_source_rate_hz")),
         suspected_transcode=bool(entry.get("suspected_transcode", False)),
         spectral_note=_text_or_none(entry.get("spectral_note")),
         fingerprint_vs_keeper=_float_or_none(source.get("fingerprint_vs_keeper")),

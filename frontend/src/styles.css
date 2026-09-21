@@ -5171,15 +5171,25 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   border-color: var(--accent-border);
 }
 
-/* The selected mode explained in full under the row that selects it: the
-   modes differ in what they can find, not only in how long they take, and a
-   tooltip is the wrong place for the one decision taken before a long run. */
+/* The two scan controls explained under the row that sets them: they differ in
+   what they can find, not only in how long they take, and a tooltip is the
+   wrong place for the choices taken before a long run. */
+.dedup-scan-notes {
+  display: grid;
+  gap: 5px;
+}
+
 .dedup-mode-description {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.45;
   margin: 0;
   max-width: 76ch;
+}
+
+/* The control each note belongs to, named at its head. */
+.dedup-mode-description b {
+  color: var(--app-text);
 }
 
 /* What the applied filter caught, stated under the row that applied it. */
@@ -5252,6 +5262,25 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   border-color: var(--surface-disabled-border);
   color: var(--text-disabled);
   opacity: 1;
+}
+
+.dedup-progress {
+  display: grid;
+  gap: 6px;
+}
+
+/* The run speaks where its bar is: the stage on the left, what it has counted
+   on the right, so a long step still reads as one line above the fill. */
+.dedup-progress-status {
+  align-items: baseline;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  gap: 2px 12px;
+  justify-content: space-between;
 }
 
 .dedup-progress-track {
@@ -5606,12 +5635,9 @@ button.dedup-play-button {
   font-variant-numeric: tabular-nums;
 }
 
-/* A tinted box between two rows of plain text. It keeps to the column: the box
-   starts on the rows' left edge and the value sits inside it by its own border
-   and padding, so the tint never hangs out into the card's padding. The rows'
-   5px gap is spacing between lines of text and crowds a box, so the chip brings
-   its own block margin and stands 8px clear above and below, the rhythm the
-   card's blocks already keep. */
+/* A block of the card in its own right, sitting under the facts with the
+   card's own 8px rhythm around it. It takes only the width of its reading, so
+   the tint marks the verdict rather than banding the whole column. */
 .dedup-spectral {
   align-items: center;
   border: 1px solid transparent;
@@ -5620,7 +5646,6 @@ button.dedup-play-button {
   font-size: 11px;
   font-weight: 600;
   gap: 4px;
-  margin-block: 3px;
   padding: 3px 7px;
   width: fit-content;
 }

@@ -51,6 +51,38 @@ test("the fingerprint band survives a report that predates the confidence bands"
   assert.equal(fingerprintBandText("medium", {}), "—");
 });
 
+test("the spectral chip survives a report that predates the source-rate measurement", () => {
+  const { fileSpectralBadge, fileSpecCells } = loadAudioDedupView();
+  const base = {
+    audio_format: "FLAC",
+    bit_rate_bps: 1_000_000,
+    sample_rate_hz: 48_000,
+    bit_depth: 24,
+    size: 40_000_000,
+    duration: 300,
+    spectral_cutoff_hz: 21_000,
+    spectral_sharpness_db: 20,
+    suspected_transcode: false,
+    spectral_note: "full band"
+  };
+  const rate = (copy) => fileSpecCells(copy).find((cell) => cell.key === "sample_rate").text;
+
+  // A report written before the measurement existed carries no such key, so the
+  // value arrives as undefined. A `!== null` test let it through and rendered
+  // "upsampled from NaN kHz" on every copy in the library.
+  assert.notEqual(fileSpectralBadge(base, null).kind, "upsampled");
+  assert.ok(!/NaN/.test(fileSpectralBadge(base, null).text));
+  assert.equal(rate(base), "48,000 Hz");
+
+  const explicitNull = { ...base, effective_source_rate_hz: null };
+  assert.notEqual(fileSpectralBadge(explicitNull, null).kind, "upsampled");
+  assert.equal(rate(explicitNull), "48,000 Hz");
+
+  const upsampled = { ...base, effective_source_rate_hz: 44_100 };
+  assert.equal(fileSpectralBadge(upsampled, null).kind, "upsampled");
+  assert.equal(rate(upsampled), "44,100 Hz из заявленных 48,000 Hz");
+});
+
 test("a delete batch carries the confirmation phrase the delete endpoint requires", () => {
   const { applyDeleteConfirmation, buildDeleteRequest } = loadAudioDedupView();
   const groups = [group(1, [file(10, "keeper"), file(11, "duplicate")])];

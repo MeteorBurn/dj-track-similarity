@@ -667,6 +667,7 @@ export type AudioDedupFile = {
   loudness_range_lu: number | null;
   spectral_cutoff_hz: number | null;
   spectral_sharpness_db: number | null;
+  effective_source_rate_hz: number | null;
   suspected_transcode: boolean;
   spectral_note: string | null;
   fingerprint_vs_keeper: number | null;
@@ -692,6 +693,7 @@ export type AudioDedupGroup = {
   confidence: string;
   fingerprint_similarity: number | null;
   suspected_transcode_count: number;
+  upsampled_file_count: number;
   stale_file_count: number;
   // Copies the review's path filter kept out of `files`. They are still on disk
   // and still survive a deletion, so a partly shown group is marked differently.

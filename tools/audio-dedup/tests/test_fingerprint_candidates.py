@@ -146,9 +146,9 @@ def test_fingerprint_scan_matches_representatives_only_above_the_upstream_thresh
         ],
     )
     identities = {track_id: f"current-{track_id}" for track_id in versions}
-    # 7 rounds to 301 and 4 to 302: one and two buckets up from 1, the spread a
-    # whole-second boundary makes of copies that differ by hundredths or by a
-    # second. 8 rounds to 305, beyond the slack and out of reach.
+    # 7 rounds to 301, one bucket up from 1: the spread a whole-second boundary
+    # makes of copies that differ by hundredths. 4 rounds to 302 and 8 to 305,
+    # both beyond the slack and out of reach.
     durations = {
         1: 300.2, 2: 300.4, 3: 300.1, 4: 302.0, 5: 300.3,
         6: 299.9, 7: 300.6, 8: 305.0,
@@ -186,9 +186,9 @@ def test_fingerprint_scan_matches_representatives_only_above_the_upstream_thresh
 
     assert [cluster.representative_id for cluster in result.clusters] == [1]
     cluster = result.clusters[0]
-    # 7 and 4 sit one and two buckets up and still join: rounding must not hide
-    # a copy that differs by hundredths of a second, nor by a second outright.
-    assert cluster.member_ids == (1, 2, 6, 7, 4)
+    # 7 sits one bucket up and still joins: rounding must not hide a copy that
+    # differs by hundredths of a second across a whole-second boundary.
+    assert cluster.member_ids == (1, 2, 6, 7)
     assert cluster.pair_scores == {
         (1, 2): 0.9,
         (1, 6): 0.95,
@@ -196,10 +196,6 @@ def test_fingerprint_scan_matches_representatives_only_above_the_upstream_thresh
         (1, 7): 0.97,
         (2, 7): 0.6,
         (6, 7): 0.5,
-        (1, 4): 0.99,
-        (2, 4): 0.8,
-        (4, 6): 0.75,
-        (4, 7): 0.85,
     }
     # 3 is only ever offered to representative 1, and 0.30 is not above 0.30.
     assert frozenset((2, 3)) not in compared
@@ -207,6 +203,7 @@ def test_fingerprint_scan_matches_representatives_only_above_the_upstream_thresh
     # Beyond the slack and a different fingerprint version are never compared at
     # all, however high their score would have been.
     assert frozenset((1, 8)) not in compared
+    assert frozenset((1, 4)) not in compared
     assert frozenset((1, 5)) not in compared
     assert result.valid_fingerprint_count == 8
     assert result.duration_bucket_count == 4

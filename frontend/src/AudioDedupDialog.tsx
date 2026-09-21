@@ -21,7 +21,12 @@ import type {
 } from "./api";
 import { AudioDedupGroupCard } from "./AudioDedupReview";
 import { ConfirmationDialog } from "./dialogs";
-import { audioDedupModeDescription, audioDedupModeLabel, helpText } from "./helpText";
+import {
+  audioDedupFakeBitrateDescription,
+  audioDedupModeDescription,
+  audioDedupModeLabel,
+  helpText
+} from "./helpText";
 import {
   confidenceLabel,
   copiesWord,
@@ -29,6 +34,7 @@ import {
   fingerprintBandText,
   formatBytes,
   pluralRu,
+  scanStagePosition,
   scanStateLabel,
   scanStepLabel,
   selectionSummary
@@ -38,22 +44,41 @@ import type { AudioDedupFilters } from "./useAudioDedup";
 import { useConfirmation } from "./useConfirmation";
 import { formatEta } from "./trackDisplay";
 
-function scanCounterText(
+function scanRunning(job: AudioDedupJobStatus) {
+  return job.state === "running" || job.state === "queued";
+}
+
+/**
+ * Where the run is: which stage of how many, and how far into that stage.
+ *
+ * The bar underneath measures the current step alone, so the percent belongs
+ * beside the stage it describes rather than beside the totals.
+ */
+function scanStageText(job: AudioDedupJobStatus, progressPercent: number) {
+  if (!scanRunning(job)) return scanStateLabel(job.state);
+  const parts: string[] = [];
+  const stage = scanStagePosition(job);
+  if (stage) parts.push(`этап ${stage.index}/${stage.total}`);
+  parts.push(job.current_step ? scanStepLabel(job.current_step) : "подготовка");
+  // A step that counts nothing — reading the database, writing the report —
+  // has no share to report, and 0% would read as a stalled one.
+  if (job.total > 0) parts.push(`${Math.round(progressPercent)}%`);
+  return parts.join(" · ");
+}
+
+/** What the run has counted so far, or what it left behind once it is over. */
+function scanMetaText(
   job: AudioDedupJobStatus,
   elapsedSeconds: number | null,
   etaSeconds: number | null
 ) {
   const parts: string[] = [];
-  if (job.state === "running" || job.state === "queued") {
-    parts.push(
-      job.current_step ? scanStepLabel(job.current_step) : "подготовка",
-      `${job.processed}/${job.total}`
-    );
+  if (scanRunning(job)) {
+    if (job.total > 0) parts.push(`${job.processed}/${job.total}`);
     if (elapsedSeconds != null) parts.push(`прошло ${formatEta(elapsedSeconds)}`);
     if (etaSeconds != null) parts.push(`осталось ~${formatEta(etaSeconds)}`);
   } else {
     parts.push(
-      scanStateLabel(job.state),
       `${job.groups} ${pluralRu(job.groups, "группа", "группы", "групп")}`,
       // Every group member other than the suggested keeper: the tool deletes
       // none of them by itself, so this is the whole pile waiting for a decision.
@@ -234,11 +259,6 @@ export function AudioDedupDialog({
             <div className="dedup-section-title">
               <Search size={13} />
               Поиск
-              {job ? (
-                <span className="dedup-section-counter">
-                  {scanCounterText(job, elapsedSeconds, etaSeconds)}
-                </span>
-              ) : null}
             </div>
             <div className="dedup-scan-grid">
               <label className="dedup-control dedup-mode-control">
@@ -262,7 +282,6 @@ export function AudioDedupDialog({
                 name="dedup-detect-fake-bitrate"
                 role="switch"
                 aria-checked={detectFakeBitrate}
-                title={helpText.audioDedupDetectFakeBitrate}
                 disabled={jobRunning}
                 onClick={() => setDetectFakeBitrate(!detectFakeBitrate)}
                 type="button"
@@ -299,17 +318,32 @@ export function AudioDedupDialog({
                 </button>
               )}
             </div>
-            {/* What the selected mode actually does, on screen rather than in a
-                tooltip: it is the one choice made before a long run. */}
-            <p className="dedup-mode-description">{audioDedupModeDescription[searchMode]}</p>
-            {jobRunning ? (
+            {/* What each control actually does, on screen rather than in a
+                tooltip: these are the two choices made before a long run. */}
+            <div className="dedup-scan-notes">
+              <p className="dedup-mode-description">
+                <b>{audioDedupModeLabel[searchMode]}.</b> {audioDedupModeDescription[searchMode]}
+              </p>
+              <p className="dedup-mode-description">
+                <b>Фейк-битрейт.</b> {audioDedupFakeBitrateDescription}
+              </p>
+            </div>
+            {/* The status belongs at the bar it describes: the stage the run is
+                on, how far into that stage, and what it has counted. */}
+            {job ? (
               <div className="dedup-progress">
-                <div className="dedup-progress-track">
-                  <div
-                    className="dedup-progress-fill"
-                    style={{ transform: `scaleX(${progressPercent / 100})` }}
-                  />
+                <div className="dedup-progress-status">
+                  <span>{scanStageText(job, progressPercent)}</span>
+                  <span>{scanMetaText(job, elapsedSeconds, etaSeconds)}</span>
                 </div>
+                {jobRunning ? (
+                  <div className="dedup-progress-track">
+                    <div
+                      className="dedup-progress-fill"
+                      style={{ transform: `scaleX(${progressPercent / 100})` }}
+                    />
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {job?.error ? <p className="dedup-alert">{job.error}</p> : null}

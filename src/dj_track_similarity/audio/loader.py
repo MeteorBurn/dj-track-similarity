@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .decoder import load_tolerant_mono_audio
+from .ffmpeg_runtime import configure_shared_ffmpeg_runtime
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -49,6 +50,7 @@ def load_audio_mono_with_ffmpeg(path: str | Path) -> tuple[np.ndarray, int, str]
 
 
 def _load_with_torchcodec(path: Path) -> tuple[Tensor, int, str]:
+    configure_shared_ffmpeg_runtime()
     import torch
     from torchcodec.decoders import AudioDecoder
 

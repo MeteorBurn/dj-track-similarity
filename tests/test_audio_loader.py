@@ -1,3 +1,4 @@
+import builtins
 from fractions import Fraction
 from pathlib import Path
 import sys
@@ -7,12 +8,16 @@ import wave
 import numpy as np
 import pytest
 
+import dj_track_similarity.audio.loader as audio_loader
 from dj_track_similarity.audio.loader import (
     load_audio_mono_with_ffmpeg,
     load_decoded_audio,
     load_decoded_audio_with_ffmpeg,
 )
-from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
+from dj_track_similarity.audio.ffmpeg_runtime import (
+    configure_shared_ffmpeg_runtime,
+    load_project_pyav,
+)
 
 
 def _write_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:
@@ -98,11 +103,26 @@ def _append_non_utf8_riff_info_tag(path: Path) -> None:
     path.write_bytes(bytes(raw))
 
 
-def test_load_decoded_audio_preserves_native_sample_rate(tmp_path: Path) -> None:
+def test_load_decoded_audio_preserves_native_sample_rate(monkeypatch, tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     audio_path = tmp_path / "track.wav"
     _write_pcm_wav(audio_path, sample_rate=44_100)
 
+    configured = False
+    original_import = builtins.__import__
+
+    def configure_runtime():
+        nonlocal configured
+        configure_shared_ffmpeg_runtime()
+        configured = True
+
+    def checked_import(name, *args, **kwargs):
+        if name == "torchcodec.decoders":
+            assert configured, "Pin the shared DLLs before importing TorchCodec"
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(audio_loader, "configure_shared_ffmpeg_runtime", configure_runtime, raising=False)
+    monkeypatch.setattr(builtins, "__import__", checked_import)
     result = load_decoded_audio(audio_path)
 
     assert result.path == str(audio_path)

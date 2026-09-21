@@ -9,19 +9,27 @@ from pathlib import Path
 from types import ModuleType
 
 
-FFMPEG_SHARED_DIR_ENV_VAR = "DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR"
+FFMPEG_SHARED_DIR_ENV_VAR = "DJTS_FFMPEG"
 REQUIRED_FFMPEG_VERSION = "8.1.1"
+# Dependency order for pinning the shared Windows DLLs before any consumer imports.
 REQUIRED_FFMPEG_LIBRARIES = {
-    "avcodec": 62,
-    "avformat": 62,
     "avutil": 60,
-    "avfilter": 11,
     "swresample": 6,
     "swscale": 9,
+    "avcodec": 62,
+    "avformat": 62,
+    "avfilter": 11,
+}
+# Pin the bundled device library too when present, without requiring it for
+# runtimes that provide only the six libraries used by file decoding.
+_WINDOWS_FFMPEG_PRELOAD_LIBRARIES = {
+    **REQUIRED_FFMPEG_LIBRARIES,
+    "avdevice": 62,
 }
 REQUIRED_PYAV_VERSION = "17.1.0"
 _PROJECT_FFMPEG_DIRECTORY = Path(__file__).resolve().parents[3] / "libs" / "ffmpeg" / "bin"
 _DLL_DIRECTORY_HANDLES: dict[Path, object] = {}
+_DLL_LIBRARY_HANDLES: dict[Path, tuple[ctypes.CDLL, ...]] = {}
 _RESOLVED_DIRECTORIES: dict[tuple[str, str], Path] = {}
 
 
@@ -36,11 +44,29 @@ class AudioRuntimeInfo:
 
 
 def configure_shared_ffmpeg_runtime() -> Path:
-    """Find and register the required FFmpeg 8.1.1 full shared runtime."""
+    """Load the shared runtime before importing PyAV or TorchCodec.
+
+    Windows reuses these loaded DLLs when consumers resolve their dependencies,
+    even if a consumer later registers another FFmpeg directory.
+    """
 
     directory = _configured_or_path_shared_directory()
-    if os.name == "nt" and directory not in _DLL_DIRECTORY_HANDLES:
-        _DLL_DIRECTORY_HANDLES[directory] = os.add_dll_directory(str(directory))
+    if os.name == "nt":
+        if directory not in _DLL_DIRECTORY_HANDLES:
+            _DLL_DIRECTORY_HANDLES[directory] = os.add_dll_directory(str(directory))
+        if directory not in _DLL_LIBRARY_HANDLES:
+            libraries = []
+            for component, major in _WINDOWS_FFMPEG_PRELOAD_LIBRARIES.items():
+                library_path = (directory / _shared_library_name(component, major)).resolve()
+                if component not in REQUIRED_FFMPEG_LIBRARIES and not library_path.is_file():
+                    continue
+                try:
+                    libraries.append(ctypes.CDLL(str(library_path)))
+                except OSError as error:
+                    raise RuntimeError(
+                        f"Cannot load FFmpeg shared library {library_path}: {error}"
+                    ) from error
+            _DLL_LIBRARY_HANDLES[directory] = tuple(libraries)
     return directory
 
 
@@ -99,8 +125,8 @@ def _configured_or_path_shared_directory() -> Path:
     """Resolve the runtime directory, reusing the answer the environment implies.
 
     Every decode, probe and preview asks for it, and each resolution walks PATH and
-    loads libavutil to read its release. The answer only changes when the override
-    or PATH changes, so it is keyed on exactly those.
+    loads libavutil to read its release. Cache the selected directory by the
+    configured fallback and PATH.
     """
 
     key = (os.environ.get(FFMPEG_SHARED_DIR_ENV_VAR, ""), os.environ.get("PATH", ""))
@@ -113,22 +139,17 @@ def _configured_or_path_shared_directory() -> Path:
 
 def _resolved_shared_directory() -> Path:
     rejected: list[str] = []
-    configured = os.environ.get(FFMPEG_SHARED_DIR_ENV_VAR)
-    if configured:
-        configured_runtime = _validated_candidate(
-            Path(configured),
-            FFMPEG_SHARED_DIR_ENV_VAR,
-            rejected,
-        )
-        if configured_runtime is not None:
-            return configured_runtime
-        raise RuntimeError(_missing_runtime_message(rejected))
-
-    # The build that ships with the project wins over whatever the machine has on
-    # PATH: the project is verified against its own libraries.
+    # Prefer the build verified with the project before either external source.
     project_runtime = _validated_candidate(_PROJECT_FFMPEG_DIRECTORY, "project", rejected)
     if project_runtime is not None:
         return project_runtime
+    configured = os.environ.get(FFMPEG_SHARED_DIR_ENV_VAR)
+    if configured:
+        configured_runtime = _validated_candidate(
+            Path(configured), FFMPEG_SHARED_DIR_ENV_VAR, rejected
+        )
+        if configured_runtime is not None:
+            return configured_runtime
     for entry in os.environ.get("PATH", "").split(os.pathsep):
         if not entry:
             continue
@@ -166,8 +187,8 @@ def _missing_runtime_message(rejected: list[str]) -> str:
     return (
         f"FFmpeg {REQUIRED_FFMPEG_VERSION} shared libraries are required "
         f"({required}). They ship in libs/ffmpeg/bin; restore them from the "
-        f"repository, put another build's library directory on PATH, or set "
-        f"{FFMPEG_SHARED_DIR_ENV_VAR}. "
+        f"repository, set {FFMPEG_SHARED_DIR_ENV_VAR} to another build's library "
+        f"directory, or put that directory on PATH. "
         f"ffmpeg.exe alone is not sufficient.{detail}"
     )
 

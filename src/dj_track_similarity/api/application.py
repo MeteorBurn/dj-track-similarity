@@ -56,7 +56,7 @@ def open_folder_dialog() -> Path | None:
     try:
         root.attributes("-topmost", True)
         root.update()
-        selected = filedialog.askdirectory(parent=root, title="Р’С‹Р±РµСЂРёС‚Рµ РїР°РїРєСѓ СЃ РјСѓР·С‹РєРѕР№", mustexist=True)
+        selected = filedialog.askdirectory(parent=root, title="Выберите папку с музыкой", mustexist=True)
     finally:
         root.destroy()
     return Path(selected) if selected else None
@@ -76,7 +76,7 @@ def open_database_file_dialog() -> Path | None:
         root.update()
         selected = filedialog.asksaveasfilename(
             parent=root,
-            title="Р’С‹Р±РµСЂРёС‚Рµ SQLite Р±Р°Р·Сѓ",
+            title="Выберите SQLite базу",
             defaultextension=".sqlite",
             filetypes=[("SQLite database", "*.sqlite"), ("All files", "*.*")],
             confirmoverwrite=False,

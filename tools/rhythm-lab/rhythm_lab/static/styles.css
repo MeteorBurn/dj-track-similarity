@@ -41,7 +41,7 @@
   --row-gap: .85rem;
   --row-index-digits: 1;
   --row-index-width: calc(var(--row-index-digits) * .65rem);
-  --row-meta-track: minmax(7.5rem, 31rem);
+  --row-meta-track: minmax(7.5rem, 33.5rem);
   --row-columns: var(--row-index-width) 3.15rem minmax(9rem, 1fr) var(--row-meta-track) 6.4rem minmax(22rem, 26.5rem);
 }
 
@@ -147,7 +147,7 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .track-path { font-size: .71rem; }
 .features-indicator { width: .65rem; height: .65rem; min-width: .65rem; overflow: hidden; font-size: 0; border-radius: 50%; background: currentColor; }
 .features-indicator.missing { color: var(--accent); }
-.track-meta { display: flex; flex-wrap: nowrap; align-items: center; justify-content: center; gap: .4rem; min-width: 0; text-align: center; }
+.track-meta { display: flex; flex-wrap: nowrap; align-items: center; gap: 1rem; min-width: 0; }
 .track-meta-evidence { display: flex; flex-wrap: nowrap; align-items: center; gap: .25rem; min-width: 0; overflow: hidden; }
 .grid-badge { display: inline-flex; align-items: stretch; flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-raised); font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .grid-bpm { display: flex; align-items: baseline; justify-content: flex-end; gap: .22rem; width: 4.75rem; padding: .25rem .38rem; font-weight: 650; }
@@ -581,7 +581,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   .binary-label-group { padding-left: 1.8rem; }
   .binary-label-group .paired-fields { gap: .8rem; }
   .dialog-footer { padding: .75rem 1.35rem; }
-  body[data-view="candidates"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) var(--row-meta-track) 7rem 6rem; }
+  body[data-view="candidates"] { --row-columns: var(--row-index-width) 2.8rem minmax(7rem, 1fr) var(--row-meta-track) 7rem 6rem; }
   body[data-view="candidates"] .track-table-header,
   body[data-view="candidates"] .track { min-width: 0; }
   body[data-view="candidates"] .track-actions { grid-column: 3 / -1; padding-bottom: .6rem; }
@@ -589,8 +589,8 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
 }
 
 @media (max-width: 1200px) {
-  :root { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) var(--row-meta-track) 6.4rem; }
-  body[data-view="collection"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) var(--row-meta-track); }
+  :root { --row-columns: var(--row-index-width) 2.8rem minmax(9rem, 1fr) var(--row-meta-track) 6.4rem; }
+  body[data-view="collection"] { --row-columns: var(--row-index-width) 2.8rem minmax(9rem, 1fr) var(--row-meta-track); }
   .track-table-header, .track { min-width: 0; }
   .track-actions { grid-column: 3 / -1; padding-bottom: .6rem; }
   .track-table-header .track-actions { display: none; }

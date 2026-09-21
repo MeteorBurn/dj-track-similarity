@@ -10,9 +10,9 @@ SONARA_SAMPLE_RATE = 22_050
 # Each spans at least an octave, which tempo folding needs.
 SONARA_BPM_PRESETS = MappingProxyType(
     {
+        "mixed-in-key": (79.0, 192.0),
         "rekordbox": (70.0, 180.0),
         "virtual-dj": (80.0, 240.0),
-        "mixed-in-key": (79.0, 192.0),
     }
 )
 # Default analysis range only. SONARA accepts any bounds, and each run passes

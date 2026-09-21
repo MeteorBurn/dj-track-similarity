@@ -101,9 +101,9 @@ export type SonaraBpmPreset = {
 // Ranges the common DJ tools analyse with. Every pair spans a full octave, so
 // each tempo folds into it exactly once — the rule the stored Core row enforces.
 export const sonaraBpmPresets: readonly SonaraBpmPreset[] = [
+  { key: "mixed-in-key", label: "Mixed In Key", bpmMin: 79, bpmMax: 192 },
   { key: "rekordbox", label: "Rekordbox", bpmMin: 70, bpmMax: 180 },
   { key: "virtual-dj", label: "VirtualDJ", bpmMin: 80, bpmMax: 240 },
-  { key: "mixed-in-key", label: "Mixed In Key", bpmMin: 79, bpmMax: 192 },
 ];
 
 export function matchingSonaraBpmPreset(

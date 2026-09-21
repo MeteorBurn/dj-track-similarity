@@ -71,7 +71,7 @@ export function SonaraAnalysisSettingsDialog({
                 {activeBpmPreset ? `${activeBpmPreset.bpmMin}–${activeBpmPreset.bpmMax}` : "Свой диапазон"}
               </span>
             </div>
-            <p className="sonara-settings-section-description">Диапазон BPM определяет, в каких пределах SONARA ищет темп трека. Правильный диапазон помогает избежать ошибок вроде 64 вместо 128 BPM. Для большинства библиотек подойдут готовые диапазоны Rekordbox, VirtualDJ или Mixed In Key, при необходимости можно задать свой.</p>
+            <p className="sonara-settings-section-description">Диапазон BPM определяет, в каких пределах SONARA ищет темп трека. Правильный диапазон помогает избежать ошибок вроде 64 вместо 128 BPM. Для большинства библиотек подойдут готовые диапазоны Mixed In Key, Rekordbox или VirtualDJ, при необходимости можно задать свой.</p>
             <div className="sonara-settings-bpm-presets" aria-label="Пресеты диапазона BPM">
               {sonaraBpmPresets.map((preset) => {
                 const selected = activeBpmPreset?.key === preset.key;

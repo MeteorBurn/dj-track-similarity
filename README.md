@@ -104,7 +104,9 @@ Package versions and sources follow [pyproject.toml](pyproject.toml), [uv.lock](
 - **joblib 1.5.3** - Model persistence.
 
 > [!NOTE]
-> **🔧 Runtime setup:** the audio libraries ship with the repository, so the installer downloads nothing for them and prefers them over any FFmpeg on your `PATH`. Downloaded portable tools stay inside the project, and the installer does not change your user or system `PATH`.
+> **🔧 Runtime setup:** FFmpeg shared libraries ship in `libs/ffmpeg/bin/` and need no environment setup or separate download. The installer and application check that folder first, then the DLL folder named by optional `DJTS_FFMPEG`, then `PATH`. Missing or incompatible builds are skipped; an error is reported if none is usable. They use libraries only, without launching `ffmpeg.exe` or `ffprobe.exe`.
+>
+> Downloaded portable tools stay inside the project. The installer does not create `DJTS_FFMPEG` or change your user or system `PATH`.
 >
 > **🪟 Windows runtime.** Installing the Microsoft runtime may request administrator approval or report that Windows needs a restart. The installer never restarts the computer itself.
 

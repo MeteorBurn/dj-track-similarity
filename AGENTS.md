@@ -40,7 +40,12 @@ work unverified rather than inventing its instructions.
 - For requested full installation, use `.\install.ps1`. It prepares the shared
   environment, frontend, audio runtime and pinned model assets. All Python
   dependencies are required by the root `pyproject.toml`; preserve the locked
-  SONARA fork and CUDA package sources. See the environment guide for details.
+  SONARA fork and CUDA package sources. FFmpeg discovery checks `libs/ffmpeg/bin`,
+  then the optional `DJTS_FFMPEG` DLL directory, then `PATH`; skip missing or
+  invalid candidates and fail explicitly if none is usable. Use shared libraries
+  only, never `ffmpeg.exe` or `ffprobe.exe`. The bundled build needs no environment
+  setup; the installer neither creates `DJTS_FFMPEG` nor changes user/system
+  `PATH`. See the [environment guide](docs/agent-guides/environment.md) for details.
 - scikit-learn is a required project-wide dependency managed in the root
   `pyproject.toml`. Prefer its existing tools for feature analysis, clustering,
   evaluation and classical ML when they fit the task.

@@ -125,10 +125,17 @@ try {
     }
 
     # The audio runtime ships in libs/ffmpeg/bin, so nothing is downloaded for it.
-    & $python -c 'from dj_track_similarity.audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime; print(configure_shared_ffmpeg_runtime())' 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The FFmpeg shared libraries in libs/ffmpeg/bin, DJTS_FFMPEG and PATH are missing or invalid. Restore the bundled libraries, set DJTS_FFMPEG to a compatible shared library directory, or add that directory to PATH, then rerun the installer.'
-    }
+    # Use the application's libs/ffmpeg/bin -> DJTS_FFMPEG -> PATH discovery.
+    # Preserve its diagnostic if no compatible shared library build is found.
+    $ffmpegCheck = @'
+import sys
+from dj_track_similarity.audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
+try:
+    print(f"FFmpeg shared library directory: {configure_shared_ffmpeg_runtime()}")
+except RuntimeError as error:
+    sys.exit(str(error))
+'@
+    Invoke-InstallCommand $python @('-c', $ffmpegCheck)
 
     Write-Host 'Checking the installed audio and ML runtime...'
     $runtimeCheck = @'

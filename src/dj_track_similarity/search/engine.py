@@ -119,11 +119,6 @@ class SimilaritySearchResult:
     target: AnalysisTarget
     score: float
     score_breakdown: Mapping[str, float] | None = None
-    # How well each named bank, on its own, matches this track. A merged query
-    # cannot say which of its labels earned a hit, and a verdict credited to
-    # all of them equally teaches the wrong ones. Present only when the caller
-    # asked for it by naming the banks.
-    preset_scores: Mapping[str, float] | None = None
 
 
 class SimilaritySearch:
@@ -358,7 +353,6 @@ class SimilaritySearch:
         filters: SearchFilters | None = None,
         limit: int = 50,
         negative_weight: float = CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
-        preset_vectors: Mapping[str, Sequence[FloatArray]] | None = None,
         feedback_track_ids: Mapping[str, Sequence[int]] | None = None,
     ) -> list[SimilaritySearchResult]:
         self.text_eligible_count = 0
@@ -457,27 +451,11 @@ class SimilaritySearch:
             key=lambda item: item[2],
             reverse=True,
         )[:bounded_limit]
-        preset_columns = _preset_bank_scores(
-            matrix,
-            output=output,
-            preset_vectors=preset_vectors,
-        )
-        row_of_track = {
-            row.target.track_id: index for index, row in enumerate(rows)
-        }
         return [
             SimilaritySearchResult(
                 target=target,
                 score=score,
                 score_breakdown=breakdown,
-                preset_scores=(
-                    {
-                        key: float(column[row_of_track[target.track_id]])
-                        for key, column in preset_columns.items()
-                    }
-                    if preset_columns
-                    else None
-                ),
             )
             for target, score, _ranking, breakdown in ranked
         ]
@@ -981,31 +959,6 @@ def _apply_relevance_feedback(
         return positive_vectors
     report.update(applied=True, reason="applied")
     return [result]
-
-
-def _preset_bank_scores(
-    matrix: FloatArray,
-    *,
-    output: AnalysisOutput,
-    preset_vectors: Mapping[str, Sequence[FloatArray]] | None,
-) -> dict[str, FloatArray]:
-    """Score every track against each named bank on its own.
-
-    These are positive-only similarities for each selected bank. They are
-    descriptors, not causal contributions or weights for query feedback.
-    """
-
-    if not preset_vectors:
-        return {}
-    scores: dict[str, FloatArray] = {}
-    for key, vectors in preset_vectors.items():
-        if not vectors:
-            continue
-        bank = _normalize(
-            np.mean(_normalize_matrix(vectors, output=output), axis=0)
-        )
-        scores[key] = matrix @ bank
-    return scores
 
 
 def _contrast_score_breakdown(

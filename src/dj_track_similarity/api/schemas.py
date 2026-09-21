@@ -392,21 +392,6 @@ class SonaraRandomTrackRequest(BaseModel):
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
 
 
-class TextPresetBank(BaseModel):
-    """One label's own bank, sent alongside the merged query.
-
-    The server sees only the merged prompt bank, so it cannot tell which label
-    a hit came from. Naming the banks lets it score each one separately and
-    report the contribution, which is what a verdict needs in order to land on
-    the label that earned it rather than on every label that was selected.
-    """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
-    key: str = Field(min_length=1)
-    positive_queries: list[str] = Field(min_length=1)
-
-
 class TextSearchRequest(BaseModel):
     """One prompt bank searched against one text-embedding family.
 
@@ -426,7 +411,11 @@ class TextSearchRequest(BaseModel):
     device: str = Field(
         default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
     )
-    preset_banks: list[TextPresetBank] = Field(default_factory=list, max_length=64)
+    # The selected labels the bank was composed from; part of the query
+    # identity that stored feedback is keyed by.
+    preset_keys: list[Annotated[str, Field(min_length=1)]] = Field(
+        default_factory=list, max_length=64
+    )
     # Pull the query toward the tracks kept for these labels and away from the
     # ones rejected. Off unless asked for: a search that quietly moves with
     # past clicks cannot be told apart from one that answers the words.
@@ -992,8 +981,6 @@ class SimilaritySearchResultResponse(_ResponseModel):
     track: TrackSummaryResponse
     score: float
     score_breakdown: dict[str, float] | None = None
-    # Per-label contribution, present only when the request named the banks.
-    preset_scores: dict[str, float] | None = None
 
 
 class EmbeddingLayerCountResponse(_ResponseModel):

@@ -69,9 +69,6 @@ class _ClapTextSearchPlan:
     filters: SearchFilters
     limit: int
     negative_weight: float
-    # Each selected label's own bank, kept apart from the merged query so the
-    # search can say which of them a hit belongs to.
-    preset_banks: tuple[tuple[str, tuple[str, ...]], ...]
     # Tracks already judged for those labels, split by verdict, or None when
     # the search was not asked to account for them.
     feedback_track_ids: dict[str, list[int]] | None
@@ -212,7 +209,7 @@ def register_search_routes(
                     positive_queries=plan.prompt_bank.positive_queries,
                     negative_queries=plan.prompt_bank.negative_queries,
                     negative_weight=plan.negative_weight,
-                    selected_preset_keys=tuple(bank.key for bank in request.preset_banks),
+                    selected_preset_keys=tuple(request.preset_keys),
                     input_mode=request.input_mode,
                     scope={"kind": "all_eligible_tracks", "filters": ({"min_similarity": request.min_similarity} if request.min_similarity is not None else {})},
                 ).to_dict()
@@ -393,11 +390,6 @@ def _clap_text_search_plan(
             if request.negative_weight is None
             else request.negative_weight
         ),
-        preset_banks=tuple(
-            (bank.key, cleaned)
-            for bank in request.preset_banks
-            if (cleaned := _clean_text_queries(bank.positive_queries))
-        ),
         feedback_track_ids=feedback_track_ids,
     )
 
@@ -409,20 +401,13 @@ def _search_clap_text_prompts(
 ) -> list[SimilaritySearchResult]:
     positive_queries = plan.prompt_bank.positive_queries
     negative_queries = plan.prompt_bank.negative_queries
-    # Every line of every named bank is already a line of the merged bank, so
-    # embedding them once and reusing the vectors costs one forward pass rather
-    # than one per label.
-    preset_vectors = {
-        key: adapter.embed_texts(queries) for key, queries in plan.preset_banks
-    } or None
-    if negative_queries or len(positive_queries) > 1 or preset_vectors or plan.feedback_track_ids is not None:
+    if negative_queries or len(positive_queries) > 1 or plan.feedback_track_ids is not None:
         return searcher.search_contrast_vectors(
             positive_vectors=adapter.embed_texts(positive_queries),
             negative_vectors=adapter.embed_texts(negative_queries),
             filters=plan.filters,
             limit=plan.limit,
             negative_weight=plan.negative_weight,
-            preset_vectors=preset_vectors,
             feedback_track_ids=plan.feedback_track_ids,
         )
     vector = adapter.embed_text(plan.prompt_bank.primary_query)
@@ -459,11 +444,6 @@ def _hydrate_similarity_results(
                 "score_breakdown": (
                     dict(result.score_breakdown)
                     if result.score_breakdown is not None
-                    else None
-                ),
-                "preset_scores": (
-                    dict(result.preset_scores)
-                    if result.preset_scores is not None
                     else None
                 ),
             }

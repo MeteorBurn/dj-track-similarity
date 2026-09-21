@@ -449,7 +449,7 @@ def _feedback_client(monkeypatch, tmp_path):
 
 def test_text_search_feedback_stores_updates_and_withdraws_verdicts(monkeypatch, tmp_path):
     db, client, _app = _feedback_client(monkeypatch, tmp_path)
-    run = _search(client, preset_banks=[{"key": "voice/vocal-led", "positive_queries": ["broken drums."]}, {"key": "instruments/piano", "positive_queries": ["broken drums."]}], input_mode="preset")
+    run = _search(client, preset_keys=["voice/vocal-led", "instruments/piano"], input_mode="preset")
     uuid = run["results"][0]["track"]["track_uuid"]
     assert _judge(client, run, uuid).json()["revision"] == 1
     # An identical retry is idempotent; a competing desired verdict conflicts.
@@ -495,13 +495,6 @@ def test_query_identity_tracks_effective_bank_and_output(monkeypatch, tmp_path):
     changed = {**context, "analysis_output_identity": {**context["analysis_output_identity"], "model_version": "different"}}
     assert query_context_key(changed) != key
     assert _search(client, negative_weight=0.75)["execution"]["query_key"] == _search(client, negative_weight=0.0)["execution"]["query_key"]
-
-
-def test_text_search_reports_positive_only_preset_descriptors(monkeypatch, tmp_path):
-    _db, client, _app = _feedback_client(monkeypatch, tmp_path)
-    run = _search(client, positive_queries=["broken drums.", "straight house groove."], preset_banks=[{"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}, {"key": "rhythm/four-on-the-floor", "positive_queries": ["straight house groove."]}])
-    scores = run["results"][0]["preset_scores"]
-    assert scores["rhythm/breakbeat"] > scores["rhythm/four-on-the-floor"]
 
 
 def test_feedback_rejects_unissued_expired_and_other_database_runs(monkeypatch, tmp_path):
@@ -551,7 +544,7 @@ def test_text_search_pulls_exact_query_toward_kept_tracks(
         "analysis_family": analysis_family,
         "comparison_mode": comparison_mode,
         "input_mode": "preset",
-        "preset_banks": [{"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}],
+        "preset_keys": ["rhythm/breakbeat"],
     }
     plain = _search(client, **request)
     assert plain["results"][0]["track"]["track_id"] == distractor
@@ -567,7 +560,6 @@ def test_text_search_pulls_exact_query_toward_kept_tracks(
     assert _search(client, **request)["results"] == plain["results"]
     other = _search(client, use_feedback=True, **(request | {
         "positive_queries": ["syncopated percussion."],
-        "preset_banks": [{"key": "rhythm/breakbeat", "positive_queries": ["syncopated percussion."]}],
     }))
     assert other["execution"]["query_key"] != warm["execution"]["query_key"]
     assert not other["execution"]["feedback"]["applied"]

@@ -1,6 +1,6 @@
 import type { SearchResult, TextSearchExecution } from "./api";
 import type { TextSearchPayload } from "./apiClient";
-import { composePromptBanks, presetByKey, promptQueriesFromText, resolvePromptVariants } from "./textPromptPresets";
+import { composePromptBanks, presetByKey, promptQueriesFromText } from "./textPromptPresets";
 
 export type TextFamily = "clap" | "mulan";
 export type TextSearchArm = {
@@ -33,10 +33,7 @@ export function buildTextSearchArms(input: {
         analysis_family: family, positive_queries: queries.positiveQueries,
         negative_queries: queries.negativeQueries,
         ...(queries.negativeQueries.length && weight !== null ? { negative_weight: weight } : {}),
-        preset_banks: input.keys.flatMap((key) => {
-          const preset = presetByKey(key);
-          return preset ? [{ key, positive_queries: [...resolvePromptVariants(preset.positive, family)] }] : [];
-        }),
+        preset_keys: input.keys.filter((key) => presetByKey(key) !== undefined),
         input_mode: "preset", comparison_mode: input.compare ? "product_ab" : "single",
         ...(input.compare ? { comparison_id: input.comparisonId } : {}),
         // Feedback offsets live in each model's own space, so A/B under them

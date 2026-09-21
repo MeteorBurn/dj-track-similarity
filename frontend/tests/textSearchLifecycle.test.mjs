@@ -88,8 +88,7 @@ test("A/B keeps each model's bank and automatic weight while preserving a succes
     assert.equal(payload.input_mode, "preset");
     assert.equal(payload.use_feedback, false, "A/B must compare the models, not stored verdicts");
     assert.equal(payload.comparison_mode, "product_ab");
-    assert.deepEqual([...payload.preset_banks.map((bank) => bank.key)], ["rhythm/first"]);
-    assert.deepEqual([...payload.preset_banks[0].positive_queries], [...payload.positive_queries]);
+    assert.deepEqual([...payload.preset_keys], ["rhythm/first"]);
     const single = buildTextSearchArms({ family, compare: false, keys: ["rhythm/first"],
       useNegative: false, limit: 10, device: "cpu", comparisonId: "unused" })[0].payload;
     assert.deepEqual([...single.positive_queries], [...payload.positive_queries]);
@@ -122,7 +121,7 @@ test("cancel and per-axis selection changes prevent stale search results from pu
   second.resolve(response("stale")); await stale;
   assert.equal(h.commits.filter((c) => c.results.length).length, 0);
   const newer = ui.handleTextSearch(h.requests);
-  assert.deepEqual([...calls[2].preset_banks.map((bank) => bank.key)].sort(), ["bass/first", "rhythm/second"]);
+  assert.deepEqual([...calls[2].preset_keys].sort(), ["bass/first", "rhythm/second"]);
   third.resolve(response("new")); await newer;
   ui = h.render(); assert.equal(ui.textFeedbackContext.run_id, "new");
   ui.togglePromptPreset("rhythm/second"); ui = h.render();

@@ -90,9 +90,9 @@ export type TextSearchPayload = {
   limit: number;
   min_similarity?: number | null;
   device?: "auto" | "cpu" | "cuda";
-  /** Each selected label's own bank, so the server can report which of them a
-   * hit belongs to. The merged bank alone cannot say. */
-  preset_banks?: { key: string; positive_queries: string[] }[];
+  /** The selected labels the bank was composed from; part of the query
+   * identity that stored feedback is keyed by. */
+  preset_keys?: string[];
   /** Apply stored feedback for this exact query and model. The PROMPT UI
    * requests this automatically in single-model searches, never in A/B. */
   use_feedback?: boolean;

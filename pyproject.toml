@@ -33,6 +33,12 @@ dependencies = [
   "openpyxl>=3.1,<4",
   # The pinned interpreter is 3.10, which has no stdlib tomllib.
   "tomli>=2.0,<3 ; python_version < '3.11'",
+]
+
+# uv installs the dev group by default (`uv sync`, `uv run`); the application
+# never imports it. FastAPI's TestClient needs httpx2.
+[dependency-groups]
+dev = [
   "httpx2>=2.0.0",
   "pytest>=9.1.1",
 ]

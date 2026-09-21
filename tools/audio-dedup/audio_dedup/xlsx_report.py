@@ -438,7 +438,7 @@ def _xlsx_style_id(value: object, row: list[object], row_index: int, col_index: 
             return 2
         if row_index == 2:
             return 6
-        if first in {"Run settings", "Decision summary", "Rhythm Lab impact", "Confidence breakdown", "Embedding coverage"}:
+        if first in {"Run settings", "Decision summary", "Rhythm Lab impact", "Confidence breakdown"}:
             return 7
         if first == "Safe delete candidates":
             return 3

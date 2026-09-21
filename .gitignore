@@ -15,7 +15,6 @@ venv/
 *.sqlite
 *.sqlite-*
 *.sqlite.*.bak
-.dj-track-similarity.sqlite.bootstrap.lock
 *.db
 *.log
 *.log.*
@@ -123,10 +122,9 @@ graphify-out/????-??-??/
 .workspace/specs/
 .workspace/tools/
 
-# img/ ships only what README renders: the two hero boards and the numbered
-# concept boards. The .html sources that render them stay local, together with
-# the Rhythm Lab workspace captures the hero is composed from.
+# img/ ships only what README renders: the two hero boards. The .html sources
+# that render them stay local, together with the Rhythm Lab workspace captures
+# the hero is composed from.
 img/*
 !img/dj-track-similarity-hero.png
 !img/rhythm-lab-hero.png
-!img/[0-9][0-9]-*.png

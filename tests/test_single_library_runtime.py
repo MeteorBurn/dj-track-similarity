@@ -95,7 +95,7 @@ def test_new_library_database_bootstraps_one_sqlite_file(tmp_path: Path) -> None
     database = LibraryDatabase(database_path)
 
     assert database.path == database_path.resolve()
-    assert database_path.is_file()
+    assert [path.name for path in tmp_path.iterdir()] == ["library.sqlite"]
     with closing(database.connect()) as connection:
         library = connection.execute(
             """

@@ -228,7 +228,17 @@ def _exclusive_file_lock(
     *,
     description: str,
 ) -> Iterator[None]:
-    """Hold one crash-releasing cross-process operating-system file lock."""
+    """Hold one crash-releasing cross-process operating-system file lock.
+
+    On Windows the lock file is deleted once the last contender lets go.
+    Every contender keeps the file open while it waits, and Windows refuses to
+    delete a file that any process still has open, so the delete succeeds only
+    when nobody holds or awaits the lock; otherwise it fails and the last one
+    out removes the file. A newcomer after a successful delete creates a fresh
+    file that no one else can be holding. POSIX would unlink a file a waiter
+    already has open, letting that waiter and a newcomer on a fresh file both
+    enter, so there the file stays.
+    """
 
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     acquired = False
@@ -251,6 +261,11 @@ def _exclusive_file_lock(
                 _release_os_lock(descriptor)
         finally:
             os.close(descriptor)
+            if os.name == "nt":
+                try:
+                    lock_path.unlink()
+                except (FileNotFoundError, PermissionError):
+                    pass
 
 
 def _cleanup_staged_sqlite(path: Path) -> None:

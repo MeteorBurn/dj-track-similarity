@@ -96,14 +96,17 @@ def _detect_nvidia_smi_cuda() -> str | None:
     if not nvidia_smi:
         return None
     try:
-        completed = subprocess.run([nvidia_smi], check=False, capture_output=True, text=True)
-    except Exception:
+        completed = subprocess.run(
+            [nvidia_smi], check=False, capture_output=True, text=True, timeout=10
+        )
+    except Exception:  # includes subprocess.TimeoutExpired: a hung driver is "unavailable"
         return None
     if completed.returncode != 0:
         return None
     import re
 
-    match = re.search(r"CUDA Version:\s*([0-9]+(?:\.[0-9]+)?)", completed.stdout)
+    # Newer drivers (616.92 here) print "CUDA UMD Version:" instead of "CUDA Version:".
+    match = re.search(r"CUDA (?:UMD )?Version:\s*([0-9]+(?:\.[0-9]+)?)", completed.stdout)
     return match.group(1) if match else None
 
 

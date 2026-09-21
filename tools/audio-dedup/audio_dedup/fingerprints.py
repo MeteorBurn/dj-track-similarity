@@ -568,8 +568,7 @@ def _native_fingerprint_match(left: str, right: str) -> float:
         import sonara
     except ImportError as error:
         raise RuntimeError(
-            "SONARA fingerprint verification needs the 'sonara' extra; "
-            "install it or rerun with --embedding"
+            "SONARA fingerprint verification needs the 'sonara' package; install it"
         ) from error
 
     return float(sonara.fingerprint_match(left, right))

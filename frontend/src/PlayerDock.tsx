@@ -1,4 +1,4 @@
-import { AudioLines, Heart, Pause, Play, Repeat1, Tags, Volume2 } from "lucide-react";
+import { AudioLines, Heart, Pause, Play, Repeat1, SkipBack, SkipForward, Tags, Volume2 } from "lucide-react";
 import type { RefObject } from "react";
 import { useEffect, useState } from "react";
 import type { Track } from "./api";
@@ -8,7 +8,7 @@ import type { PreviewTarget } from "./useSearchPlaylist";
 
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
-export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, repeat, onToggleRepeat, onToggleLiked, onDetails }: {
+export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, repeat, onToggleRepeat, onToggleLiked, onDetails, onPrevious, onNext }: {
   preview: PreviewTarget | null;
   playing: boolean;
   audioRef: RefObject<HTMLAudioElement | null>;
@@ -19,6 +19,9 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
   onToggleRepeat: () => void;
   onToggleLiked: (track: Track) => void;
   onDetails: (track: Track) => void;
+  /** Null when the visible library list has no track on that side. */
+  onPrevious: (() => void) | null;
+  onNext: (() => void) | null;
 }) {
   const position = usePreviewPosition();
   const [volume, setVolume] = useState(1);
@@ -35,6 +38,12 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
         <strong>{track ? displayTrack(track) : preview ? `Трек ${preview.track_id}` : "Выберите трек"}</strong>
         <span title={fileInfo.title}>{fileInfo.text}</span>
       </div>
+      <button type="button" className="icon-button player-skip-button" disabled={!onPrevious} onClick={() => onPrevious?.()} title="Предыдущий трек" aria-label="Предыдущий трек">
+        <SkipBack size={20} fill="currentColor" />
+      </button>
+      <button type="button" className="icon-button player-skip-button" disabled={!onNext} onClick={() => onNext?.()} title="Следующий трек" aria-label="Следующий трек">
+        <SkipForward size={20} fill="currentColor" />
+      </button>
       <button type="button" className="player-play" disabled={!preview} onClick={() => preview && onToggle(preview)} aria-label={playing ? "Приостановить" : "Воспроизвести"}>
         {playing ? <Pause size={25} fill="currentColor" /> : <Play size={25} fill="currentColor" />}
       </button>

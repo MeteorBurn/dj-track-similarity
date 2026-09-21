@@ -44,6 +44,11 @@ export function nextLibraryPlaybackTrack(
   return alternatives[Math.min(alternatives.length - 1, Math.floor(random() * alternatives.length))] || null;
 }
 
+export function previousLibraryPlaybackTrack(tracks: Track[], currentTrackId: number) {
+  const currentIndex = tracks.findIndex((track) => track.track_id === currentTrackId);
+  return currentIndex > 0 ? tracks[currentIndex - 1] : null;
+}
+
 // `pageSize` is required on purpose: the loader in `libraryLoading` owns the
 // single page size, and a local default here silently disagreed with it.
 export function libraryPageCount(total: number, pageSize: number) {

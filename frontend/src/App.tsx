@@ -45,7 +45,8 @@ import { ScanImportDialog } from "./ScanImportDialog";
 import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
 import {
   appendVisibleTracksToPlaylist,
-  nextLibraryPlaybackTrack
+  nextLibraryPlaybackTrack,
+  previousLibraryPlaybackTrack
 } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import { shutdownApplication } from "./shutdownApplication";
@@ -580,6 +581,16 @@ export function App() {
     if (nextTrack) {
       togglePreview(nextTrack);
     }
+  }
+
+  // The dock's skip buttons walk the same visible library list as auto-advance;
+  // "next" is exactly the track that would follow on its own, shuffle included.
+  function playLibraryNeighbour(direction: "previous" | "next") {
+    if (!preview) return;
+    const neighbour = direction === "previous"
+      ? previousLibraryPlaybackTrack(orderedTracks, preview.track_id)
+      : nextLibraryPlaybackTrack(orderedTracks, preview.track_id, libraryPlaybackShuffle);
+    if (neighbour) togglePreview(neighbour);
   }
 
   async function handleTrackDetails(track: Track) {
@@ -1619,7 +1630,7 @@ export function App() {
           handleExport={(format) => void handleExport(format)}
         />
       </section>
-      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} />
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} onPrevious={preview && previousLibraryPlaybackTrack(orderedTracks, preview.track_id) ? () => playLibraryNeighbour("previous") : null} onNext={preview && nextLibraryPlaybackTrack(orderedTracks, preview.track_id, libraryPlaybackShuffle, () => 0) ? () => playLibraryNeighbour("next") : null} />
       {sourceUrl ? (
         <audio
           key={sourceKey}

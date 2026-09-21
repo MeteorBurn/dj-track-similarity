@@ -5935,7 +5935,7 @@ button.dedup-play-button {
 @media (prefers-reduced-motion: reduce) { .player-dock, .player-dock::before { animation: none; } }
 .player-dock input[type="range"] { border: 0; padding: 0; }
 .player-artwork { display: grid; place-items: center; width: 50px; height: 50px; flex-shrink: 0; color: var(--preset-texture-text); border: 1px solid var(--preset-texture-border); border-radius: 6px; background: var(--preset-texture-bg); }
-.player-track-info { display: flex; flex-direction: column; gap: 6px; width: clamp(380px, 22vw, 480px); min-width: 0; }
+.player-track-info { display: flex; flex-direction: column; gap: 6px; width: clamp(320px, 17vw, 400px); min-width: 0; }
 .player-track-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .player-track-info span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-play { display: grid; place-items: center; width: 49px; height: 49px; min-width: 49px; border-radius: 50%; color: var(--accent-active-text); border: 1px solid var(--accent); background: var(--accent-deep-bg); box-shadow: 0 0 15px var(--accent-soft-bg); }
@@ -5944,6 +5944,9 @@ button.dedup-play-button {
 .player-timeline span { color: var(--text-muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* Bare heart, like the library rows: the frame would compete with the BPM/KEY boxes. */
 .player-dock > button.icon-button.track-liked-button { width: 40px; min-height: 40px; background: transparent; border-color: transparent; }
+/* Skip buttons: bare like repeat, huddled with the play button as one transport group. */
+.player-dock > button.icon-button.player-skip-button { width: 40px; min-height: 40px; margin-right: -12px; color: var(--text-muted); background: transparent; border-color: transparent; }
+.player-dock > button.icon-button.player-skip-button:hover:not(:disabled) { color: var(--text); border-color: transparent; }
 /* Same bare tag button as the library rows, sized like its dock neighbours. */
 .player-dock > button.icon-button.track-metadata-button { width: 40px; min-height: 40px; margin-left: -16px; background: transparent; border-color: transparent; }
 /* Sits tight against the heart: the dock gap would read as a separate group. */

@@ -48,7 +48,7 @@ unavailable graph data and verify findings directly in source.
 
 | Navigation task | Tool |
 |---|---|
-| Locate an unfamiliar area | `graphify query "<expanded tokens>"` |
+| Locate an unfamiliar area | `graphify query "<expanded tokens>" --budget 8000` |
 | Inspect a graph node and its neighbors | `graphify explain "<path::Symbol>"`; inspect exact IDs in `graph.json` when ambiguous |
 | Inspect affected callers | `graphify affected "<node_id>" --relation calls --depth 1` (use depth `2` for the next caller level) |
 | Trace a connection | Inspect exact-node neighbors and the cited source; see the path limitation below |
@@ -75,7 +75,11 @@ Follow `.djts/skills/graphify/references/query.md` with these project rules:
    actual vocabulary tokens (prefer 3-6 English tokens). Matching has no stemming,
    synonyms, or cross-language translation. If none fit, stop that graph search
    and use direct source inspection; do not submit a misleading query.
-4. Use `--dfs` for a chain. Treat `TRUNCATED` as incomplete: narrow the query,
+4. Pass `--budget 8000` on every query unless the user specifies another budget;
+   use the same budget for the inline fallback. This overrides the CLI and skill
+   reference defaults of 2000. Allow at least 12000 output tokens in the calling
+   tool so it does not truncate Graphify's response before the agent reads it.
+   Use `--dfs` for a chain. Treat `TRUNCATED` as incomplete: narrow the query,
    use `explain`, or increase `--budget`. Disambiguate repeated labels with the
    exact node ID in `graph.json`. Open the named source
    before drawing conclusions.

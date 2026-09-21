@@ -418,5 +418,5 @@ def test_app_lifespan_closes_state_and_text_cache_even_on_cleanup_error(
     assert sorted(events) == ["state", "text-cache"]
     assert not queue_worker.is_alive()
     with pytest.raises(api_state.DatabaseBusy, match="closed"):
-        with states[0].job_start():
+        with states[0].job_start(states[0].require_scan_jobs, "start a scan"):
             pytest.fail("closed state admitted work")

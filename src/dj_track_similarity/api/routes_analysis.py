@@ -94,8 +94,7 @@ def register_analysis_routes(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         try:
-            with state.job_start():
-                manager = state.require_analysis_jobs()
+            with state.job_start(state.require_analysis_jobs, "start analysis") as manager:
                 return manager.start(
                     models=list(config.models),
                     limit=config.limit,
@@ -138,8 +137,8 @@ def register_analysis_routes(
     def analyze_classifier(classifier_key: str, request: ClassifierAnalyzeRequest):
         _require_scoring_compatible_classifier(classifier_key, promoted_classifiers)
         try:
-            with state.job_start():
-                return state.require_classifier_jobs().start(classifier=classifier_key, limit=request.limit)
+            with state.job_start(state.require_classifier_jobs, "score a classifier") as classifier_jobs:
+                return classifier_jobs.start(classifier=classifier_key, limit=request.limit)
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except (FileNotFoundError, ValueError) as error:
@@ -239,8 +238,10 @@ def register_analysis_routes(
                     "mode": request.ml.mode,
                     "ml_staging_config": ml_staging_config,
                 }
-            with state.job_start():
-                return state.require_analysis_pipeline_jobs().start(
+            with state.job_start(
+                state.require_analysis_pipeline_jobs, "start an analysis pipeline"
+            ) as pipeline_jobs:
+                return pipeline_jobs.start(
                     stage=request.stage,
                     limit=request.limit,
                     sonara=sonara_settings,

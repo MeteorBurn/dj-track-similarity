@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import pytest
-
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.validation_jobs import DatabaseValidationJobManager
 from dj_track_similarity.track_models import FileTags, ScannedFile
@@ -53,17 +51,3 @@ def test_job_retains_every_finding_while_ok_rows_rotate_out_of_the_event_log(tmp
     assert status.failures_omitted == 0
     assert status.failures[0].code == "track_path_missing"
     assert status.failures[0].track_id == 1
-
-
-def test_manager_allows_only_one_queued_or_running_validation(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    manager = DatabaseValidationJobManager(str(database.path))
-    monkeypatch.setattr("threading.Thread.start", lambda _thread: None)
-
-    manager.start()
-
-    with pytest.raises(RuntimeError, match="already running"):
-        manager.start()

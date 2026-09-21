@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, TypeVar
 
 from .._shutdown import defer_keyboard_interrupt
 from ..analysis.jobs import AnalysisJobManager
@@ -22,6 +23,21 @@ from ..tags import GenreTagJobManager
 LOGGER = logging.getLogger(__name__)
 
 ACTIVE_JOB_STATES = {"queued", "running"}
+
+# Managers whose jobs exclude each other; every other manager excludes only its
+# own jobs. Scan and tag refresh read the files the genre writer rewrites, and
+# a pipeline runs its stage as an analysis job.
+_EXCLUSIVE_JOB_GROUPS = (
+    ("scan_jobs", "genre_tag_jobs"),
+    ("analysis_jobs", "analysis_pipeline_jobs"),
+)
+
+_JobManager = TypeVar("_JobManager")
+
+
+def _active_job(manager: Any) -> Any:
+    """Return the newest queued or running job; ``latest()`` can hide an older one."""
+    return manager._store.latest_matching(lambda job: job.state in ACTIVE_JOB_STATES)
 
 
 class DatabaseNotSelected(RuntimeError):
@@ -248,17 +264,34 @@ class AppDatabaseState:
                 self._exclusive_operation = None
 
     @contextmanager
-    def job_start(self) -> Iterator[None]:
-        """Keep selection and exclusivity stable until a job is queued.
+    def job_start(
+        self,
+        require_manager: Callable[[], _JobManager],
+        operation: str,
+    ) -> Iterator[_JobManager]:
+        """Admit one job of a manager and keep the state stable until it is queued.
 
-        Manager lookup followed by ``start()`` is otherwise a check-then-act
-        race: an exclusive database operation can begin after the lookup but
-        before the manager records its queued job.
+        Lookup, the single-flight check and ``start()`` share the state lock;
+        otherwise an exclusive database operation or a second start of the same
+        or a conflicting job could slip in between the check and the queued job.
         """
 
         with self._lock:
-            self._require_jobs_available()
-            yield
+            manager = require_manager()
+            for blocking in self._admission_group(manager):
+                active = _active_job(blocking)
+                if active is not None:
+                    raise DatabaseBusy(
+                        f"Cannot {operation} while job {active.job_id} is still {active.state}"
+                    )
+            yield manager
+
+    def _admission_group(self, manager: object) -> list[Any]:
+        for group in _EXCLUSIVE_JOB_GROUPS:
+            members = [getattr(self, name) for name in group]
+            if any(member is manager for member in members):
+                return members
+        return [manager]
 
     def _require_jobs_available(self) -> None:
         with self._lock:
@@ -320,10 +353,7 @@ class AppDatabaseState:
             self.database_optimization_jobs,
             self.audio_dedup_jobs,
         ]
-        for manager in managers:
-            if manager is None:
-                continue
-            latest = manager.latest()
-            if latest is not None and getattr(latest, "state", None) in ACTIVE_JOB_STATES:
-                return True
-        return False
+        return any(
+            manager is not None and _active_job(manager) is not None
+            for manager in managers
+        )

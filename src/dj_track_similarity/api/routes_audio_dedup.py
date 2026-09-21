@@ -25,8 +25,8 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
     @app.post("/api/audio-dedup/jobs")
     def start_audio_dedup(request: AudioDedupScanRequest):
         try:
-            with state.job_start():
-                return state.require_audio_dedup_jobs().start(
+            with state.job_start(state.require_audio_dedup_jobs, "start Audio Dedup") as audio_dedup_jobs:
+                return audio_dedup_jobs.start(
                     path_contains=list(request.path_contains),
                     search_mode=request.search_mode,
                     limit_groups=request.limit_groups,

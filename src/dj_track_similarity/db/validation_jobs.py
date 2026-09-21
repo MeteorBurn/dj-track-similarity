@@ -79,7 +79,6 @@ class DatabaseValidationJobManager:
     def __init__(self, database_path: str) -> None:
         self.database_path = database_path
         self._store = JobStore(self._copy, unknown_label="database validation job")
-        self._start_lock = threading.Lock()
 
     def start(self) -> DatabaseValidationJobStatus:
         job_id = self._queue_job()
@@ -91,13 +90,9 @@ class DatabaseValidationJobManager:
         return self.run_job(job_id)
 
     def _queue_job(self) -> str:
-        with self._start_lock:
-            latest = self.latest()
-            if latest is not None and latest.state in {"queued", "running"}:
-                raise RuntimeError("Database validation is already running")
-            job_id = str(uuid.uuid4())
-            self._store.add(job_id, DatabaseValidationJobStatus(job_id, "queued"))
-            return job_id
+        job_id = str(uuid.uuid4())
+        self._store.add(job_id, DatabaseValidationJobStatus(job_id, "queued"))
+        return job_id
 
     def run_job(self, job_id: str) -> DatabaseValidationJobStatus:
         started_at = time.time()

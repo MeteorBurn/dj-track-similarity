@@ -55,8 +55,10 @@ def register_database_routes(
     @app.post("/api/database/validation/jobs")
     def start_validation():
         try:
-            with state.job_start():
-                return state.require_database_validation_jobs().start()
+            with state.job_start(
+                state.require_database_validation_jobs, "validate the database"
+            ) as validation_jobs:
+                return validation_jobs.start()
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -83,9 +85,11 @@ def register_database_routes(
         # VACUUM rewrites the whole file, so the job starts only on an idle
         # database; the job itself then holds the write lock for its duration.
         try:
-            with state.job_start():
+            with state.job_start(
+                state.require_database_optimization_jobs, "optimize the database"
+            ) as optimization_jobs:
                 state.require_idle_db("optimize the database")
-                return state.require_database_optimization_jobs().start()
+                return optimization_jobs.start()
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

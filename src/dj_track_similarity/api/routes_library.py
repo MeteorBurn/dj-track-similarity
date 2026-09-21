@@ -36,8 +36,8 @@ def register_library_routes(
     @app.post("/api/library/scan")
     def scan(request: ScanRequest):
         try:
-            with state.job_start():
-                return state.require_scan_jobs().start(
+            with state.job_start(state.require_scan_jobs, "start a scan") as scan_jobs:
+                return scan_jobs.start(
                     request.root,
                     workers=request.workers,
                     limit=request.limit,
@@ -50,8 +50,8 @@ def register_library_routes(
 
     @app.post("/api/library/tags/refresh")
     def refresh_tags(request: TagRefreshRequest):
-        with state.job_start():
-            return state.require_scan_jobs().start_tag_refresh(workers=request.workers)
+        with state.job_start(state.require_scan_jobs, "refresh tags") as scan_jobs:
+            return scan_jobs.start_tag_refresh(workers=request.workers)
 
     @app.post("/api/library/relocate")
     def relocate_library(request: RelocateLibraryRequest):

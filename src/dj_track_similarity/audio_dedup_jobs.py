@@ -73,7 +73,6 @@ class AudioDedupJobManager:
             self._copy,
             unknown_label="audio dedup job",
         )
-        self._start_lock = threading.Lock()
         # The core tests for cancellation once per candidate pair. Reading a flag
         # is cheap where copying the whole status out of the store would not be.
         self._cancel_flags: dict[str, threading.Event] = {}
@@ -107,28 +106,24 @@ class AudioDedupJobManager:
         selected_path_contains = [item.strip() for item in (path_contains or []) if item.strip()]
         selected_out_dir = Path(out_dir) if out_dir is not None else self.out_dir
 
-        with self._start_lock:
-            latest = self.latest()
-            if latest is not None and latest.state in {"queued", "running"}:
-                raise RuntimeError("An Audio Dedup scan is already running")
-            job_id = str(uuid.uuid4())
-            status = AudioDedupJobStatus(
-                job_id=job_id,
-                state="queued",
-                search_mode=selected_mode,
-                path_contains=selected_path_contains,
-                limit_groups=limit_groups,
-                detect_fake_bitrate=detect_fake_bitrate,
-            )
-            payload = AudioDedupJobPayload(
-                path_contains=selected_path_contains,
-                search_mode=selected_mode,
-                limit_groups=limit_groups,
-                detect_fake_bitrate=detect_fake_bitrate,
-                out_dir=selected_out_dir,
-            )
-            self._cancel_flags[job_id] = threading.Event()
-            self._store.add(job_id, status, payload=payload)
+        job_id = str(uuid.uuid4())
+        status = AudioDedupJobStatus(
+            job_id=job_id,
+            state="queued",
+            search_mode=selected_mode,
+            path_contains=selected_path_contains,
+            limit_groups=limit_groups,
+            detect_fake_bitrate=detect_fake_bitrate,
+        )
+        payload = AudioDedupJobPayload(
+            path_contains=selected_path_contains,
+            search_mode=selected_mode,
+            limit_groups=limit_groups,
+            detect_fake_bitrate=detect_fake_bitrate,
+            out_dir=selected_out_dir,
+        )
+        self._cancel_flags[job_id] = threading.Event()
+        self._store.add(job_id, status, payload=payload)
         self._append_event(job_id, "info", "Audio dedup queued over the whole library")
         return job_id
 

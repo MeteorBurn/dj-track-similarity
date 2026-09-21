@@ -74,7 +74,6 @@ class DatabaseOptimizationJobManager:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = Path(database_path)
         self._store = JobStore(self._copy, unknown_label="database optimization job")
-        self._start_lock = threading.Lock()
 
     def start(self) -> DatabaseOptimizationJobStatus:
         job_id = self._queue_job()
@@ -86,13 +85,9 @@ class DatabaseOptimizationJobManager:
         return self.run_job(job_id)
 
     def _queue_job(self) -> str:
-        with self._start_lock:
-            latest = self.latest()
-            if latest is not None and latest.state in {"queued", "running"}:
-                raise RuntimeError("Database optimization is already running")
-            job_id = str(uuid.uuid4())
-            self._store.add(job_id, DatabaseOptimizationJobStatus(job_id, "queued"))
-            return job_id
+        job_id = str(uuid.uuid4())
+        self._store.add(job_id, DatabaseOptimizationJobStatus(job_id, "queued"))
+        return job_id
 
     def run_job(self, job_id: str) -> DatabaseOptimizationJobStatus:
         self._store.update(job_id, state="running", started_at=time.time(), phase="inspect")

@@ -11,6 +11,7 @@ from dj_track_similarity.api.state import AppDatabaseState, DatabaseBusy
 from dj_track_similarity.classifier.jobs import ClassifierJobManager
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.scan_jobs import ScanJobManager
+from dj_track_similarity.tags import GenreTagJobManager
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -246,32 +247,19 @@ def test_exclusive_database_operation_blocks_new_jobs(
 
 
 def test_job_start_reservation_closes_exclusive_operation_toctou(
-    monkeypatch,
     tmp_path: Path,
 ) -> None:
     state = AppDatabaseState(tmp_path / "library.sqlite")
-    manager = state.require_analysis_jobs()
     reservation_entered = threading.Event()
     release_reservation = threading.Event()
-    queued = threading.Event()
     exclusive_finished = threading.Event()
     exclusive_result: list[str] = []
 
-    monkeypatch.setattr(
-        manager,
-        "latest",
-        lambda: (
-            None
-            if not queued.is_set()
-            else type("_QueuedJob", (), {"state": "queued"})()
-        ),
-    )
-
     def reserve_and_queue() -> None:
-        with state.job_start():
+        with state.job_start(state.require_genre_tag_jobs, "write genre tags") as manager:
             reservation_entered.set()
             assert release_reservation.wait(timeout=5)
-            queued.set()
+            manager.create_job()
 
     def try_exclusive_operation() -> None:
         try:
@@ -296,6 +284,35 @@ def test_job_start_reservation_closes_exclusive_operation_toctou(
     assert not start_thread.is_alive()
     assert not prepare_thread.is_alive()
     assert exclusive_result == ["blocked"]
+
+
+def test_start_is_refused_with_409_while_the_same_or_a_conflicting_job_is_active(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    # The first writer never leaves "queued", like a job still waiting to run.
+    monkeypatch.setattr(GenreTagJobManager, "run_job", lambda _manager, _job_id: None)
+    monkeypatch.setattr(ScanJobManager, "run_job", lambda _manager, _job_id: None)
+    scan_root = tmp_path / "music"
+    scan_root.mkdir()
+    client = _client(monkeypatch, tmp_path / "library.sqlite")
+
+    first = client.post("/api/tags/genres/jobs", json={})
+    second = client.post("/api/tags/genres/jobs", json={})
+    scan = client.post("/api/library/scan", json={"root": str(scan_root), "workers": 1})
+    latest = client.get("/api/tags/genres/jobs/latest")
+    latest_scan = client.get("/api/library/scan/jobs/latest")
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert first.json()["job_id"] in second.json()["detail"]
+    # Scanning reads the files the genre writer rewrites.
+    assert scan.status_code == 409
+    assert first.json()["job_id"] in scan.json()["detail"]
+    # start() creates the job before it spawns the thread, so the refused
+    # requests left neither another job nor another thread behind.
+    assert latest.json()["job_id"] == first.json()["job_id"]
+    assert latest_scan.json() is None
 
 
 def test_state_close_drains_inline_pipeline_children_outside_state_lock(

@@ -15,7 +15,7 @@ def _run_isolated_launcher(
     *,
     stdin: str,
     arguments: tuple[str, ...] = (),
-) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
+) -> tuple[subprocess.CompletedProcess[str], dict[str, object] | None]:
     root = Path(__file__).resolve().parents[1]
     script = tmp_path / "run_server.cmd"
     shutil.copyfile(root / "run_server.cmd", script)
@@ -81,27 +81,51 @@ def _run_isolated_launcher(
             timeout=15,
             check=False,
         )
-    captured_launch = json.loads(capture_path.read_text(encoding="utf-8"))
+    # No capture means the launcher never started the server.
+    captured_launch = (
+        json.loads(capture_path.read_text(encoding="utf-8"))
+        if capture_path.exists()
+        else None
+    )
     return completed, captured_launch
 
 
 @pytest.mark.skipif(os.name != "nt", reason="run_server.cmd requires Windows")
-def test_no_argument_launcher_prompts_for_database_before_mode_and_accepts_defaults(
+def test_no_argument_launcher_requires_an_explicit_database_before_mode(
     tmp_path: Path,
 ) -> None:
-    completed, captured_launch = _run_isolated_launcher(tmp_path, stdin="\n\n")
-    default_database_path = str(tmp_path / "database" / "volumes.sqlite")
+    def run(
+        case: str,
+        stdin: str,
+    ) -> tuple[Path, subprocess.CompletedProcess[str], dict[str, object] | None]:
+        case_dir = tmp_path / case
+        (case_dir / "database").mkdir(parents=True)
+        (case_dir / "database" / "library.sqlite").write_bytes(b"")
+        return case_dir, *_run_isolated_launcher(case_dir, stdin=stdin)
 
+    case_dir, completed, captured_launch = run("listed", "1\n\n")
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert completed.stdout.index(f"Database path [{default_database_path}]") < (
+    assert completed.stdout.index("Database [1-1, or a path]") < (
         completed.stdout.index("Choose server mode")
     )
     assert captured_launch == {
         "arguments": [],
         "host": "127.0.0.1",
         "port": "8765",
-        "database_path": default_database_path,
+        "database_path": str(case_dir / "database" / "library.sqlite"),
     }
+
+    typed_path = str(tmp_path / "elsewhere" / "typed.sqlite")
+    _, completed, captured_launch = run("typed", f"{typed_path}\n\n")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert captured_launch is not None
+    assert captured_launch["database_path"] == typed_path
+
+    _, completed, captured_launch = run("empty", "\n\n")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert "No database selected" in completed.stdout
+    assert "Choose server mode" not in completed.stdout
+    assert captured_launch is None
 
 
 @pytest.mark.skipif(os.name != "nt", reason="run_server.cmd requires Windows")

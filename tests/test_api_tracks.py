@@ -378,43 +378,71 @@ def test_tracks_endpoint_liked_mutation_uses_composite_cas(
 
 
 def _seed_evaluation_rows(database: LibraryDatabase, identity: TrackIdentity) -> None:
+    # Session 1 is seeded by the track; in session 2 it is only a candidate.
+    deleted = (identity.track_id, identity.track_uuid)
+    other_seed = (identity.track_id + 1, "other-seed-uuid")
+    candidate = (identity.track_id + 2, "candidate-uuid")
     connection = database.connect_evaluation(create=True)
     assert connection is not None
     with connection:
-        connection.execute(
+        connection.executemany(
             """
             INSERT INTO search_sessions(session_id, mode, request_json, created_at)
-            VALUES (1, 'seed', '{}', '2026-08-27T00:00:00Z')
-            """
+            VALUES (?, 'seed', ?, '2026-08-27T00:00:00Z')
+            """,
+            [
+                (
+                    session_id,
+                    json.dumps(
+                        {
+                            "seed_identities": [
+                                {
+                                    "catalog_uuid": identity.catalog_uuid,
+                                    "track_id": seed[0],
+                                    "track_uuid": seed[1],
+                                }
+                            ]
+                        }
+                    ),
+                )
+                for session_id, seed in ((1, deleted), (2, other_seed))
+            ],
         )
-        connection.execute(
+        connection.executemany(
             """
             INSERT INTO search_session_seeds(session_id, position, track_id, track_uuid)
-            VALUES (1, 0, ?, ?)
+            VALUES (?, 0, ?, ?)
             """,
-            (identity.track_id, identity.track_uuid),
+            [(1, *deleted), (2, *other_seed)],
         )
-        connection.execute(
+        connection.executemany(
             """
             INSERT INTO search_result_events(
                 session_id, rank, track_id, track_uuid,
                 total_score, score_breakdown_json, created_at
             )
-            VALUES (1, 0, ?, ?, 0.9, '{}', '2026-08-27T00:00:00Z')
+            VALUES (?, ?, ?, ?, 0.9, '{}', '2026-08-27T00:00:00Z')
             """,
-            (identity.track_id, identity.track_uuid),
+            [(1, 0, *candidate), (2, 0, *deleted), (2, 1, *candidate)],
         )
     connection.close()
 
 
-def _evaluation_track_row_count(database: LibraryDatabase) -> int:
+def _evaluation_rows(database: LibraryDatabase) -> dict[str, list[tuple[int, ...]]]:
     connection = database.connect_evaluation(create=False)
     assert connection is not None
     try:
-        return sum(
-            int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-            for table in ("search_session_seeds", "search_result_events")
-        )
+        return {
+            table: [
+                tuple(row)
+                for row in connection.execute(f"SELECT {columns} FROM {table} ORDER BY {columns}")
+            ]
+            for table, columns in (
+                ("search_sessions", "session_id"),
+                ("search_session_seeds", "session_id, track_id"),
+                ("search_result_events", "session_id, track_id"),
+            )
+        }
     finally:
         connection.close()
 
@@ -459,8 +487,13 @@ def test_delete_track_removes_catalog_data_but_keeps_source_audio(
         assert connection.execute("SELECT COUNT(*) FROM likes").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM track_search_fts").fetchone()[0] == 0
     # The Evaluation sidecar is a separate file, so no cascade reaches it and a
-    # deleted track would otherwise keep naming itself there.
-    assert _evaluation_track_row_count(database) == 0
+    # deleted track would otherwise keep naming itself there. The session it
+    # seeded goes whole; the one it was only a candidate in keeps the rest.
+    assert _evaluation_rows(database) == {
+        "search_sessions": [(2,)],
+        "search_session_seeds": [(2, identity.track_id + 1)],
+        "search_result_events": [(2, identity.track_id + 2)],
+    }
 
 
 def test_track_detail_endpoint_returns_full_typed_tags(

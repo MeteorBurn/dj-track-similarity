@@ -6,6 +6,7 @@ from typing import Callable, Collection, Iterable
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.tracks import canonical_file_path
+from dj_track_similarity.rhythm_lab_collections import sonara_content_key
 from dj_track_similarity.track_models import TrackIdentity
 
 from . import config as config_module
@@ -46,6 +47,7 @@ def apply_duplicate_deletions(
     retained_missing_reason = "group would lose every copy"
     retained_on_disk: dict[str, bool] = {}
     deleted_identities: list[TrackIdentity] = []
+    deleted_files: list[tuple[str, str]] = []
     for candidate in candidates:
         track_id = report_selection_module._candidate_track_id(candidate)
         path_text = str(candidate.get("path", ""))
@@ -96,6 +98,10 @@ def apply_duplicate_deletions(
             skipped.append(f"track_id={track_id}: {retained_missing_reason}")
             continue
         try:
+            # The fingerprint goes with the library row, so the content key
+            # other libraries' Rhythm Lab rows carry is read first.
+            fingerprint = selected_database.get_sonara_fingerprints_by_ids((track_id,)).get(track_id)
+            content_key = None if fingerprint is None else sonara_content_key(*fingerprint)
             remove_file(file_path)
             removal = selected_database.remove_deleted_track(
                 expected=expected,
@@ -111,14 +117,17 @@ def apply_duplicate_deletions(
             continue
         deleted_ids.append(track_id)
         deleted_identities.append(expected)
+        if content_key is not None:
+            deleted_files.append((content_key, path_text))
         deleted_paths.append(path_text)
     selected_rhythm_lab_db = config_module.DEFAULT_RHYTHM_LAB_DB if rhythm_lab_db is None else rhythm_lab_db
     try:
         rhythm_lab_deleted_rows = rhythm_lab_module.cleanup_rhythm_lab_database(
             selected_rhythm_lab_db,
             deleted_identities,
+            deleted_files,
         )
-    except sqlite3.Error as error:
+    except (OSError, sqlite3.Error) as error:
         rhythm_lab_deleted_rows = 0
         failed.append(f"rhythm_lab_cleanup: {error}")
     return models_module.ApplyResult(

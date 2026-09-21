@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
+from contextlib import closing
 from dataclasses import replace
 import json
 import sqlite3
@@ -14,6 +15,7 @@ import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.audio_dedup_jobs import AudioDedupJobManager
+from dj_track_similarity.rhythm_lab_collections import sonara_content_key
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 TOOL_ROOT = Path(__file__).resolve().parents[1]
@@ -65,49 +67,6 @@ def _isolate_external_resources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 def _create_library_db(path: Path) -> None:
     LibraryDatabase(path)
-
-
-def _create_rhythm_lab_db(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE classifier_labels (
-                classifier_key TEXT NOT NULL,
-                catalog_uuid TEXT NOT NULL,
-                track_uuid TEXT NOT NULL,
-                selected_path TEXT NOT NULL,
-                label TEXT NOT NULL,
-                note TEXT,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(
-                    classifier_key, catalog_uuid, track_uuid
-                )
-            );
-
-            CREATE TABLE classifier_predictions (
-                classifier_key TEXT NOT NULL,
-                catalog_uuid TEXT NOT NULL,
-                track_uuid TEXT NOT NULL,
-                selected_path TEXT NOT NULL,
-                artist TEXT,
-                title TEXT,
-                feature_set TEXT NOT NULL,
-                model_artifact TEXT NOT NULL,
-                label TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                probabilities_json TEXT NOT NULL DEFAULT '{}',
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(
-                    classifier_key, catalog_uuid, track_uuid
-                )
-            );
-
-            CREATE TABLE classifier_training_checkpoints (
-                classifier_key TEXT PRIMARY KEY,
-                counts_json TEXT NOT NULL
-            );
-            """
-        )
 
 
 def _insert_track(
@@ -179,18 +138,6 @@ def _record(
         musical_key="8A",
         duration=300.0,
         metadata={},
-    )
-
-
-def _identity_tuple(
-    db_path: Path,
-    track_id: int,
-) -> tuple[str, str, int]:
-    identity = LibraryDatabase(db_path).get_track_identity(track_id)
-    assert identity is not None
-    return (
-        identity.catalog_uuid,
-        identity.track_uuid,
     )
 
 
@@ -622,75 +569,216 @@ def test_apply_duplicate_deletions_never_deletes_permanently_when_the_recycle_bi
         connection.close()
 
 
-def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_lab_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_apply_duplicate_deletions_drops_only_rhythm_lab_rows_naming_deleted_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lab_root = TOOL_ROOT.parent / "rhythm-lab"
+    sys.path.insert(0, str(lab_root))
+    try:
+        from rhythm_lab.lab_db import RhythmLabDatabase
+    finally:
+        sys.path.remove(str(lab_root))
+
     db_path = tmp_path / "library.sqlite"
     rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
-    out_dir = tmp_path / "reports"
     audio_dir = tmp_path / "Abstracted"
     audio_dir.mkdir()
     keeper_path = audio_dir / "keeper.flac"
-    duplicate_path = audio_dir / "duplicate.mp3"
-    keeper_path.write_bytes(b"keeper")
-    duplicate_path.write_bytes(b"duplicate")
+    same_path = audio_dir / "same.mp3"
+    other_path = audio_dir / "other.mp3"
+    for path in (keeper_path, same_path, other_path):
+        path.write_bytes(path.name.encode("ascii"))
+    other_fingerprint = base64.b64encode(bytes(range(4, 8)) * 64).decode("ascii")
     monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
+    # The group also admits the copy with a different fingerprint.
+    monkeypatch.setattr(fingerprints_module, "_native_fingerprint_match", lambda left, right: 1.0)
     _create_library_db(db_path)
-    _create_rhythm_lab_db(rhythm_lab_db)
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, fingerprint=DUPLICATE_FINGERPRINT)
-    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, fingerprint=DUPLICATE_FINGERPRINT)
-    keeper_identity = _identity_tuple(db_path, 1)
-    duplicate_identity = _identity_tuple(db_path, 2)
-    with sqlite3.connect(rhythm_lab_db) as connection:
-        connection.executemany(
-            """
-            INSERT INTO classifier_labels(
-                classifier_key, catalog_uuid, track_uuid, selected_path, label
-            ) VALUES ('break_energy', ?, ?, ?, 'broken')
-            """,
-            [
-                (*keeper_identity, str(keeper_path)),
-                (*duplicate_identity, str(duplicate_path)),
-            ],
-        )
-        connection.executemany(
-            """
-                INSERT INTO classifier_predictions(
-                    classifier_key, catalog_uuid, track_uuid, selected_path,
-                    feature_set, model_artifact, label, confidence, probabilities_json
-                )
-                VALUES(
-                    'break_energy', ?, ?, ?,
-                    'combined', 'model.joblib', 'broken', 0.9, '{}'
-            )
-            """,
-            [
-                (*keeper_identity, str(keeper_path)),
-                (*duplicate_identity, str(duplicate_path)),
-            ],
-        )
-        connection.execute(
-            "INSERT INTO classifier_training_checkpoints(classifier_key, counts_json) VALUES ('break_energy', '{}')"
-        )
+    _insert_track(db_path, track_id=2, path=str(same_path), size=8_000_000, mtime=200, fingerprint=DUPLICATE_FINGERPRINT)
+    _insert_track(db_path, track_id=3, path=str(other_path), size=8_000_000, mtime=300, fingerprint=other_fingerprint)
     result = core_module.run_report(
         db_path=db_path,
         path_contains=[],
         limit_groups=None,
-        out_dir=out_dir,
+        out_dir=tmp_path / "reports",
         mode=config_module.MODE_FINGERPRINT_SCAN,
     )
+    assert result.groups == 1
+    files = {
+        state.track_id: state
+        for state in LibraryDatabase(db_path).get_track_file_states_by_ids((1, 2, 3))
+    }
+    shared_key = sonara_content_key(1, DUPLICATE_FINGERPRINT)
+    other_key = sonara_content_key(1, other_fingerprint)
+    stale_key = sonara_content_key(1, base64.b64encode(bytes(range(8, 12)) * 64).decode("ascii"))
+
+    def snapshot(content_key: str, track_id: int) -> tuple[str, str, str, str]:
+        file = files[track_id]
+        return (content_key, file.catalog_uuid, file.track_uuid, file.file_path)
+
+    # Another library that sighted the same files at the same paths.
+    def elsewhere(content_key: str, track_uuid: str, track_id: int) -> tuple[str, str, str, str]:
+        return (content_key, "second-catalog-uuid", track_uuid, files[track_id].file_path)
+
+    lab = RhythmLabDatabase(rhythm_lab_db)
+    lab.create_profile(
+        classifier_key="break_energy",
+        name="Break energy",
+        artifact_dir=tmp_path / "profile",
+        labels=[
+            {"key": "broken", "role": "positive"},
+            {"key": "straight", "role": "negative"},
+        ],
+    )
+    # The shared key labels and queues the byte-identical copy that is deleted,
+    # while its prediction and collection membership name the keeper. The other
+    # key was labeled in the second library, and a stale sighting there saw
+    # different content at the deleted path.
+    with closing(lab.connect()) as connection, connection:
+        connection.executemany(
+            """
+            INSERT INTO track_sightings(
+                content_key, catalog_uuid, track_uuid, selected_path, track_id,
+                file_size_bytes, file_modified_ns, fingerprint_version,
+                fingerprint_analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, 1, 1, 1, '2026-07-24T00:00:00.000000Z')
+            """,
+            [
+                (*snapshot(shared_key, 1), 1),
+                (*snapshot(shared_key, 2), 2),
+                (*snapshot(other_key, 3), 3),
+                (*elsewhere(shared_key, "second-same", 2), 12),
+                (*elsewhere(stale_key, "second-stale", 2), 13),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO classifier_labels(
+                classifier_key, content_key, label,
+                last_catalog_uuid, last_track_uuid, last_selected_path
+            ) VALUES ('break_energy', ?, 'broken', ?, ?, ?)
+            """,
+            [snapshot(shared_key, 2), elsewhere(other_key, "second-other", 3)],
+        )
+        connection.execute(
+            """
+            INSERT INTO classifier_training_checkpoints(classifier_key, counts_json, model_artifact)
+            VALUES ('break_energy', '{"broken": 3, "straight": 4}', 'model.joblib')
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO classifier_label_queue(
+                classifier_key, content_key, catalog_uuid, track_uuid,
+                selected_path, mode, priority, reason_json
+            ) VALUES ('break_energy', ?, ?, ?, ?, 'uncertainty', 1.0, '{}')
+            """,
+            [snapshot(shared_key, 2), snapshot(other_key, 3)],
+        )
+        connection.executemany(
+            """
+            INSERT INTO classifier_predictions(
+                classifier_key, content_key, catalog_uuid, track_uuid,
+                selected_path, feature_set, model_artifact, label,
+                confidence, probabilities_json
+            ) VALUES (
+                'break_energy', ?, ?, ?, ?,
+                'combined', 'model.joblib', 'broken', 0.9, '{}'
+            )
+            """,
+            [snapshot(shared_key, 1), snapshot(other_key, 3)],
+        )
+        collection_id = connection.execute(
+            "INSERT INTO review_collections(catalog_uuid, name) VALUES (?, 'Breaks')",
+            (files[1].catalog_uuid,),
+        ).lastrowid
+        connection.executemany(
+            """
+            INSERT INTO review_collection_tracks(
+                collection_id, content_key, catalog_uuid, track_uuid,
+                selected_path, position
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (collection_id, *snapshot(shared_key, 1), 1),
+                (collection_id, *snapshot(other_key, 3), 2),
+            ],
+        )
+    lab_tables = (
+        "track_sightings",
+        "classifier_labels",
+        "classifier_label_queue",
+        "classifier_predictions",
+        "review_collection_tracks",
+        "review_collections",
+    )
+
+    def lab_rows() -> dict[str, list[tuple[object, ...]]]:
+        with closing(sqlite3.connect(rhythm_lab_db)) as connection:
+            return {
+                table: connection.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall()
+                for table in lab_tables
+            }
+
+    def checkpoint() -> tuple[dict[str, int], str]:
+        with closing(sqlite3.connect(rhythm_lab_db)) as connection:
+            counts_json, updated_at = connection.execute(
+                "SELECT counts_json, updated_at FROM classifier_training_checkpoints"
+            ).fetchone()
+        return json.loads(counts_json), updated_at
+
+    def text_cells_containing(path: Path, needles: set[str]) -> list[tuple[str, str, str]]:
+        found = []
+        with closing(sqlite3.connect(path)) as connection:
+            for (table,) in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall():
+                for column in [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')]:
+                    for needle in sorted(needles):
+                        if connection.execute(
+                            f'SELECT 1 FROM "{table}" WHERE typeof("{column}") = \'text\''
+                            f' AND instr("{column}", ?) > 0 LIMIT 1',
+                            (needle,),
+                        ).fetchone():
+                            found.append((table, column, needle))
+        return found
+
+    before = lab_rows()
+    _, trained_at = checkpoint()
 
     apply_result = deletion_module.apply_duplicate_deletions(
         db_path=db_path,
         payload=result.payload,
-        selected_track_ids=[2],
+        selected_track_ids=[2, 3],
     )
 
-    assert apply_result.deleted_track_ids == (2,)
-    assert apply_result.rhythm_lab_deleted_rows == 2
-    with sqlite3.connect(rhythm_lab_db) as connection:
-        assert connection.execute(
-            "SELECT track_uuid FROM classifier_labels"
-        ).fetchall() == [(keeper_identity[1],)]
-        assert connection.execute(
-            "SELECT track_uuid FROM classifier_predictions"
-        ).fetchall() == [(keeper_identity[1],)]
-        assert connection.execute("SELECT classifier_key FROM classifier_training_checkpoints").fetchall() == [("break_energy",)]
+    after = lab_rows()
+    assert apply_result.deleted_track_ids == (2, 3)
+    assert keeper_path.exists()
+    assert {table: len(rows) for table, rows in after.items()} == {
+        "track_sightings": 2,
+        "classifier_labels": 0,
+        "classifier_label_queue": 0,
+        "classifier_predictions": 1,
+        "review_collection_tracks": 1,
+        "review_collections": 1,
+    }
+    # Rows naming the keeper, or other content at a deleted path, are untouched.
+    assert after == {
+        table: [
+            row for row in rows
+            if table == "review_collections" or {files[1].track_uuid, "second-stale"} & set(row)
+        ]
+        for table, rows in before.items()
+    }
+    assert apply_result.rhythm_lab_deleted_rows == 9
+    # Both deleted labels come off the trained count; the training time stays.
+    assert checkpoint() == ({"broken": 1, "straight": 4}, trained_at)
+    deleted_file_facts = {
+        value for track_id in (2, 3) for value in (files[track_id].file_path, files[track_id].track_uuid)
+    }
+    assert text_cells_containing(rhythm_lab_db, deleted_file_facts) == [
+        ("track_sightings", "selected_path", files[2].file_path),
+    ]
+    assert text_cells_containing(db_path, deleted_file_facts) == []

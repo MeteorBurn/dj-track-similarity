@@ -347,6 +347,14 @@ class TrackRepository:
             return
         try:
             with connection:
+                # A session the track seeded also names it in request_json, so
+                # the whole session goes and its seeds and events cascade; a
+                # session where it was only a candidate loses just that event.
+                connection.execute(
+                    "DELETE FROM search_sessions WHERE session_id IN "
+                    "(SELECT session_id FROM search_session_seeds WHERE track_id = ?)",
+                    (track_id,),
+                )
                 delete_evaluation_track_rows(connection, (track_id,))
         finally:
             connection.close()

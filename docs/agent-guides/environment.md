@@ -66,8 +66,8 @@ are relative to this file. These guides are read by task, not imported as a batc
   The repository ships an LGPL audio-only build in `libs/ffmpeg/bin/` and a PyAV
   wheel built against it in `libs/wheels/`; that wheel carries no libraries of its
   own, so `configure_shared_ffmpeg_runtime()` must run before anything imports
-  `av`. Discovery takes `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` first, then
-  `libs/ffmpeg/bin/`, then PATH, and an explicit override must be valid. Verify
+  `av`. Discovery checks `libs/ffmpeg/bin/` first, then the DLL directory in
+  `DJTS_FFMPEG`, then PATH, skipping missing or invalid candidates. Verify
   with `inspect_audio_runtime()`, which also checks project PyAV; finding
   `ffmpeg.exe` alone is insufficient. Nothing in the project launches a program.
 - On Windows x64 with Python 3.10.20, the lock selects PyTorch/TorchAudio

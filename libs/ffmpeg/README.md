@@ -21,8 +21,9 @@ wheel for CPython 3.10 x64, built against these DLLs. Unlike the stock PyAV
 wheel, it does not bundle or rename FFmpeg DLLs. It has no console entry point.
 Keep the DLL directory registered with `os.add_dll_directory()` before importing
 PyAV or TorchCodec. DJ Track Similarity already provides this registration
-through `configure_shared_ffmpeg_runtime()` and the process environment setting
-`DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, which should point to this `bin/`.
+through `configure_shared_ffmpeg_runtime()`. Discovery checks `libs/ffmpeg/bin/`
+first, then the DLL directory in the optional `DJTS_FFMPEG` environment variable,
+then PATH, skipping missing or invalid candidates.
 
 The stock PyAV wheel uses its own renamed FFmpeg DLLs; changing PATH alone does
 not switch that wheel to this build. The custom wheel is included for that reason.

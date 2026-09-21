@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutureTimeoutError
+from contextlib import ExitStack
 from dataclasses import dataclass
+import multiprocessing
+import os
 import sqlite3
 from typing import Callable, Mapping
 
@@ -233,14 +237,9 @@ def sonara_duplicate_clusters(
     below it: rounding to whole seconds splits copies that differ by hundredths,
     and copies of one recording often differ by a second outright.
 
-    Each further bucket of slack costs a whole pass over every representative.
-    Measured 2026-09-21 over the library's 45 624 analysed tracks: no slack is
-    3 966 498 comparisons, one bucket is 10 818 424 and two are 17 803 643, which
-    at 423 us a comparison is 28 minutes against 1.3 hours against 2.1 hours.
-    Measured against an LSH run over the same library, strict bucketing missed
-    190 pairs; one bucket of slack reaches 132 of them and two reach 159. The
-    second bucket therefore buys 27 pairs for another 49 minutes, so the slack
-    stops at one.
+    Large candidate lists use bounded batches of native comparisons in worker
+    processes. Results are consumed in representative order, preserving the
+    serial scan's first match, scores and logical comparison count.
     """
     total_tracks = len(track_uuids)
     if not _has_fingerprint_table(connection):
@@ -264,67 +263,87 @@ def sonara_duplicate_clusters(
     members: dict[int, list[int]] = {}
     pair_scores: dict[int, dict[tuple[int, int], float]] = {}
     values: dict[int, tuple[int, str]] = {}
-    for index, bucket_key in enumerate(ordered_keys):
-        if cancel_hook is not None:
-            cancel_hook()
-        bucket_ids = buckets[bucket_key]
-        for row in _fingerprint_rows(connection, bucket_ids):
-            track_id = int(row["track_id"])
-            value = _valid_fingerprint_value(row, track_uuids.get(track_id))
-            if value is None:
-                rejected_rows += 1
-                continue
-            values[track_id] = value
-            valid_count += 1
-        for track_id in bucket_ids:
+    worker_count = min(8, os.cpu_count() or 1)
+    pool = None
+    with ExitStack() as workers:
+        for index, bucket_key in enumerate(ordered_keys):
             if cancel_hook is not None:
                 cancel_hook()
-            value = values.get(track_id)
-            if value is None:
-                continue
-            version, fingerprint = value
-            representative_id = None
-            for neighbour_key in _candidate_bucket_keys(bucket_key):
-                for seen_id, seen_version, seen_fingerprint in representatives.get(
-                    neighbour_key, ()
+            bucket_ids = buckets[bucket_key]
+            for row in _fingerprint_rows(connection, bucket_ids):
+                track_id = int(row["track_id"])
+                value = _valid_fingerprint_value(row, track_uuids.get(track_id))
+                if value is None:
+                    rejected_rows += 1
+                    continue
+                values[track_id] = value
+                valid_count += 1
+            for track_id in bucket_ids:
+                if cancel_hook is not None:
+                    cancel_hook()
+                value = values.get(track_id)
+                if value is None:
+                    continue
+                version, fingerprint = value
+                candidates = [
+                    (seen_id, seen_fingerprint)
+                    for neighbour_key in _candidate_bucket_keys(bucket_key)
+                    for seen_id, seen_version, seen_fingerprint in representatives.get(
+                        neighbour_key, ()
+                    )
+                    if seen_version == version
+                ]
+                if (
+                    pool is None
+                    and matcher is None
+                    and worker_count > 1
+                    and total_tracks >= _PARALLEL_MIN_TRACKS
+                    and len(candidates) >= _PARALLEL_MIN_CANDIDATES
+                    and len(fingerprint) >= _PARALLEL_MIN_FINGERPRINT_CHARS
                 ):
-                    if seen_version != version:
+                    pool = workers.enter_context(
+                        ProcessPoolExecutor(
+                            max_workers=worker_count,
+                            mp_context=multiprocessing.get_context("spawn"),
+                        )
+                    )
+                representative_id, score, comparisons = _first_matching_representative(
+                    fingerprint,
+                    candidates,
+                    matcher=selected_matcher,
+                    min_similarity=min_similarity,
+                    pool=pool,
+                    worker_count=worker_count,
+                    cancel_hook=cancel_hook,
+                )
+                comparison_count += comparisons
+                if representative_id is None:
+                    representatives.setdefault(bucket_key, []).append(
+                        (track_id, version, fingerprint)
+                    )
+                    members[track_id] = [track_id]
+                    pair_scores[track_id] = {}
+                    continue
+                pair_scores[representative_id][_ordered_pair(track_id, representative_id)] = score
+                for member_id in members[representative_id]:
+                    if member_id == representative_id:
                         continue
                     comparison_count += 1
-                    score = _clamped_match(selected_matcher, fingerprint, seen_fingerprint)
-                    if score is not None and score > min_similarity:
-                        representative_id = seen_id
-                        pair_scores[seen_id][_ordered_pair(track_id, seen_id)] = score
-                        break
-                if representative_id is not None:
-                    break
-            if representative_id is None:
-                representatives.setdefault(bucket_key, []).append(
-                    (track_id, version, fingerprint)
-                )
-                members[track_id] = [track_id]
-                pair_scores[track_id] = {}
-                continue
-            for member_id in members[representative_id]:
-                if member_id == representative_id:
-                    continue
-                comparison_count += 1
-                score = _clamped_match(selected_matcher, fingerprint, values[member_id][1])
-                if score is not None:
-                    pair_scores[representative_id][_ordered_pair(track_id, member_id)] = score
-            members[representative_id].append(track_id)
-        # Free fingerprints no reachable representative can still need. A
-        # representative in bucket k gathers members from k through k+slack, and
-        # the oldest bucket still in reach is this one minus the slack, so the
-        # bucket one below that is done with.
-        released_index = index - _BUCKET_SLACK - 1
-        if released_index >= 0:
-            for released_id in buckets[ordered_keys[released_index]]:
-                values.pop(released_id, None)
-            representatives.pop(ordered_keys[released_index], None)
-        processed_tracks += len(bucket_ids)
-        if progress_callback is not None:
-            progress_callback(processed_tracks, total_tracks)
+                    score = _clamped_match(selected_matcher, fingerprint, values[member_id][1])
+                    if score is not None:
+                        pair_scores[representative_id][_ordered_pair(track_id, member_id)] = score
+                members[representative_id].append(track_id)
+            # Free fingerprints no reachable representative can still need. A
+            # representative in bucket k gathers members from k through k+slack,
+            # and the oldest bucket still in reach is this one minus the slack.
+            released_index = index - _BUCKET_SLACK - 1
+            if released_index >= 0:
+                for released_id in buckets[ordered_keys[released_index]]:
+                    values.pop(released_id, None)
+                representatives.pop(ordered_keys[released_index], None)
+            processed_tracks += len(bucket_ids)
+            if progress_callback is not None:
+                progress_callback(processed_tracks, total_tracks)
     for representative_id, member_ids in members.items():
         if len(member_ids) < 2:
             continue
@@ -345,6 +364,77 @@ def sonara_duplicate_clusters(
 
 
 _BUCKET_SLACK = 1
+_MATCH_BATCH_SIZE = 32
+# Small scans and short fingerprints do not amortize process startup and IPC.
+_PARALLEL_MIN_TRACKS = 128
+_PARALLEL_MIN_CANDIDATES = 64
+_PARALLEL_MIN_FINGERPRINT_CHARS = 4096
+
+
+def _match_fingerprint_batch(fingerprint: str, candidates: list[str]) -> list[float | None]:
+    """Keep native matching in workers; database access stays in the scan owner."""
+    return [
+        _clamped_match(_native_fingerprint_match, fingerprint, candidate)
+        for candidate in candidates
+    ]
+
+
+def _first_matching_representative(
+    fingerprint: str,
+    candidates: list[tuple[int, str]],
+    *,
+    matcher: Callable[[str, str], float],
+    min_similarity: float,
+    pool: ProcessPoolExecutor | None,
+    worker_count: int,
+    cancel_hook: Callable[[], None] | None,
+) -> tuple[int | None, float | None, int]:
+    if (
+        pool is None
+        or len(candidates) < _PARALLEL_MIN_CANDIDATES
+        or len(fingerprint) < _PARALLEL_MIN_FINGERPRINT_CHARS
+    ):
+        for compared, (track_id, candidate) in enumerate(candidates, 1):
+            if cancel_hook is not None:
+                cancel_hook()
+            score = _clamped_match(matcher, fingerprint, candidate)
+            if score is not None and score > min_similarity:
+                return track_id, score, compared
+        return None, None, len(candidates)
+
+    compared = 0
+    # Bound speculative work to one batch per worker and consume in candidate
+    # order: completion order must never choose a different representative.
+    window_size = worker_count * _MATCH_BATCH_SIZE
+    for start in range(0, len(candidates), window_size):
+        if cancel_hook is not None:
+            cancel_hook()
+        batches = _chunks(candidates[start : start + window_size], _MATCH_BATCH_SIZE)
+        futures = [
+            pool.submit(_match_fingerprint_batch, fingerprint, [value for _, value in batch])
+            for batch in batches
+        ]
+        try:
+            for batch, future in zip(batches, futures):
+                while True:
+                    if cancel_hook is not None:
+                        cancel_hook()
+                    try:
+                        scores = future.result(timeout=0.1)
+                        break
+                    except FutureTimeoutError:
+                        if future.done():
+                            scores = future.result()
+                            break
+                        continue
+                for (track_id, _), score in zip(batch, scores):
+                    compared += 1
+                    if score is not None and score > min_similarity:
+                        return track_id, score, compared
+        finally:
+            for future in futures:
+                future.cancel()
+    return None, None, compared
 
 
 def _candidate_bucket_keys(bucket_key: float | None) -> tuple[float | None, ...]:

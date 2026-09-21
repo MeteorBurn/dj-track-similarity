@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 import json
 import sqlite3
 import sys
@@ -246,7 +247,7 @@ def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
     assert keeper_module.choose_keeper([low_bitrate_flac, high_bitrate_flac, mp3]).track_id == 2
 
 
-def test_cancellation_during_last_spectral_file_does_not_publish_report(
+def test_cancellation_during_processing_does_not_publish_report(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
@@ -279,6 +280,51 @@ def test_cancellation_during_last_spectral_file_does_not_publish_report(
     assert status.state == "cancelled"
     assert status.cancel_requested is True
     assert status.report_id is None
+    assert not out_dir.exists()
+
+    pending: list[Future] = []
+    pool_closed: list[bool] = []
+
+    class CancelWhileWaiting(Future):
+        def result(self, timeout=None):
+            assert timeout is not None
+            job = manager.latest()
+            assert job is not None
+            # A second wait means the cancellation hook was not checked after
+            # the worker timeout. Fail immediately rather than hanging the run.
+            assert not job.cancel_requested
+            manager.cancel(job.job_id)
+            raise FutureTimeoutError
+
+    class PendingPool:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            pool_closed.append(True)
+
+        def submit(self, *_args: object) -> Future:
+            future = CancelWhileWaiting()
+            pending.append(future)
+            return future
+
+    monkeypatch.setattr(fingerprints_module, "ProcessPoolExecutor", PendingPool)
+    monkeypatch.setattr(fingerprints_module.os, "cpu_count", lambda: 2)
+    monkeypatch.setattr(fingerprints_module, "_PARALLEL_MIN_CANDIDATES", 1)
+    monkeypatch.setattr(fingerprints_module, "_PARALLEL_MIN_TRACKS", 1)
+    monkeypatch.setattr(fingerprints_module, "_PARALLEL_MIN_FINGERPRINT_CHARS", 1)
+    analyzed.clear()
+    status = manager.run_sync(detect_fake_bitrate=True)
+
+    assert status.state == "cancelled"
+    assert status.cancel_requested is True
+    assert status.report_id is None
+    assert pending and all(future.cancelled() for future in pending)
+    assert pool_closed
+    assert analyzed == []
     assert not out_dir.exists()
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from pathlib import Path
 import sqlite3
 import sys
@@ -20,6 +21,7 @@ from audio_dedup.fingerprints import (  # noqa: E402
     load_fingerprint_sketches,
     sonara_duplicate_clusters,
 )
+from audio_dedup import fingerprints as fingerprints_module  # noqa: E402
 from audio_dedup import config as config_module  # noqa: E402
 from audio_dedup import models as models_module  # noqa: E402
 from audio_dedup import report_payload as report_payload_module  # noqa: E402
@@ -113,9 +115,9 @@ def test_stored_fingerprint_loader_rejects_stale_identity_and_matches_only_same_
     assert scores == {(1, 2): 0.88}
 
 
-def test_fingerprint_scan_matches_representatives_only_above_the_upstream_threshold() -> (
-    None
-):
+def test_fingerprint_scan_matches_representatives_only_above_the_upstream_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
     connection.executescript(
@@ -162,6 +164,7 @@ def test_fingerprint_scan_matches_representatives_only_above_the_upstream_thresh
         frozenset((1, 5)): 0.99,
         frozenset((1, 6)): 0.95,
         frozenset((2, 6)): 0.7,
+        frozenset((3, 6)): 0.99,
         frozenset((1, 7)): 0.97,
         frozenset((2, 7)): 0.6,
         frozenset((6, 7)): 0.5,
@@ -207,6 +210,55 @@ def test_fingerprint_scan_matches_representatives_only_above_the_upstream_thresh
     assert frozenset((1, 5)) not in compared
     assert result.valid_fingerprint_count == 8
     assert result.duration_bucket_count == 4
+    assert result.comparison_count == 7
+
+    completed: list[frozenset[int]] = []
+
+    class CompletesAtTimeout(Future):
+        def result(self, timeout=None):
+            if timeout is not None:
+                # The wait expires, then completion becomes visible before the
+                # caller checks done(). Its stored result must still be read.
+                assert self.done()
+                raise FutureTimeoutError
+            return super().result()
+
+    class ReversedCompletionPool:
+        def __init__(self, **_kwargs: object) -> None:
+            self.pending: list[tuple[Future, object, str, list[str]]] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            assert not self.pending
+
+        def submit(self, function, fingerprint: str, candidates: list[str]) -> Future:
+            future = CompletesAtTimeout()
+            self.pending.append((future, function, fingerprint, candidates))
+            if len(self.pending) == 2:
+                for pending, match_batch, left, right in reversed(self.pending):
+                    completed.extend(
+                        frozenset((ids_by_value[left], ids_by_value[value]))
+                        for value in right
+                    )
+                    pending.set_result(match_batch(left, right))
+                self.pending.clear()
+            return future
+
+    # Force concurrent dispatch without native code or child processes. The
+    # later representative scores higher and finishes first; it must not win.
+    monkeypatch.setattr(fingerprints_module, "_native_fingerprint_match", matcher)
+    monkeypatch.setattr(fingerprints_module, "ProcessPoolExecutor", ReversedCompletionPool)
+    monkeypatch.setattr(fingerprints_module.os, "cpu_count", lambda: 2)
+    monkeypatch.setattr(fingerprints_module, "_PARALLEL_MIN_CANDIDATES", 2)
+    monkeypatch.setattr(fingerprints_module, "_PARALLEL_MIN_TRACKS", 1)
+    monkeypatch.setattr(fingerprints_module, "_PARALLEL_MIN_FINGERPRINT_CHARS", 1)
+    monkeypatch.setattr(fingerprints_module, "_MATCH_BATCH_SIZE", 1)
+    parallel_result = sonara_duplicate_clusters(connection, identities, durations)
+
+    assert completed[:2] == [frozenset((3, 6)), frozenset((1, 6))]
+    assert parallel_result == result
 
 
 def test_missing_fingerprint_table_yields_no_duplicate_evidence() -> None:

@@ -523,6 +523,32 @@ class TextSearchFeedbackLookupResponse(BaseModel):
     verdicts: dict[str, TextQueryVerdictResponse]
 
 
+# The frontend owns the preset list (textPromptPresets.ts); the server checks
+# only that a key is safe, such as "rhythm/breakbeat".
+PROMPT_PRESET_KEY_PATTERN = r"^[a-z0-9][a-z0-9_/-]{0,63}$"
+
+
+class PromptDecisionRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    model: Literal["clap", "mulan", "both", "neither"]
+
+
+class PromptDecisionResponse(PromptDecisionRequest):
+    updated_at: str
+
+
+class PromptDecisionsResponse(BaseModel):
+    """The on-disk shape of the decisions file, returned as it is stored."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    decisions: dict[
+        Annotated[str, Field(pattern=PROMPT_PRESET_KEY_PATTERN)],
+        PromptDecisionResponse,
+    ] = Field(default_factory=dict)
+
+
 class TrackIdentityRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 

@@ -220,6 +220,27 @@ test("text feedback transports issued run and expected revision", async () => {
   assert.deepEqual(calls[1].payload, { run_id: "run", track_uuids: ["track"] });
 });
 
+test("label decisions keep the preset key's slash in the path and accept an empty 204", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options = {}) => {
+    calls.push({ path, options });
+    if (options.method === "DELETE") return new Response(null, { status: 204 });
+    return jsonResponse(options.method === "PUT"
+      ? { model: "both", updated_at: "2026-09-21T10:00:00+00:00" }
+      : { decisions: {} });
+  });
+
+  assert.deepEqual((await api.textPromptDecisions()).decisions, {});
+  assert.equal((await api.saveTextPromptDecision("rhythm/breakbeat", "both")).model, "both");
+  assert.equal(await api.clearTextPromptDecision("rhythm/breakbeat"), undefined);
+  assert.deepEqual(calls.map(({ path, options }) => [options.method ?? "GET", path]), [
+    ["GET", "/api/search/text/decisions"],
+    ["PUT", "/api/search/text/decisions/rhythm/breakbeat"],
+    ["DELETE", "/api/search/text/decisions/rhythm/breakbeat"],
+  ]);
+  assert.deepEqual(JSON.parse(calls[1].options.body), { model: "both" });
+});
+
 test("detail, preview metadata and generic search clients forward AbortSignal unchanged", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {

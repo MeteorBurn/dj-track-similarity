@@ -111,6 +111,11 @@ type TextSearchFeedbackLookupPayload = { run_id: string; track_uuids: string[] }
 type TextSearchFeedbackLookupResult = {
   query_key: string; verdicts: Record<string, { verdict: -1 | 0 | 1; revision: number }>;
 };
+/** Which text model hears a label better, as the owner decided in A/B. */
+export type PromptModelDecision = "clap" | "mulan" | "both" | "neither";
+type PromptDecisionEntry = { model: PromptModelDecision; updated_at: string };
+/** Keyed by preset key; a label without a decision has no entry. */
+export type PromptDecisions = Record<string, PromptDecisionEntry>;
 export class ApiError extends Error {
   readonly status: number;
 
@@ -151,6 +156,8 @@ async function requestOnce<T>(path: string, options?: RequestInit): Promise<T> {
       responseErrorMessage(text, response.statusText),
     );
   }
+  // 204 carries no body, so there is nothing to parse.
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -389,7 +396,19 @@ const searchApi = {
       body: JSON.stringify(payload),
       signal: options?.signal,
     }),
-
+  textPromptDecisions: (options?: { signal?: AbortSignal }) =>
+    request<{ decisions: PromptDecisions }>("/api/search/text/decisions", {
+      signal: options?.signal,
+    }),
+  // The preset key goes into the path unencoded: its "/" is part of the key,
+  // and the server route takes the rest of the path.
+  saveTextPromptDecision: (presetKey: string, model: PromptModelDecision) =>
+    request<PromptDecisionEntry>(`/api/search/text/decisions/${presetKey}`, {
+      method: "PUT",
+      body: JSON.stringify({ model }),
+    }),
+  clearTextPromptDecision: (presetKey: string) =>
+    request<void>(`/api/search/text/decisions/${presetKey}`, { method: "DELETE" }),
 };
 
 const referenceCompareApi = {

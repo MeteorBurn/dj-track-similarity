@@ -3152,6 +3152,13 @@ h2 {
   color: var(--accent-active-text);
 }
 
+/* A/B decision for the one selected label: LAB verdict buttons, one per option. */
+.text-model-decision {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .search-tab-panel {
   display: grid;
   gap: 14px;

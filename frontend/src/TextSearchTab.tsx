@@ -1,6 +1,8 @@
 import { Check, ChevronDown, ListFilter, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EmbeddingSource } from "./api";
+import { api, type EmbeddingSource } from "./api";
+import type { PromptDecisions, PromptModelDecision } from "./apiClient";
+import { errorText, isAbortError } from "./errors";
 import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPromptPresets";
 import {
   axisByKey,
@@ -20,6 +22,15 @@ import {
 function bankRows(text: string, min: number, max: number) {
   return Math.min(max, Math.max(min, text.split(/\r?\n/).length));
 }
+
+// Which model hears a label better, recorded by ear in A/B with one click and
+// repeated as a badge on the label in the picker.
+const modelDecisionOptions: { model: PromptModelDecision; label: string; badge: string; meaning: string }[] = [
+  { model: "clap", label: "CLAP", badge: "C", meaning: "CLAP слышит эту метку лучше" },
+  { model: "mulan", label: "MuQ-MuLan", badge: "M", meaning: "MuQ-MuLan слышит эту метку лучше" },
+  { model: "both", label: "Обе", badge: "C+M", meaning: "Обе модели слышат эту метку хорошо" },
+  { model: "neither", label: "Обе плохо", badge: "✕", meaning: "Обе модели слышат эту метку плохо" },
+];
 
 export function TextSearchTab({
   textQuery,
@@ -77,6 +88,12 @@ export function TextSearchTab({
   const [previewPresetKey, setPreviewPresetKey] = useState<string | null>(null);
   const presetMenuRef = useRef<HTMLDivElement>(null);
   const presetButtonRef = useRef<HTMLButtonElement>(null);
+  // Null until the read succeeds, so a failed read never passes for "no
+  // decisions" and never enables a write over decisions it has not seen.
+  const [decisions, setDecisions] = useState<PromptDecisions | null>(null);
+  const [decisionPending, setDecisionPending] = useState(false);
+  const [decisionError, setDecisionError] = useState("");
+  const decisionPresetKey = textCompareModels && selectedPresetKeys.length === 1 ? selectedPresetKeys[0] : null;
   const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
   const promptModel: TextPromptModel = textEmbeddingFamily;
   const selectedPresets = useMemo(
@@ -160,6 +177,38 @@ export function TextSearchTab({
     document.addEventListener("pointerdown", closePresetMenuOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closePresetMenuOnOutsideClick);
   }, [presetMenuOpen]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api.textPromptDecisions({ signal: controller.signal })
+      .then((stored) => setDecisions(stored.decisions))
+      .catch((error) => { if (!isAbortError(error)) setDecisionError(errorText(error)); });
+    return () => controller.abort();
+  }, []);
+
+  // Clicking the decision already recorded clears it.
+  async function decideModel(presetKey: string, model: PromptModelDecision) {
+    if (!decisions || decisionPending) return;
+    setDecisionPending(true);
+    setDecisionError("");
+    try {
+      if (decisions[presetKey]?.model === model) {
+        await api.clearTextPromptDecision(presetKey);
+        setDecisions((current) => {
+          const next = { ...current };
+          delete next[presetKey];
+          return next;
+        });
+      } else {
+        const entry = await api.saveTextPromptDecision(presetKey, model);
+        setDecisions((current) => ({ ...current, [presetKey]: entry }));
+      }
+    } catch (error) {
+      setDecisionError(errorText(error));
+    } finally {
+      setDecisionPending(false);
+    }
+  }
 
   function closePresetMenu() {
     setPresetMenuOpen(false);
@@ -274,6 +323,9 @@ export function TextSearchTab({
                           <div className="text-preset-axis-labels">
                             {presets.map((preset) => {
                               const active = selectedPresetKeys.includes(preset.key);
+                              const decided = modelDecisionOptions.find(
+                                (option) => option.model === decisions?.[preset.key]?.model
+                              );
                               return (
                                 <button
                                   className={`text-preset-label ${active ? "active" : ""}`}
@@ -290,6 +342,11 @@ export function TextSearchTab({
                                     <Check size={12} strokeWidth={3} aria-hidden="true" />
                                   ) : null}
                                   {preset.label}
+                                  {decided ? (
+                                    <span className="text-preset-tally" title={`Решение A/B: ${decided.meaning}`}>
+                                      {decided.badge}
+                                    </span>
+                                  ) : null}
                                 </button>
                               );
                             })}
@@ -455,6 +512,34 @@ export function TextSearchTab({
         <Search size={17} />
         {textCompareModels ? "Search · A/B" : "Search"}
       </button>
+      {decisionPresetKey ? (
+        <>
+          <div
+            className="text-model-decision"
+            role="group"
+            aria-busy={decisionPending}
+            aria-label={`Какая модель лучше слышит метку ${presetByKey(decisionPresetKey)?.label ?? decisionPresetKey}`}
+          >
+            {modelDecisionOptions.map((option) => {
+              const active = decisions?.[decisionPresetKey]?.model === option.model;
+              return (
+                <button
+                  className={`reference-compare-verdict-button ${active ? "active" : ""}`}
+                  key={option.model}
+                  aria-pressed={active}
+                  disabled={!decisions || decisionPending}
+                  title={active ? `${option.meaning}. Нажмите ещё раз, чтобы снять решение.` : option.meaning}
+                  onClick={() => void decideModel(decisionPresetKey, option.model)}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {decisionError ? <span className="reference-compare-error" role="alert">{decisionError}</span> : null}
+        </>
+      ) : null}
     </div>
   );
 }

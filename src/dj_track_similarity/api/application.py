@@ -15,6 +15,7 @@ from .routes_audio_dedup import register_audio_dedup_routes
 from .routes_database import register_database_routes
 from .routes_evaluation import register_evaluation_routes
 from .routes_library import register_library_routes
+from .routes_prompt_decisions import register_prompt_decision_routes
 from .routes_reference_compare import register_reference_compare_routes
 from .routes_rhythm_lab import register_rhythm_lab_routes
 from .routes_search import register_search_routes
@@ -162,6 +163,7 @@ def create_app(
         loaded_text_embedding_adapters=text_adapters.loaded,
         text_search_runs=text_search_runs,
     )
+    register_prompt_decision_routes(app)
     register_server_routes(app, stop_rhythm_lab=stop_rhythm_lab)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)
     register_rhythm_lab_routes(

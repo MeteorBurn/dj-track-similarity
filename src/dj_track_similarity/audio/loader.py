@@ -54,16 +54,19 @@ def _load_with_torchcodec(path: Path) -> tuple[Tensor, int, str]:
     import torch
     from torchcodec.decoders import AudioDecoder
 
-    decoded = AudioDecoder(str(path), num_channels=1).get_all_samples()
-    if decoded.data.ndim != 2 or decoded.data.shape[0] != 1:
+    # Every model reference mixes to mono as the channel mean. FFmpeg's own
+    # stereo-to-mono matrix skips its normalization for float output and yields
+    # (L+R)/sqrt(2), 3 dB louder and past full scale, so decode native channels.
+    decoded = AudioDecoder(str(path)).get_all_samples()
+    if decoded.data.ndim != 2 or decoded.data.shape[0] <= 0:
         raise RuntimeError(
-            f"TorchCodec produced an unexpected mono audio shape: {decoded.data.shape}"
+            f"TorchCodec produced an unexpected audio shape: {decoded.data.shape}"
         )
-    audio = decoded.data[0]
-    if audio.dtype != torch.float32:
+    if decoded.data.dtype != torch.float32:
         raise RuntimeError(
-            f"TorchCodec produced an unexpected audio dtype: {audio.dtype}"
+            f"TorchCodec produced an unexpected audio dtype: {decoded.data.dtype}"
         )
+    audio = decoded.data.mean(dim=0)
     if audio.numel() == 0:
         raise RuntimeError("TorchCodec produced no decoded audio")
     sample_rate = int(decoded.sample_rate)
@@ -72,7 +75,7 @@ def _load_with_torchcodec(path: Path) -> tuple[Tensor, int, str]:
     return (
         audio,
         sample_rate,
-        "torchcodec 0.16 decode (num_channels=1)",
+        "torchcodec 0.16 decode (arithmetic channel mean)",
     )
 
 

@@ -74,7 +74,7 @@ class MertV2EmbeddingAdapter:
             "sample_rate_hz": self.target_rate,
             "chunk_seconds": self.chunk_seconds,
             "pooling": self.pooling,
-            "channel_downmix": "torchcodec-num-channels-1",
+            "channel_downmix": "arithmetic-mean",
             "decoder": "shared-torchcodec-0.16",
             "chunk_selection": "consecutive-full-coverage-no-overlap",
             "short_audio": "single-unpadded-chunk-minimum-1025-samples",

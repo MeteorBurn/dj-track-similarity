@@ -63,7 +63,7 @@ class MuqEmbeddingAdapter:
             "window_seconds": self.window_seconds,
             "pooling": self.pooling,
             "dtype": self.dtype,
-            "channel_downmix": "torchcodec-num-channels-1",
+            "channel_downmix": "arithmetic-mean",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "window_selection": "consecutive-full-coverage-end-aligned-tail",

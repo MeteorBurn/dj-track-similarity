@@ -85,7 +85,7 @@ class ClapEmbeddingAdapter:
             "amodel": self.amodel,
             "tmodel": self.tmodel,
             "enable_fusion": self.enable_fusion,
-            "channel_downmix": "torchcodec-num-channels-1",
+            "channel_downmix": "arithmetic-mean",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "audio_truncation": "adapter-consecutive-10s-windows-end-aligned-tail",

@@ -177,7 +177,7 @@ def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
     ):
         parameters = adapter.runtime_parameters()
         assert parameters["decoder"] == "shared-torchcodec-0.16"
-        assert parameters["channel_downmix"] == "torchcodec-num-channels-1"
+        assert parameters["channel_downmix"] == "arithmetic-mean"
 
 
 def test_local_checkpoint_resolution_creates_immutable_verified_binding(

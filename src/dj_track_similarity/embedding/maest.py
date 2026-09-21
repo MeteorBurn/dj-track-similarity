@@ -86,7 +86,7 @@ class MaestEmbeddingAdapter:
             "top_k": self.top_k,
             "inference_batch_size": self.inference_batch_size,
             "pooling": self.pooling,
-            "channel_downmix": "torchcodec-num-channels-1",
+            "channel_downmix": "arithmetic-mean",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "block_selection": "upstream-mel-contiguous-blocks",

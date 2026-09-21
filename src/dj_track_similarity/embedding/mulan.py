@@ -93,7 +93,7 @@ class MuqMulanEmbeddingAdapter:
             "audio_input": "full-track",
             "pooling": self.pooling,
             "dtype": self.dtype,
-            "channel_downmix": "torchcodec-num-channels-1",
+            "channel_downmix": "arithmetic-mean",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "clip_selection": "upstream-consecutive-nonoverlapping",

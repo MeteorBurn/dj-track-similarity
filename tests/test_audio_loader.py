@@ -128,7 +128,7 @@ def test_load_decoded_audio_preserves_native_sample_rate(monkeypatch, tmp_path: 
     assert result.path == str(audio_path)
     assert result.sample_rate == 44_100
     assert torch.equal(result.audio, torch.zeros(4, dtype=torch.float32))
-    assert result.detail == "torchcodec 0.16 decode (num_channels=1)"
+    assert result.detail == "torchcodec 0.16 decode (arithmetic channel mean)"
 
 
 def test_load_decoded_audio_does_not_bypass_torchcodec_failure(
@@ -140,7 +140,7 @@ def test_load_decoded_audio_does_not_bypass_torchcodec_failure(
     audio_path.write_bytes(b"encoded audio")
 
     class FailingAudioDecoder:
-        def __init__(self, source: str, *, num_channels: int) -> None:
+        def __init__(self, source: str) -> None:
             raise RuntimeError("unsupported test codec")
 
     torchcodec_module = types.ModuleType("torchcodec")
@@ -153,16 +153,25 @@ def test_load_decoded_audio_does_not_bypass_torchcodec_failure(
         load_decoded_audio(audio_path)
 
 
-def test_shared_ffmpeg_decode_uses_arithmetic_mean_for_correlated_stereo(tmp_path: Path) -> None:
+def test_ml_decoders_use_arithmetic_mean_for_correlated_stereo(tmp_path: Path) -> None:
+    """Every model reference mixes to mono as (L+R)/2, so both ML decoders must.
+
+    FFmpeg's own stereo-to-mono matrix leaves float output at (L+R)/sqrt(2):
+    3 dB louder than the reference and past full scale on correlated material.
+    """
+
+    pytest.importorskip("torch")
     audio_path = tmp_path / "correlated-stereo.wav"
     expected = _write_identical_stereo_pcm_wav(audio_path)
 
-    audio, sample_rate, _detail = load_audio_mono_with_ffmpeg(audio_path)
+    for decode in (load_decoded_audio, load_decoded_audio_with_ffmpeg):
+        decoded = decode(audio_path)
+        audio = decoded.audio.numpy()
 
-    assert sample_rate == 44_100
-    assert audio.shape == expected.shape
-    assert np.allclose(audio, expected, atol=1e-6)
-    assert float(np.max(np.abs(audio))) < 1.0
+        assert decoded.sample_rate == 44_100
+        assert audio.shape == expected.shape
+        assert np.allclose(audio, expected, atol=1e-6), decode.__name__
+        assert float(np.max(np.abs(audio))) < 1.0, decode.__name__
 
 
 def test_ml_fallback_recovers_audio_when_torchcodec_rejects_a_corrupt_packet(
@@ -180,7 +189,7 @@ def test_ml_fallback_recovers_audio_when_torchcodec_rejects_a_corrupt_packet(
     intact_samples = _write_flac_with_corrupt_packet(audio_path)
 
     with pytest.raises(Exception):
-        AudioDecoder(str(audio_path), num_channels=1).get_all_samples()
+        AudioDecoder(str(audio_path)).get_all_samples()
 
     decoded = load_decoded_audio_with_ffmpeg(audio_path)
 

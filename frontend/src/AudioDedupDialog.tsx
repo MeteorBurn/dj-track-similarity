@@ -158,6 +158,7 @@ export function AudioDedupDialog({
   // Every filter narrows one report, so without a report there is nothing to
   // narrow, and a running scan is about to replace what the row would read.
   const filtersDisabled = !activeReport || jobRunning;
+  const pageSelectionDisabled = !dedup.page?.groups.length || dedup.loadingGroups || dedup.busy || jobRunning;
   const fingerprintBand = fingerprintBandText(draftFilters.confidence[0] ?? "", activeReport);
   const canDelete = summary.files > 0 && !dedup.busy;
   // The filter the page on screen was read under, which is what the counts
@@ -465,9 +466,7 @@ export function AudioDedupDialog({
                   value={draftFilters.pathContains}
                   title={helpText.audioDedupPathFilter}
                   disabled={filtersDisabled}
-                  // The field is wide and usually empty, so the placeholder
-                  // carries the explanation instead of a bare example.
-                  placeholder="Часть пути папки: Abstracted или M:\Volumes\Abstracted — показать дубли только в ней"
+                  placeholder="Часть пути папки: Abstracted или M:\Volumes\Abstracted"
                   onChange={(event) =>
                     setDraftFilters({ ...draftFilters, pathContains: event.target.value })
                   }
@@ -478,15 +477,26 @@ export function AudioDedupDialog({
                   }}
                 />
               </label>
-              <button
-                className="dedup-secondary-button"
-                type="button"
-                title={helpText.audioDedupPathFilter}
-                disabled={filtersDisabled}
-                onClick={() => dedup.applyFilters(draftFilters)}
-              >
-                Применить фильтр
-              </button>
+              <div className="dedup-path-actions">
+                <button
+                  className="dedup-secondary-button"
+                  type="button"
+                  title={helpText.audioDedupPathFilter}
+                  disabled={filtersDisabled}
+                  onClick={() => dedup.applyFilters(draftFilters)}
+                >
+                  Применить фильтр
+                </button>
+                <button
+                  className="dedup-secondary-button"
+                  type="button"
+                  title="Отметить на странице файлы с указанной частью пути, не меняя фильтр"
+                  disabled={pageSelectionDisabled || !draftFilters.pathContains.trim()}
+                  onClick={() => dedup.markFolderOnPage(draftFilters.pathContains)}
+                >
+                  Отметить папку
+                </button>
+              </div>
               <button
                 className="dedup-secondary-button"
                 type="button"
@@ -495,6 +505,15 @@ export function AudioDedupDialog({
                 onClick={dedup.selectSuggestedOnPage}
               >
                 Отметить кандидатов
+              </button>
+              <button
+                className="dedup-secondary-button"
+                type="button"
+                title="Поменять помеченные и непомеченные файлы на текущей странице"
+                disabled={pageSelectionDisabled}
+                onClick={dedup.invertSelectionOnPage}
+              >
+                Инвертировать выбор
               </button>
               <button
                 className="dedup-ghost-button"

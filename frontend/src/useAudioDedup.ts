@@ -12,14 +12,16 @@ import type {
 } from "./api";
 import {
   buildDeleteRequest,
+  invertPageSelection,
   reconcileReportId,
+  selectFolderOnPage,
   setGroupSelection,
   suggestedGroupSelection,
   toggleFileSelection
 } from "./audioDedupView";
 import type { DedupSelection } from "./audioDedupView";
 
-const groupPageSize = 25;
+const groupPageSize = 100;
 
 export type AudioDedupFilters = {
   confidence: string[];
@@ -240,6 +242,14 @@ export function useAudioDedup({
 
   const clearSelection = useCallback(() => setSelection({}), []);
 
+  const invertSelectionOnPage = useCallback(() => {
+    setSelection((current) => invertPageSelection(page?.groups ?? [], current));
+  }, [page]);
+
+  const markFolderOnPage = useCallback((path: string) => {
+    setSelection((current) => selectFolderOnPage(page?.groups ?? [], current, path));
+  }, [page]);
+
   const deleteSelected = useCallback(
     async (deletionMode: AudioDedupDeletionMode): Promise<AudioDedupDeleteResult | null> => {
       if (!reportId) return null;
@@ -316,6 +326,8 @@ export function useAudioDedup({
     toggleFile,
     setGroup,
     selectSuggestedOnPage,
+    invertSelectionOnPage,
+    markFolderOnPage,
     clearSelection,
     deleteSelected
   };

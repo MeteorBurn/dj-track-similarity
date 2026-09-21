@@ -84,19 +84,57 @@ test("the spectral chip survives a report that predates the source-rate measurem
   assert.equal(rate(upsampled), rate(base));
 });
 
-test("a delete batch carries the confirmation phrase the delete endpoint requires", () => {
-  const { applyDeleteConfirmation, buildDeleteRequest } = loadAudioDedupView();
-  const groups = [group(1, [file(10, "keeper"), file(11, "duplicate")])];
+test("page selection preserves its scope and produces a safe confirmed delete batch", () => {
+  const {
+    applyDeleteConfirmation,
+    buildDeleteRequest,
+    invertPageSelection,
+    selectFolderOnPage
+  } = loadAudioDedupView();
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const groups = [group(1, [
+    { ...file(10, "keeper"), path: "M:/Library/Remove/keeper.flac" },
+    { ...file(11, "duplicate"), path: "M:/Library/Keep/copy.flac" },
+    { ...file(12, "duplicate"), path: "M:/Library/Remove/copy.flac" },
+    { ...file(13, "duplicate"), path: "M:/Library/Remove/stale.flac", stale: true },
+    { ...file(14, "duplicate"), path: "M:/Library/Keep/another.flac" }
+  ])];
+  const initial = { 1: [11, 13], 9: [90] };
+  const inverted = invertPageSelection(groups, initial);
+  assert.deepEqual(plain(inverted), { 1: [10, 12, 14], 9: [90] });
+  assert.deepEqual(initial, { 1: [11, 13], 9: [90] });
+  assert.deepEqual(plain(invertPageSelection(groups, inverted)), { 1: [11], 9: [90] });
 
-  const built = buildDeleteRequest(groups, { 1: [11] }, "trash", "Abstracted");
+  const previous = { 1: [11], 9: [90] };
+  const folder = "  m:\\LIBRARY\\remove\\  ";
+  const marked = selectFolderOnPage(groups, previous, folder);
+  assert.deepEqual(plain(marked), { 1: [10, 11, 12], 9: [90] });
+  assert.deepEqual(previous, { 1: [11], 9: [90] });
+  assert.deepEqual(plain(selectFolderOnPage(groups, marked, folder)), plain(marked));
+  assert.deepEqual(plain(selectFolderOnPage(groups, marked, "   ")), plain(marked));
+  assert.deepEqual(plain(selectFolderOnPage(groups, marked, "Missing")), plain(marked));
+
+  const built = buildDeleteRequest(groups, marked, "trash", "Library");
 
   assert.equal(built.ok, true);
   assert.equal(built.payload.confirmation, applyDeleteConfirmation);
   assert.equal(built.payload.deletion_mode, "trash");
   // The server re-checks this filter, so a batch that forgets it deletes copies
   // the reviewer never had on screen.
-  assert.equal(built.payload.path_filter, "Abstracted");
-  assert.deepEqual(JSON.parse(JSON.stringify(built.payload.selections)), [
-    { group_id: 1, track_ids: [11] }
+  assert.equal(built.payload.path_filter, "Library");
+  assert.deepEqual(plain(built.payload.selections), [
+    { group_id: 1, track_ids: [10, 11, 12] },
+    { group_id: 9, track_ids: [90] }
   ]);
+
+  const sameFolder = [group(2, [
+    { ...file(20, "keeper"), path: "M:/Library/Remove/a.flac" },
+    { ...file(21, "duplicate"), path: "M:/Library/Remove/b.flac" }
+  ])];
+  for (const selection of [
+    selectFolderOnPage(sameFolder, {}, folder),
+    invertPageSelection(sameFolder, {})
+  ]) {
+    assert.equal(buildDeleteRequest(sameFolder, selection, "trash", "Library").ok, false);
+  }
 });

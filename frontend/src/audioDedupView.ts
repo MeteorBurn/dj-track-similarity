@@ -287,6 +287,44 @@ export function toggleFileSelection(
   return setGroupSelection(selection, groupId, next);
 }
 
+export function invertPageSelection(
+  groups: AudioDedupGroup[],
+  selection: DedupSelection
+): DedupSelection {
+  let next = selection;
+  for (const group of groups) {
+    const selected = new Set(selectedTrackIds(next, group.group_id));
+    for (const file of group.files) {
+      if (selected.has(file.track_id)) selected.delete(file.track_id);
+      else if (!file.stale) selected.add(file.track_id);
+    }
+    next = setGroupSelection(next, group.group_id, [...selected]);
+  }
+  return next;
+}
+
+export function selectFolderOnPage(
+  groups: AudioDedupGroup[],
+  selection: DedupSelection,
+  path: string
+): DedupSelection {
+  const pathFilter = path.trim().replace(/\\/g, "/").toLowerCase();
+  if (!pathFilter) return selection;
+  let next = selection;
+  for (const group of groups) {
+    const matches = group.files
+      .filter((file) => !file.stale && file.path.replace(/\\/g, "/").toLowerCase().includes(pathFilter))
+      .map((file) => file.track_id);
+    if (matches.length > 0) {
+      next = setGroupSelection(next, group.group_id, [
+        ...selectedTrackIds(next, group.group_id),
+        ...matches
+      ]);
+    }
+  }
+  return next;
+}
+
 export function selectionGroupCount(selection: DedupSelection) {
   return Object.keys(selection).length;
 }

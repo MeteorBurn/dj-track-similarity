@@ -2,6 +2,7 @@ import { AudioWaveform, Check, Copy, FolderOpen, Pause, Play, Trash2, X } from "
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { api } from "./apiClient";
+import { copyTextToClipboard } from "./clipboard";
 import { matchingSonaraBpmPreset } from "./sonaraAnalysisSettings";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { displayTrack } from "./trackDisplay";
@@ -708,32 +709,6 @@ function formatRecordList(value: Record<string, unknown>[]) {
   });
   const remainder = value.length - visible.length;
   return `${visible.join(" | ")}${remainder > 0 ? ` | +${remainder} more` : ""}`;
-}
-
-async function copyTextToClipboard(text: string) {
-  try {
-    if (window.navigator.clipboard?.writeText) {
-      await window.navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    // Fall through to the textarea fallback.
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.left = "-1000px";
-  textarea.style.position = "fixed";
-  textarea.style.top = "-1000px";
-  document.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
-  textarea.setSelectionRange(0, textarea.value.length);
-  try {
-    return document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
 }
 
 function formatScore(value: number) {

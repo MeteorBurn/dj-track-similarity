@@ -1,5 +1,8 @@
-import { AlertTriangle, Crown, Pause, Play, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Crown, FolderOpen, Pause, Play, Trash2 } from "lucide-react";
+import { useState } from "react";
 import type { AudioDedupFile, AudioDedupGroup } from "./api";
+import { api } from "./apiClient";
+import { copyTextToClipboard } from "./clipboard";
 import { helpText } from "./helpText";
 import {
   confidenceLabel,
@@ -49,6 +52,9 @@ function FileCard({
   onToggle: () => void;
   onPreview: () => void;
 }) {
+  const [fileNameCopied, setFileNameCopied] = useState(false);
+  const [filePathCopied, setFilePathCopied] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
   const details = copyDetailReasons(file, groupReasons);
   const spectral = fileSpectralBadge(file, bestCutoffHz);
   const quality = fileQualityLine(file);
@@ -61,6 +67,29 @@ function FileCard({
   ]
     .filter(Boolean)
     .join(" ");
+
+  async function copyFileName() {
+    const copied = await copyTextToClipboard(file.file_name);
+    if (!copied) return;
+    setFileNameCopied(true);
+    window.setTimeout(() => setFileNameCopied(false), 1400);
+  }
+
+  async function copyFilePath() {
+    const copied = await copyTextToClipboard(file.path);
+    if (!copied) return;
+    setFilePathCopied(true);
+    window.setTimeout(() => setFilePathCopied(false), 1400);
+  }
+
+  async function revealFileLocation() {
+    try {
+      await api.revealTrackFile(file.track_id);
+      setRevealError(null);
+    } catch {
+      setRevealError("Could not open containing folder");
+    }
+  }
 
   return (
     <article className={className}>
@@ -76,9 +105,20 @@ function FileCard({
           {playing ? <Pause size={15} /> : <Play size={15} />}
         </button>
         <div className="dedup-copy-identity">
-          <span className="dedup-copy-name" title={file.file_name}>
-            {file.file_name}
-          </span>
+          <div className="dedup-copy-file-row">
+            <span className="dedup-copy-name" title={file.file_name}>
+              {file.file_name}
+            </span>
+            <button
+              className="icon-button metadata-copy-value-button"
+              title={fileNameCopied ? "Copied" : "Copy file name"}
+              aria-label={`Copy file name: ${file.file_name}`}
+              onClick={() => void copyFileName()}
+              type="button"
+            >
+              {fileNameCopied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          </div>
           {file.artist || file.title ? (
             <span className="dedup-copy-artist">
               {[file.artist, file.title].filter(Boolean).join(" — ")}
@@ -91,9 +131,30 @@ function FileCard({
         </span>
       </header>
 
-      <p className="dedup-copy-path" title={file.path}>
-        {copyDirectory(file.path)}
-      </p>
+      <div className="dedup-copy-file-row">
+        <p className="dedup-copy-path" title={file.path}>
+          {copyDirectory(file.path)}
+        </p>
+        <button
+          className="icon-button metadata-copy-value-button"
+          title={filePathCopied ? "Copied" : "Copy file path"}
+          aria-label={`Copy file path: ${file.path}`}
+          onClick={() => void copyFilePath()}
+          type="button"
+        >
+          {filePathCopied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+        <button
+          className="icon-button metadata-copy-value-button"
+          title={revealError ?? "Open containing folder"}
+          aria-label={`Open containing folder: ${file.path}`}
+          disabled={!file.playable || file.stale_reason === "report identity is stale"}
+          onClick={() => void revealFileLocation()}
+          type="button"
+        >
+          <FolderOpen size={14} />
+        </button>
+      </div>
 
       <div className="dedup-copy-specs">
         {/* One line, the facts in the same order on every card; the tokens

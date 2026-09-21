@@ -5074,6 +5074,11 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   flex: 1 1 220px;
 }
 
+.dedup-path-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .dedup-mode-control {
   flex: 0 0 var(--dedup-mode-control-width);
   width: var(--dedup-mode-control-width);
@@ -5532,10 +5537,22 @@ button.dedup-play-button {
   min-width: 0;
 }
 
+.dedup-copy-file-row {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dedup-copy > .dedup-copy-file-row {
+  align-items: flex-start;
+}
+
 .dedup-copy-name {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.25;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5587,6 +5604,7 @@ button.dedup-play-button {
   line-height: 1.35;
   margin: 0;
   min-height: 30px;
+  min-width: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
   user-select: text;

@@ -4,7 +4,6 @@ setlocal EnableExtensions DisableDelayedExpansion
 set "PROJECT_ROOT=%~dp0."
 set "PORT=8765"
 set "FRONTEND_PORT=5173"
-set "DEFAULT_DB_PATH=%~dp0database\volumes.sqlite"
 set "DB_DIR=%~dp0database"
 set "DB_PATH="
 set "MODE="
@@ -40,7 +39,10 @@ goto :mode_selected
 if not defined MODE (
     echo DJ Track Similarity UI server
     echo.
-    if "%INTERACTIVE_START%"=="1" call :prompt_database
+    if "%INTERACTIVE_START%"=="1" (
+        call :prompt_database
+        if errorlevel 1 goto :setup_error
+    )
     call :prompt_mode
 )
 
@@ -74,7 +76,6 @@ if errorlevel 1 (
     goto :setup_error
 )
 
-if exist "%PROJECT_ROOT%\libs\ffmpeg\bin\avcodec-62.dll" set "PATH=%PATH%;%PROJECT_ROOT%\libs\ffmpeg\bin"
 if exist "%PROJECT_ROOT%\.tools\install\node\npm.cmd" set "PATH=%PROJECT_ROOT%\.tools\install\node;%PATH%"
 
 where npm >nul 2>nul
@@ -150,22 +151,20 @@ if exist "%DB_DIR%\" (
 
 if "!DB_COUNT!"=="0" (
     endlocal
-    set "DB_PATH=%DEFAULT_DB_PATH%"
-    set /p "DB_PATH=Database path [%DEFAULT_DB_PATH%]: "
-    echo.
-    exit /b 0
+    goto :prompt_database_path
 )
 
 echo Found existing databases in "%DB_DIR%":
-set "DEFAULT_CHOICE=1"
 for /l %%I in (1,1,!DB_COUNT!) do (
     echo   %%I. !DB_NAME_%%I!
-    if /I "!DB_CANDIDATE_%%I!"=="%DEFAULT_DB_PATH%" set "DEFAULT_CHOICE=%%I"
 )
 echo.
 set "DB_CHOICE="
-set /p "DB_CHOICE=Database [1-!DB_COUNT!, default !DEFAULT_CHOICE!, or a path]: "
-if not defined DB_CHOICE set "DB_CHOICE=!DEFAULT_CHOICE!"
+set /p "DB_CHOICE=Database [1-!DB_COUNT!, or a path]: "
+if not defined DB_CHOICE (
+    endlocal
+    goto :database_required
+)
 
 set "SELECTED_PATH="
 echo !DB_CHOICE!| findstr /r "^[1-9][0-9]*$" >nul
@@ -177,6 +176,17 @@ if not defined SELECTED_PATH set "SELECTED_PATH=!DB_CHOICE!"
 endlocal & set "DB_PATH=%SELECTED_PATH%"
 echo.
 exit /b 0
+
+:prompt_database_path
+set "DB_PATH="
+set /p "DB_PATH=Database path: "
+if not defined DB_PATH goto :database_required
+echo.
+exit /b 0
+
+:database_required
+echo [ERROR] No database selected. Choose a database explicitly.
+exit /b 1
 
 :prompt_mode
 echo Choose server mode:
@@ -208,15 +218,15 @@ echo   run_server.cmd lan [dj-sim serve options]
 echo.
 echo Examples:
 echo   run_server.cmd
-echo   run_server.cmd local --db "%DEFAULT_DB_PATH%"
-echo   run_server.cmd lan --db "%DEFAULT_DB_PATH%"
+echo   run_server.cmd local --db "C:\path\selected.sqlite"
+echo   run_server.cmd lan --db "C:\path\selected.sqlite"
 echo   run_server.cmd local --help
 echo.
 echo With no arguments, the launcher looks in "%DB_DIR%" first.
 echo If it finds one or more .sqlite databases there, it lists them and asks
 echo which one to open (or type a path to open/create one elsewhere).
-echo If none are found, it asks for a database path: press Enter to create
-echo %DEFAULT_DB_PATH%, or type another path to create it there instead.
+echo If none are found, it asks for a database path to open or create.
+echo There is no default database. Empty input cancels startup.
 echo It then asks whether to start in local or LAN mode.
 echo Explicit local or lan commands use only the arguments you provide.
 exit /b 0

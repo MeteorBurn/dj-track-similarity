@@ -842,7 +842,6 @@ def test_ml_runtime_runner_is_not_reused_across_runtime_settings(tmp_path: Path)
 
     def factory(model: str, device: str, batch_size: int, _top_k: int) -> EmbeddingModelRunner:
         assert model == "clap" and device == "cpu"
-        assert batch_size not in created
         adapter = _WindowedClapAdapter(batch_size)
         created[batch_size] = adapter
         return EmbeddingModelRunner(model, device=device, inference_batch_size=batch_size, adapter=adapter)

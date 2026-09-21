@@ -67,6 +67,7 @@ from ..logging_config import (
     log_failure,
     log_job_event,
 )
+from ..runtime import release_device_memory
 from .sonara_features import (
     SonaraBatchMetrics,
     analysis_outputs_for_sonara_runtime,
@@ -476,6 +477,9 @@ class AnalysisJobManager:
                 if working_data is not None:
                     for collection in working_data:
                         collection.clear()
+                    # Whatever the outcome, hand the job's cached device
+                    # blocks back; resident runners keep only their weights.
+                    release_device_memory()
             finally:
                 with self._lifecycle:
                     remaining = self._executing_threads[thread_id] - 1
@@ -512,6 +516,7 @@ class AnalysisJobManager:
                 # Finalizers may need application/runner locks. Drop the last
                 # owned references only after leaving the lifecycle lock.
                 del runners
+                release_device_memory()
                 with self._lifecycle:
                     self._closed = True
             finally:
@@ -957,17 +962,30 @@ class AnalysisJobManager:
                 raise ValueError(f"No analysis runner configured for: {key.model}") from error
         with self._runtime_runners_lock:
             cached = self._runtime_runners.get(key)
-            if cached is None:
-                cached = _RunnerHandle(
-                    self._runner_factory(
-                        key.model,
-                        key.device_requested,
-                        key.inference_batch_size,
-                        key.top_k,
-                    )
+            if cached is not None:
+                return cached
+            cached = _RunnerHandle(
+                self._runner_factory(
+                    key.model,
+                    key.device_requested,
+                    key.inference_batch_size,
+                    key.top_k,
                 )
-                self._runtime_runners[key] = cached
-            return cached
+            )
+            # One resident copy per model: other runtime settings replace the
+            # previous runner instead of loading a second one beside it.
+            replaced = [
+                self._runtime_runners.pop(other)
+                for other in tuple(self._runtime_runners)
+                if other.model == key.model
+            ]
+            self._runtime_runners[key] = cached
+        if replaced:
+            # Runners load weights lazily in preflight, so the old copy is
+            # released before the new one reaches the device.
+            del replaced
+            release_device_memory()
+        return cached
 
     def _run_model_batch(
         self,

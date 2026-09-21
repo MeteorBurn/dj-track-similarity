@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gc
+import logging
 import shutil
 import subprocess
 import sys
@@ -7,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .analysis.config import normalize_analysis_device
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,20 @@ def select_torch_device(torch_module: Any, requested_device: str | None) -> str:
             raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
         return "cuda"
     return "cuda" if torch_module.cuda.is_available() else "cpu"
+
+
+def release_device_memory() -> None:
+    """Return dropped tensors and weights to the CUDA driver, not just to Python."""
+
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if torch is None:
+        return
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # pragma: no cover - depends on the local CUDA runtime.
+        LOGGER.debug("CUDA cache release failed", exc_info=True)
 
 
 def get_torch_runtime_info() -> TorchRuntimeInfo:

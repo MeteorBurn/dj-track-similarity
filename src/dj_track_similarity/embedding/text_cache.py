@@ -12,12 +12,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-import gc
 import logging
-import sys
 import threading
 import time
 from typing import Generic, Protocol, TypeVar
+
+from ..runtime import release_device_memory
 
 LOGGER = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class TextEmbeddingAdapterCache(Generic[AdapterT]):
                 entry = None  # type: ignore[assignment]
         if not dropped:
             return 0
-        _release_device_memory()
+        release_device_memory()
         for family, device in dropped:
             LOGGER.info(
                 "text embedding adapter released family=%s device=%s",
@@ -186,17 +186,3 @@ class TextEmbeddingAdapterCache(Generic[AdapterT]):
 
 def _cache_key(family: str, device: str) -> tuple[str, str]:
     return str(family).strip().lower(), str(device).strip().lower()
-
-
-def _release_device_memory() -> None:
-    """Return dropped weights to the CUDA allocator, not just to Python."""
-
-    gc.collect()
-    torch = sys.modules.get("torch")
-    if torch is None:
-        return
-    try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except Exception:  # pragma: no cover - depends on the local CUDA runtime.
-        LOGGER.debug("CUDA cache release failed", exc_info=True)

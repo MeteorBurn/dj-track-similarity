@@ -68,7 +68,7 @@ class MuqEmbeddingAdapter:
             "resampler": "torchaudio",
             "window_selection": "consecutive-full-coverage-end-aligned-tail",
             "short_audio": "right-zero-pad-to-window",
-            "device_precision": "float32-eval-no-autocast-no-compile",
+            "device_precision": "cuda-float16-autocast-float32-mel-otherwise-float32-eval-no-compile",
             "model_revision": self.model_revision,
             "checkpoint_filename": self.checkpoint_filename,
             "snapshot_files": self.snapshot_files,
@@ -102,17 +102,22 @@ class MuqEmbeddingAdapter:
 
         pooled_windows: list[np.ndarray] = []
         inference_started = time.perf_counter()
+        use_float16 = self._device().startswith("cuda")
         for start in range(0, len(all_windows), self.inference_batch_size):
             wavs = torch.stack(
                 all_windows[start : start + self.inference_batch_size],
                 dim=0,
             ).to(device=self._device(), dtype=torch.float32)
-            with torch.inference_mode():
-                outputs = self._model(wavs, output_hidden_states=True)
+            # Float16 halves the conv and conformer activations of 30 s windows;
+            # the mel front end stays float32 (see _load_model).
+            with torch.inference_mode(), torch.autocast(
+                device_type="cuda", dtype=torch.float16, enabled=use_float16
+            ):
+                outputs = self._model(wavs, output_hidden_states=False)
             hidden = getattr(outputs, "last_hidden_state", None)
             if hidden is None:
                 raise ValueError("MuQ model output does not include last_hidden_state")
-            pooled_tensor = hidden.mean(dim=1)
+            pooled_tensor = hidden.mean(dim=1).float()
             pooled_windows.extend(_normalize_rows(pooled_tensor.detach().cpu().numpy().astype(np.float32)))
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
@@ -158,6 +163,7 @@ class MuqEmbeddingAdapter:
             to_float = getattr(model, "float", None)
             if callable(to_float):
                 model = to_float()
+            _keep_mel_in_float32(model, torch)
             self._model = model.to(self.device).eval()
 
     def _device(self) -> str:
@@ -165,6 +171,24 @@ class MuqEmbeddingAdapter:
         if self.device:
             return self.device
         return select_torch_device(self._torch, self.requested_device)
+
+def _keep_mel_in_float32(model, torch) -> None:
+    """Run MuQ's mel front end outside autocast.
+
+    Its mel filterbank product is autocast to float16 even though the input is
+    cast to float32, and the power spectrum overflows float16 (max 65504) into
+    non-finite features. Only the conv and conformer run in reduced precision.
+    """
+
+    inner = model.model
+    preprocessing = inner.preprocessing
+
+    def float32_preprocessing(x, features):
+        with torch.autocast(device_type="cuda", enabled=False):
+            return preprocessing(x, features)
+
+    inner.preprocessing = float32_preprocessing
+
 
 def _silence_muq_weight_norm_deprecation() -> None:
     """muq builds its conformer with the deprecated torch weight_norm helper."""

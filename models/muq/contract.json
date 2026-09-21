@@ -63,9 +63,9 @@
   "settings": {
     "inference": {
       "mode": "eval",
-      "dtype": "float32",
-      "output_hidden_states": true,
-      "autocast": false
+      "dtype": "float16 conv and conformer under CUDA autocast; float32 mel front end; float32 on CPU",
+      "output_hidden_states": false,
+      "autocast": "cuda float16, mel front end excluded because its power spectrum overflows float16"
     },
     "frontend_and_encoder": {
       "features": [

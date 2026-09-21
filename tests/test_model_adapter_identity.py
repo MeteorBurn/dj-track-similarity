@@ -347,6 +347,9 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
         (snapshot / file_name).write_bytes(file_name.encode())
 
     class FakeModel:
+        def __init__(self):
+            self.model = types.SimpleNamespace(preprocessing=lambda x, features: x)
+
         def float(self):
             calls["float"] = True
             return self

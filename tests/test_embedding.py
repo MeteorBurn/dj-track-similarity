@@ -544,7 +544,7 @@ class FakeMuqAudioModel:
         self.audio_calls: list[torch.Tensor] = []
 
     def __call__(self, wavs, *, output_hidden_states=True):
-        assert output_hidden_states is True
+        assert output_hidden_states is False
         self.batch_shapes.append(tuple(wavs.shape))
         self.batch_dtypes.append(wavs.dtype)
         self.audio_calls.append(wavs.detach().cpu().clone())

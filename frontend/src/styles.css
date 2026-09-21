@@ -5911,6 +5911,8 @@ button.dedup-play-button {
 /* Skip buttons: bare like repeat, huddled with the play button as one transport group. */
 .player-dock > button.icon-button.player-skip-button { width: 40px; min-height: 40px; margin-right: -12px; color: var(--text-muted); background: transparent; border-color: transparent; }
 .player-dock > button.icon-button.player-skip-button:hover:not(:disabled) { color: var(--text); border-color: transparent; }
+/* "Next" sits right of play, so it huddles from the other side. */
+.player-dock > .player-play + button.icon-button.player-skip-button { margin-right: 0; margin-left: -12px; }
 /* Same bare tag button as the library rows, sized like its dock neighbours. */
 .player-dock > button.icon-button.track-metadata-button { width: 40px; min-height: 40px; margin-left: -16px; background: transparent; border-color: transparent; }
 /* Sits tight against the heart: the dock gap would read as a separate group. */

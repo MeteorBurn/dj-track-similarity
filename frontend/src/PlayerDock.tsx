@@ -41,11 +41,11 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
       <button type="button" className="icon-button player-skip-button" disabled={!onPrevious} onClick={() => onPrevious?.()} title="Предыдущий трек" aria-label="Предыдущий трек">
         <SkipBack size={20} fill="currentColor" />
       </button>
-      <button type="button" className="icon-button player-skip-button" disabled={!onNext} onClick={() => onNext?.()} title="Следующий трек" aria-label="Следующий трек">
-        <SkipForward size={20} fill="currentColor" />
-      </button>
       <button type="button" className="player-play" disabled={!preview} onClick={() => preview && onToggle(preview)} aria-label={playing ? "Приостановить" : "Воспроизвести"}>
         {playing ? <Pause size={25} fill="currentColor" /> : <Play size={25} fill="currentColor" />}
+      </button>
+      <button type="button" className="icon-button player-skip-button" disabled={!onNext} onClick={() => onNext?.()} title="Следующий трек" aria-label="Следующий трек">
+        <SkipForward size={20} fill="currentColor" />
       </button>
       <div className="player-timeline">
         <input name="player-position" type="range" min={0} max={duration || 1} step={0.1} value={duration > 0 ? currentTime : 0} disabled={!preview || !duration} onChange={(event) => preview && onSeek(preview, Number(event.target.value))} aria-label="Позиция воспроизведения" />

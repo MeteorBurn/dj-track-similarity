@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from ..analysis_models import current_embedding_spec
+from ..db.embedding_layers import validate_embedding_layer
 
 
 CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "maest", "clap", "muq", "mulan", "mert_v2")
@@ -22,6 +23,24 @@ _OUTPUT_KIND_BY_FEATURE_SOURCE = {
     "muq": "embedding",
     "mulan": "embedding",
 }
+
+
+def classifier_source_layer(source: str) -> tuple[str, int | None]:
+    """Resolve a feature source token to its family and the stored layer it reads.
+
+    ``family@N`` reads layer N of a layered family. A bare token reads the
+    family's default layer, so ``family@<default>`` and the bare token are one
+    source and artifacts promoted before layer tokens keep their vector. A
+    family without layers resolves to ``None``.
+    """
+
+    family, separator, layer_text = source.partition("@")
+    if not separator:
+        return family, validate_embedding_layer(family, None)
+    # Only a canonical number names a layer: "muq@04" is not a second name for 4.
+    if not layer_text.isdecimal() or str(int(layer_text)) != layer_text:
+        raise ValueError(f"feature source {source!r} must name its layer as a plain integer")
+    return family, validate_embedding_layer(family, int(layer_text))
 
 
 @dataclass(frozen=True)
@@ -80,8 +99,9 @@ class ClassifierManifestSummary:
         result: list[str] = []
         for feature_name in self.feature_names:
             source, separator, _key = feature_name.partition(":")
-            if separator and source not in result:
-                result.append(source)
+            family = source.partition("@")[0]
+            if separator and family not in result:
+                result.append(family)
         return tuple(result)
 
     def to_api_dict(self) -> dict[str, object]:
@@ -408,16 +428,22 @@ def _feature_sources(
             not separator
             or not source
             or not key
-            or source not in CLASSIFIER_SUPPORTED_INPUTS
+            or source.partition("@")[0] not in CLASSIFIER_SUPPORTED_INPUTS
         ):
             errors.append(
                 f"model.json feature_names contains unsupported feature "
                 f"{feature_name!r}; expected "
-                f"<{'|'.join(CLASSIFIER_SUPPORTED_INPUTS)}>:<key>"
+                f"<{'|'.join(CLASSIFIER_SUPPORTED_INPUTS)}>[@<layer>]:<key>"
             )
             continue
-        if source not in sources:
-            sources.append(source)
+        if source in sources:
+            continue
+        try:
+            classifier_source_layer(source)
+        except ValueError as error:
+            errors.append(f"model.json feature {feature_name!r}: {error}")
+            continue
+        sources.append(source)
     return tuple(sources)
 
 
@@ -428,9 +454,10 @@ def _validate_embedding_feature_indices(
 ) -> None:
     for feature_name in feature_names:
         source, separator, key = feature_name.partition(":")
-        if not separator or source == "sonara":
+        family = source.partition("@")[0]
+        if not separator or family == "sonara":
             continue
-        if source not in CLASSIFIER_SUPPORTED_INPUTS:
+        if family not in CLASSIFIER_SUPPORTED_INPUTS:
             # _feature_sources already reported it; there is no dimension to check.
             continue
         if not key.isdigit() or str(int(key)) != key:
@@ -440,11 +467,11 @@ def _validate_embedding_feature_indices(
             )
             continue
         index = int(key)
-        dimension = current_embedding_spec(source).dimension
+        dimension = current_embedding_spec(family).dimension
         if index >= dimension:
             errors.append(
                 f"model.json embedding feature {feature_name!r} is outside "
-                f"the current {source} dimension {dimension}"
+                f"the current {family} dimension {dimension}"
             )
 
 

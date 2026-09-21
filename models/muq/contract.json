@@ -45,14 +45,18 @@
         "feature_frames",
         1024
       ],
-      "dtype": "float32 under FP32 inference"
+      "dtype": "float32 under FP32 inference",
+      "indexing": "Index 0 is the conv front end output (conformer input); index k is the output of conformer block k; index 12 is block 12 after the encoder LayerNorm and is last_hidden_state. Every state is built on every forward pass."
     },
     "native_track_pooling": "none",
     "native_labels_or_probabilities": "none",
     "frame_rate_hz": 25,
     "frame_count": "T is the native feature-frame count determined by the input length and frontend; nominal label rate is 25 Hz, not an exact frame-count formula.",
     "adapter_embedding": {
-      "type": "numpy.ndarray",
+      "type": "tuple of numpy.ndarray, one per stored layer",
+      "layers": 13,
+      "layer_numbering": "Layer n is hidden_states[n - 1]: layer 1 is the conv front end, layer k + 1 follows conformer block k, layer 13 is last_hidden_state.",
+      "default_layer": 13,
       "shape": [
         1024
       ],
@@ -64,7 +68,7 @@
     "inference": {
       "mode": "eval",
       "dtype": "float16 conv and conformer under CUDA autocast; float32 mel front end; float32 on CPU",
-      "output_hidden_states": false,
+      "output_hidden_states": true,
       "autocast": "cuda float16, mel front end excluded because its power spectrum overflows float16"
     },
     "frontend_and_encoder": {
@@ -82,7 +86,8 @@
       "window_seconds": 30.0,
       "window_selection": "Consecutive full-track windows with a final window aligned to the track end.",
       "short_audio": "Right-zero-pad to one window.",
-      "pooling": "Mean final hidden state over time; L2-normalize each window vector; mean window vectors; final L2 normalization."
+      "pooling": "For each stored layer: mean its hidden state over time; L2-normalize each window vector; mean window vectors; final L2 normalization.",
+      "batch_memory": "Only pooled window vectors outlive a forward pass; each batch's hidden states are released before the next batch."
     }
   }
 }

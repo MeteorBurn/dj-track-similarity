@@ -9,9 +9,9 @@ from fastapi.responses import StreamingResponse
 from .media_preview import AudioPreviewError, preview_duration_seconds, streaming_wav_response
 from .route_utils import query_classifier_min_scores, valid_classifier_min_scores
 from .schemas import (
+    EmbeddingLayersResponse,
     FilteredTracksRequest,
     LibrarySummaryResponse,
-    MertV2LayersResponse,
     RelocateLibraryRequest,
     ScanRequest,
     TagRefreshRequest,
@@ -24,6 +24,7 @@ from .schemas import (
     TrackSummaryResponse,
 )
 from .state import AppDatabaseState, DatabaseBusy
+from ..analysis_models import EMBEDDING_LAYER_HINTS, EMBEDDING_LAYERS
 from ..track_models import TrackIdentity
 
 
@@ -180,15 +181,31 @@ def register_library_routes(
     def library_summary():
         return state.require_db().library_summary()
 
-    @app.get("/api/library/mert-v2/layers", response_model=MertV2LayersResponse)
-    def mert_v2_layers() -> dict[str, object]:
+    @app.get("/api/library/embedding-layers/{family}", response_model=EmbeddingLayersResponse)
+    def embedding_layers(family: str) -> dict[str, object]:
+        layers = EMBEDDING_LAYERS.get(family)
+        if layers is None:
+            raise HTTPException(status_code=404, detail=f"{family} embeddings have no layers")
+        hints = EMBEDDING_LAYER_HINTS.get(family)
+        layer_hints = hints.layers if hints is not None else {}
         database, generation = state.capture_db()
         try:
             with state.captured_db(database, generation):
-                counts = database.mert_v2_layer_counts()
+                counts = database.embedding_layer_counts(family)
                 return {
                     "catalog_uuid": database.catalog_uuid,
-                    "layers": [{"layer": layer, "track_count": counts[layer]} for layer in range(1, 25)],
+                    "family": family,
+                    "default_layer": layers.default,
+                    "note": hints.note if hints is not None else None,
+                    "layers": [
+                        {
+                            "layer": layer,
+                            "track_count": counts[layer],
+                            "label": hint.label if (hint := layer_hints.get(layer)) else None,
+                            "source": hint.source if hint else None,
+                        }
+                        for layer in range(1, layers.count + 1)
+                    ],
                 }
         except (DatabaseBusy, RuntimeError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

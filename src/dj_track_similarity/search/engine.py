@@ -16,6 +16,7 @@ from ..analysis_models import (
     AnalysisVectorRow,
     current_embedding_spec,
 )
+from ..db.embedding_layers import validate_embedding_layer
 from .arguments import (
     merge_targets,
     optional_targets,
@@ -68,7 +69,7 @@ class AnalysisSearchRepository(Protocol):
         output: AnalysisOutput,
         *,
         targets: Sequence[AnalysisTarget] | None = None,
-        mert_v2_layer: int = 24,
+        layer: int | None = None,
     ) -> tuple[AnalysisVectorRow, ...]:
         ...
 
@@ -77,7 +78,7 @@ class AnalysisSearchRepository(Protocol):
         output: AnalysisOutput,
         *,
         exclude_track_ids: Sequence[int] = (),
-        mert_v2_layer: int = 24,
+        layer: int | None = None,
     ) -> AnalysisTarget | None:
         ...
 
@@ -135,7 +136,7 @@ class SimilaritySearch:
         *,
         analysis_output: AnalysisOutput,
         vector_backend: ExactVectorSearchBackend | None = None,
-        mert_v2_layer: int = 24,
+        layer: int | None = None,
     ) -> None:
         family = str(analysis_family).strip().lower()
         if family not in _EMBEDDING_FAMILIES:
@@ -145,11 +146,9 @@ class SimilaritySearch:
                 f"expected one of: {valid}"
             )
         self.repository = repository
-        if isinstance(mert_v2_layer, bool) or not isinstance(mert_v2_layer, int) or not 1 <= mert_v2_layer <= 24:
-            raise ValueError("MERT-v2 layer must be an integer from 1 to 24")
-        if family != "mert_v2" and mert_v2_layer != 24:
-            raise ValueError("Layer selection is only supported for MERT-v2")
-        self._layer_options = {"mert_v2_layer": mert_v2_layer} if mert_v2_layer != 24 else {}
+        # None leaves the repository on the family's default layer.
+        validate_embedding_layer(family, layer)
+        self._layer_options = {} if layer is None else {"layer": layer}
         self.analysis_family: EmbeddingFamily = family  # type: ignore[assignment]
         if analysis_output.key != (family, "embedding"):
             raise ValueError(

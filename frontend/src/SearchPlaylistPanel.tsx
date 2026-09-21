@@ -13,7 +13,7 @@ import {
 } from "./classifierCompatibility";
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
-import type { MertV2LayerState } from "./useMertV2Layers";
+import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import {
@@ -101,7 +101,7 @@ function PromptCandidatesAddButton({ results, playlist, busy, modelLabel, onAdd 
 }
 
 export function SearchPlaylistPanel({
-  mertV2Layers,
+  embeddingLayers,
   activeSearchTab,
   collapsed,
   onToggleCollapsed,
@@ -164,7 +164,7 @@ export function SearchPlaylistPanel({
   setPreview,
   setMetadataTrack
 }: {
-  mertV2Layers: MertV2LayerState;
+  embeddingLayers: EmbeddingLayerState;
   activeSearchTab: PrimarySearchTab;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -268,7 +268,7 @@ export function SearchPlaylistPanel({
   useEffect(() => {
     setEmbeddingSearchErrors({});
     setEmbeddingSearchPending({});
-  }, [databaseIdentity, mertV2Layers.layer]);
+  }, [databaseIdentity, embeddingLayers.layer]);
 
   function handlePrimaryTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const target = tabAfterKey(primarySearchTabs, activeSearchTab, event.key);
@@ -391,10 +391,10 @@ export function SearchPlaylistPanel({
         {activeSearchTab === "similarity" && (
           <div id="search-panel-similarity" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-similarity">
             <SimilaritySearchTab
-              layerState={mertV2Layers}
+              layerState={embeddingLayers}
               model={seedSearchModel}
               onModelChange={selectSeedSearchModel}
-              currentAnalysisCount={seedSearchModel === "sonara" ? sonaraCount : seedSearchModel === "mert_v2" ? mertV2Layers.trackCount : embeddingCounts[seedSearchModel]}
+              currentAnalysisCount={seedSearchModel === "sonara" ? sonaraCount : embeddingLayers.layered ? embeddingLayers.trackCount : embeddingCounts[seedSearchModel]}
               busy={busy || !seeds.length}
               randomTrackBusy={busy}
               pending={seedSearchModel !== "sonara" && Boolean(embeddingSearchPending[seedSearchModel])}
@@ -622,7 +622,7 @@ export function SearchPlaylistPanel({
           <div className="generic-search-results">
             {genericSearchResultOrigin === "text" && textExecution ? <TextExecutionDetails execution={textExecution} /> : null}
             <div className="generic-search-result-provenance" role="status">
-              {searchResultOriginLabel(genericSearchResultOrigin)}{genericSearchResultOrigin === "mert_v2" ? ` L${mertV2Layers.layer}` : ""} results
+              {searchResultOriginLabel(genericSearchResultOrigin)}{genericSearchResultOrigin === seedSearchModel && embeddingLayers.layer !== null ? ` L${embeddingLayers.layer}` : ""} results
               <span>{results.length}</span>
               {genericSearchResultOrigin === "text" ? (
                 <PromptCandidatesAddButton

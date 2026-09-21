@@ -20,6 +20,7 @@ if str(LAB_ROOT) not in sys.path:
     sys.path.insert(0, str(LAB_ROOT))
 
 from dj_track_similarity.analysis_models import (  # noqa: E402
+    EMBEDDING_LAYERS,
     AnalysisOutput,
     AnalysisTarget,
     EmbeddingOutput,
@@ -155,11 +156,27 @@ def _insert_track(
                     family=output.analysis_family,
                     vector=vector,
                     analyzed_at=NOW,
+                    layer_vectors=_distinct_layers(output.analysis_family, vector),
                 ),
             ),
         )
     )
     assert result[0].ok
+
+
+def _distinct_layers(family: str, vector: np.ndarray) -> tuple[np.ndarray, ...] | None:
+    """Every layer of a layered family, each non-default one another vector.
+
+    A read that loses its layer filter then returns a vector the test can tell apart.
+    """
+
+    layers = EMBEDDING_LAYERS.get(family)
+    if layers is None:
+        return None
+    return tuple(
+        vector if layer == layers.default else np.roll(vector, layer)
+        for layer in range(1, layers.count + 1)
+    )
 
 
 def _insert_track_without_embedding(
@@ -219,21 +236,25 @@ def _insert_complete_rhythm_lab_rows(
             vector = np.zeros(specification.dimension, dtype="<f4")
             if specification.normalization == "l2":
                 vector[0] = 1.0
-            connection.execute(
+            values = (
+                track_id,
+                track_uuid,
+                specification.dimension,
+                specification.normalization,
+                vector.tobytes(order="C"),
+                NOW,
+            )
+            # A layered family stores every layer of one analysis.
+            layers = EMBEDDING_LAYERS.get(family)
+            connection.executemany(
                 f"""
                 INSERT INTO {family}_embeddings(
                     track_id, track_uuid, dim, normalization,
-                    embedding_blob, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    embedding_blob, analyzed_at{", layer" if layers else ""}
+                ) VALUES (?, ?, ?, ?, ?, ?{", ?" if layers else ""})
                 """,
-                (
-                    track_id,
-                    track_uuid,
-                    specification.dimension,
-                    specification.normalization,
-                    vector.tobytes(order="C"),
-                    NOW,
-                ),
+                [(*values, layer) for layer in range(1, layers.count + 1)]
+                if layers else [values],
             )
 
 
@@ -640,6 +661,36 @@ def test_source_feature_states_distinguish_current_and_missing(
     assert rejected.not_ready_track_ids == (1, track.track_id)
     assert source.get_track(track.track_id).feature_status["mert_v2"].status == "missing"
 
+    # MuQ stores 13 layers: the bare token reads the default one, "muq@N" layer N,
+    # counts are tracks rather than rows, and readiness checks the token's layer.
+    muq = AnalysisOutput("muq", "embedding")
+    repository.register_analysis_outputs((muq,))
+    _insert_track(repository, muq, index=2)
+    muq_track = source.load_embedding_matrix("muq").tracks[0]
+    np.testing.assert_array_equal(source.load_embedding_matrix("muq").matrix[0], np.eye(1, 1024, 2)[0])
+    np.testing.assert_array_equal(source.load_embedding_matrix("muq", layer=4).matrix[0], np.eye(1, 1024, 6)[0])
+    assert source.feature_inventory()[0]["muq"] == 1
+    assert source.stored_embedding_layers()["muq"] == tuple(range(1, 14))
+    muq_layers = tuple(np.eye(1, 1024, index, dtype=np.float32)[0] for index in range(13))
+    write = EmbeddingWrite(
+        AnalysisTarget(repository.catalog_uuid, track.track_id, track.track_uuid),
+        EmbeddingOutput("muq", muq_layers[-1], NOW, muq_layers),
+    )
+    assert repository.save_embedding_results((write,))[0].ok
+    with repository.connect() as connection:
+        connection.execute(
+            "DELETE FROM muq_embeddings WHERE track_id = ? AND layer = 4",
+            (muq_track.track_id,),
+        )
+    assert source.rhythm_lab_track_ids(("muq@4",)) == (track.track_id,)
+    assert source.rhythm_lab_track_ids(("muq",)) == tuple(sorted((track.track_id, muq_track.track_id)))
+    with repository.connect() as connection:
+        connection.execute(
+            "UPDATE muq_embeddings SET track_uuid = ? WHERE track_id = ? AND layer = 13",
+            (str(uuid.uuid4()), track.track_id),
+        )
+    assert source.load_embedding_matrix("muq", track_ids=[track.track_id]).tracks == ()
+
 
 def test_source_feature_inventory_is_cached_until_storage_changes(
     tmp_path: Path,
@@ -708,7 +759,7 @@ def test_rhythm_lab_track_ids_follow_the_requested_recipe(
     # A family with no rows here (mert_v2) yields an empty pool instead of a query error.
     assert source.rhythm_lab_track_ids(("sonara", "mert_v2")) == ()
     assert source.rhythm_lab_track_ids(("mert_v2@12",)) == ()
-    assert source.mert_v2_stored_layers() == ()
+    assert source.stored_embedding_layers()["mert_v2"] == ()
 
 
 def test_source_feature_counts_trust_existing_rows_without_blob_validation(
@@ -1157,7 +1208,8 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             "track_count": 4,
         }
         assert current.json()["feature_sources"]["mert_v2"]["status"] == "missing"
-        assert current.json()["mert_v2_layers"] == []
+        assert current.json()["embedding_layers"]["mert_v2"]["stored"] == []
+        assert current.json()["embedding_layers"]["muq"]["stored"] == list(range(1, 14))
 
         tracks_response = client.get(
             "/api/profiles/focused/tracks",
@@ -1218,7 +1270,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert "100" in mulan_readiness["calibration_readiness"]["reason"]
         assert mulan_readiness["available_feature_sources"] == stored_families
         assert mulan_readiness["default_feature_set"] == "+".join(stored_families)
-        assert mulan_readiness["mert_v2_layers"] == []
+        assert mulan_readiness["embedding_layers"] == current.json()["embedding_layers"]
         assert "available_feature_sets" not in mulan_readiness
         source_features = mulan_readiness["source_features"]
         assert set(source_features) == set(first["feature_status"])
@@ -1254,15 +1306,17 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert benchmark.json()["feature_sets"] == ["sonara+mulan"]
         assert benchmark_calls[-1]["strategy"] == "custom"
         assert benchmark_calls[-1]["feature_sets"] == ("mulan+sonara",)
+        # MAEST and MuQ are stored with all their layers, so "layers" has runs here.
         assert client.post(
             "/api/profiles/focused/training/benchmark",
             json={"strategy": "layers"},
-        ).status_code == 400
+        ).status_code == 200
+        assert benchmark_calls[-1]["strategy"] == "layers"
         assert client.post(
             "/api/profiles/focused/training/benchmark",
             json={"strategy": "custom", "feature_sets": ["mert_v2"]},
         ).status_code == 400
-        assert len(benchmark_calls) == 1
+        assert len(benchmark_calls) == 2
 
         liked_payload = {
             "catalog_uuid": first["catalog_uuid"],
@@ -1966,6 +2020,7 @@ def test_promote_replaces_the_root_model_pair(tmp_path: Path) -> None:
     ("invalid_case", "expected_error"),
     [
         ("empty_features", "non-empty ordered feature_names list"),
+        ("recipe_mismatch", "do not match the selected feature recipe"),
         ("unusable_model", "must implement predict_proba"),
     ],
 )
@@ -1992,6 +2047,9 @@ def test_semantically_invalid_artifact_does_not_replace_root_model(
     payload = joblib.load(artifact)
     if invalid_case == "empty_features":
         payload["feature_names"] = []
+    elif invalid_case == "recipe_mismatch":
+        # The main app would score it; the web gate calls it incompatible, and so must the CLI.
+        payload["feature_set"] = "clap"
     else:
         payload["model"] = object()
     joblib.dump(payload, artifact)

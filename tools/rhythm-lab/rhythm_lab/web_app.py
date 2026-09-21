@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from dj_track_similarity.analysis_models import EMBEDDING_LAYER_HINTS, EMBEDDING_LAYERS
 from dj_track_similarity.classifier.manifest import load_classifier_manifest_summary
 from dj_track_similarity.audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
@@ -46,13 +47,11 @@ from .features import (
     default_feature_set,
     feature_recipe_readiness,
     feature_sources,
-    split_feature_source,
-    stored_mert_v2_layers,
+    stored_embedding_layers,
 )
 from .lab_db import DEFAULT_TRAINING_MIN_LABELS, ClassifierProfile, RhythmLabDatabase
 from .predictions import apply_model_to_lab
 from .source_db import (
-    MERT_V2_DEFAULT_LAYER,
     SourceDatabase,
     SourceDatabaseError,
     SourceTrackNotCurrentError,
@@ -220,7 +219,7 @@ class SourceDatabaseState:
                 "feature_sources": inventory.features_payload(),
                 "available_feature_sources": list(available),
                 "default_feature_set": default_feature_set(available),
-                "mert_v2_layers": list(inventory.mert_v2_layers),
+                "embedding_layers": inventory.layers_payload(),
             }
 
     def switch(self, path: str | Path) -> dict[str, object]:
@@ -1067,10 +1066,10 @@ def create_app(
         strategy = request.strategy if request is not None else DEFAULT_BENCHMARK_STRATEGY
         feature_sets = tuple(request.feature_sets) if request is not None else ()
         available = available_feature_sources(source.feature_states())
-        layers = stored_mert_v2_layers(source)
+        layers = stored_embedding_layers(source)
         try:
-            plan = benchmark_plan(available, strategy, feature_sets, mert_v2_layers=layers)
-            planned_runs = planned_run_count(available, strategy, feature_sets, mert_v2_layers=layers)
+            plan = benchmark_plan(available, strategy, feature_sets, stored_layers=layers)
+            planned_runs = planned_run_count(available, strategy, feature_sets, stored_layers=layers)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         if not plan:
@@ -1681,7 +1680,7 @@ class _SourceInventory:
     states: Mapping[str, object]
     counts: Mapping[str, int]
     track_count: int
-    mert_v2_layers: tuple[int, ...]
+    stored_layers: Mapping[str, tuple[int, ...]]
 
     @classmethod
     def load(cls, source: SourceDatabase | None) -> _SourceInventory:
@@ -1696,7 +1695,7 @@ class _SourceInventory:
                 },
                 counts={},
                 track_count=0,
-                mert_v2_layers=(),
+                stored_layers={},
             )
         states: dict[str, object] = dict(source.feature_states())
         counts = dict(source.feature_counts())
@@ -1714,12 +1713,31 @@ class _SourceInventory:
             states=states,
             counts=counts,
             track_count=source.count_tracks(),
-            mert_v2_layers=stored_mert_v2_layers(source),
+            stored_layers=stored_embedding_layers(source),
         )
 
     @property
     def available(self) -> tuple[str, ...]:
         return available_feature_sources(self.states)
+
+    def layers_payload(self) -> dict[str, dict[str, object]]:
+        """Per layered family: default layer, stored layers and the UI label of each hinted layer."""
+
+        return {
+            family: {
+                "default": layers.default,
+                "stored": list(self.stored_layers.get(family, ())),
+                "labels": {
+                    str(layer): hint.label
+                    for layer, hint in (
+                        EMBEDDING_LAYER_HINTS[family].layers.items()
+                        if family in EMBEDDING_LAYER_HINTS
+                        else ()
+                    )
+                },
+            }
+            for family, layers in EMBEDDING_LAYERS.items()
+        }
 
     def features_payload(self) -> dict[str, dict[str, object]]:
         return {
@@ -1859,7 +1877,7 @@ def _training_readiness(
         "available_feature_sources": list(available),
         "default_feature_set": default_recipe,
         "source_features": inventory.features_payload(),
-        "mert_v2_layers": list(inventory.mert_v2_layers),
+        "embedding_layers": inventory.layers_payload(),
         "current": counts,
         "total": total_counts,
         "usable": usable_counts,
@@ -1986,8 +2004,6 @@ def _bind_artifact_source_readiness(
                 feature_set=feature_set,
                 feature_names=row.get("feature_names"),
             )
-            if compatible:
-                compatible, reason = _main_app_spec_compatibility(feature_set)
             row["spec_compatible"] = compatible
             row["spec_reason"] = reason
             ready, data_reason = artifact_source_readiness(
@@ -2013,20 +2029,6 @@ def _bind_artifact_source_readiness(
         "latest_promotable": promotable[0] if promotable else None,
         "promotion_options": promotion_options,
     }
-
-
-def _main_app_spec_compatibility(feature_set: str) -> tuple[bool, str | None]:
-    """The main app scores only the stored default MERT-v2 layer (db/classifier_storage.py)."""
-
-    for token in feature_sources(feature_set):
-        family, layer = split_feature_source(token)
-        if family == "mert_v2" and layer is not None:
-            return (
-                False,
-                f"The main app scores only MERT-v2 layer {MERT_V2_DEFAULT_LAYER}; "
-                f"layer {layer} artifacts stay in the lab",
-            )
-    return True, None
 
 
 def _feature_state_payload(state: object) -> dict[str, object]:

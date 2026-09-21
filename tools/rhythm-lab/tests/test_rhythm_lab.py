@@ -343,13 +343,29 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
     assert custom["results"][1]["error"] == "MUQ data is not stored in this library"
     assert custom["winner"]["feature_set"] == "sonara+mulan"
 
-    # Layers strategy: one run per layer the library reports.
-    assert feature_module.stored_mert_v2_layers(_ReadyFeatureSource(library)) == ()
+    # Layers strategy: one run per stored layer of every layered family present.
+    assert feature_module.stored_embedding_layers(_ReadyFeatureSource(library)) == {
+        "maest": (),
+        "mert_v2": (),
+        "muq": (),
+    }
     layered_source = _ReadyFeatureSource(library)
-    layered_source.mert_v2_stored_layers = lambda: (12, 6, 24)  # type: ignore[attr-defined]
+    layered_source.stored_embedding_layers = lambda: {  # type: ignore[method-assign]
+        "maest": (7,),
+        "mert_v2": (12, 6, 24),
+        "muq": (13, 4),
+    }
     monkeypatch.setattr(ablation_module, "SourceDatabase", lambda _path: layered_source)
-    monkeypatch.setattr(ablation_module, "available_feature_sources", lambda _states: ("sonara", "mert_v2"))
-    scripted.update({"mert_v2@6": (0.55, 0.02), "mert_v2@12": (0.66, 0.02), "mert_v2": (0.61, 0.02)})
+    monkeypatch.setattr(ablation_module, "available_feature_sources", lambda _states: ("sonara", "mert_v2", "muq"))
+    scripted.update(
+        {
+            "mert_v2@6": (0.55, 0.02),
+            "mert_v2@12": (0.66, 0.02),
+            "mert_v2": (0.61, 0.02),
+            "muq@4": (0.72, 0.02),
+            "muq": (0.58, 0.02),
+        }
+    )
     trained.clear()
 
     layers = ablation_module.benchmark_profile_ablation(
@@ -360,8 +376,9 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
         strategy="layers",
     )
 
-    assert trained == ["mert_v2@6", "mert_v2@12", "mert_v2"]
-    assert layers["winner"]["feature_set"] == "mert_v2@12"
+    # MAEST layers are stored but MAEST is not available here, so it adds no run.
+    assert trained == ["mert_v2@6", "mert_v2@12", "mert_v2", "muq@4", "muq"]
+    assert layers["winner"]["feature_set"] == "muq@4"
     stale_layer = ablation_module.benchmark_profile_ablation(
         tmp_path / "source.sqlite",
         tmp_path / "lab.sqlite",
@@ -550,11 +567,23 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     with pytest.raises(ValueError, match="Duplicate feature source"):
         canonical_feature_set(("sonara", "sonara"))
 
-    # MERT-v2 layer token: bare = stored default layer 24; other layers are their own source.
+    # Layer tokens: bare = the family's stored default layer (MERT-v2 24, MuQ and
+    # MAEST 13); other layers are their own source.
     assert canonical_feature_set(("mert_v2@24",)) == "mert_v2"
+    assert canonical_feature_set(("muq@13", "maest@13")) == "maest+muq"
     assert feature_sources("MERT_V2@12+sonara") == ("sonara", "mert_v2@12")
     assert feature_sources("mert_v2+mert_v2@6+mert_v2@12") == ("mert_v2@6", "mert_v2@12", "mert_v2")
-    for invalid in ("mulan@12", "mert_v2@0", "mert_v2@x", "mert_v2@012", "mert_v2+mert_v2@24"):
+    assert feature_sources("muq@4+maest@7+sonara") == ("sonara", "maest@7", "muq@4")
+    for invalid in (
+        "mulan@12",
+        "clap@1",
+        "mert_v2@0",
+        "mert_v2@25",
+        "muq@14",
+        "mert_v2@x",
+        "mert_v2@012",
+        "mert_v2+mert_v2@24",
+    ):
         with pytest.raises(ValueError):
             feature_sources(invalid)
     layered = feature_recipe_readiness("mert_v2@12", states)
@@ -612,10 +641,10 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     assert count((), "singles+all") == 0
 
     # Layers come from the library, never from a constant; plans only use stored ones.
-    layers = (6, 24, 12)
-    assert plan(available, "layers", mert_v2_layers=layers) == ("mert_v2@6", "mert_v2@12", "mert_v2")
-    assert count(available, "layers", mert_v2_layers=layers) == 3
-    assert plan(available, "layers+all", mert_v2_layers=layers) == (
+    layers = {"mert_v2": (6, 24, 12)}
+    assert plan(available, "layers", stored_layers=layers) == ("mert_v2@6", "mert_v2@12", "mert_v2")
+    assert count(available, "layers", stored_layers=layers) == 3
+    assert plan(available, "layers+all", stored_layers=layers) == (
         "mert_v2@6",
         "mert_v2@12",
         "mert_v2",
@@ -623,13 +652,21 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
         "sonara+maest+mert_v2@12+mulan+clap",
         "sonara+maest+mert_v2+mulan+clap",
     )
-    assert plan(("mert_v2",), "layers+all", mert_v2_layers=(24,)) == ("mert_v2",)
-    assert plan(available, "custom", ("sonara+mert_v2@12",), mert_v2_layers=layers) == ("sonara+mert_v2@12",)
+    assert plan(("mert_v2",), "layers+all", stored_layers={"mert_v2": (24,)}) == ("mert_v2",)
+    # Every available layered family takes part; a stored but unavailable one does not.
+    assert plan(available, "layers", stored_layers={**layers, "maest": (13, 7), "muq": (4,)}) == (
+        "maest@7",
+        "maest",
+        "mert_v2@6",
+        "mert_v2@12",
+        "mert_v2",
+    )
+    assert plan(available, "custom", ("sonara+mert_v2@12",), stored_layers=layers) == ("sonara+mert_v2@12",)
     with pytest.raises(ValueError, match="MERT_V2 layer 12 is not stored"):
-        plan(available, "custom", ("sonara+mert_v2@12",), mert_v2_layers=(24,))
-    with pytest.raises(ValueError, match="MERT_V2 data is not stored"):
-        plan(("sonara", "mulan"), "layers", mert_v2_layers=layers)
-    assert "mert_v2@12" not in plan(available, "full", mert_v2_layers=layers)
+        plan(available, "custom", ("sonara+mert_v2@12",), stored_layers={"mert_v2": (24,)})
+    with pytest.raises(ValueError, match="No layered model"):
+        plan(("sonara", "mulan"), "layers", stored_layers=layers)
+    assert "mert_v2@12" not in plan(available, "full", stored_layers=layers)
 
 
 def test_artifact_with_missing_muq_data_is_not_refreshable_but_stays_promotable() -> None:
@@ -1426,8 +1463,8 @@ class _ReadyFeatureSource:
     def count_tracks(self) -> int:
         return self.track_count
 
-    def mert_v2_stored_layers(self) -> tuple[int, ...]:
-        return ()
+    def stored_embedding_layers(self) -> dict[str, tuple[int, ...]]:
+        return {}
 
     def load_embedding_matrix(
         self,
@@ -1595,6 +1632,9 @@ def test_cli_training_promotion_and_calibration_default_to_current_recipe(
     explicit_layer = parser.parse_args([*train_args, "--feature-set", "mert_v2@12+sonara"])
     explicit_layer.func(explicit_layer)
     assert trained[-1] == ("sonara+mert_v2@12",)
+    muq_layer = parser.parse_args([*train_args, "--feature-set", "muq@4+sonara"])
+    muq_layer.func(muq_layer)
+    assert trained[-1] == ("sonara+muq@4",)
 
     captured: dict[str, object] = {}
 
@@ -1783,12 +1823,10 @@ def test_artifact_readiness_is_gated_by_feature_spec_not_source_catalog() -> Non
     assert short["spec_compatible"] is False
     assert short["source_data_ready"] is False
     assert "current embedding dimension" in short["spec_reason"]
-    # Non-default MERT-v2 layers train and predict in the lab but never promote.
+    # A layer token is scored by the main app, so its complete artifact promotes.
     layered = by_feature["mert_v2@12"]
-    assert layered["spec_compatible"] is False
-    assert layered["spec_reason"] == (
-        "The main app scores only MERT-v2 layer 24; layer 12 artifacts stay in the lab"
-    )
+    assert layered["spec_compatible"] is True
+    assert layered["spec_reason"] is None
     assert layered["source_data_ready"] is True
     assert bound["latest_promotable"]["feature_set"] == "mulan"
 

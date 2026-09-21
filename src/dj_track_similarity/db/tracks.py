@@ -14,6 +14,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..analysis_models import EMBEDDING_LAYERS
 from .evaluation_sidecar import delete_evaluation_track_rows
 from .track_relocation import _apply_relocation_paths, _plan_relocation
 from .search_fts import (
@@ -55,6 +56,8 @@ _EMBEDDING_TABLES = (
     "mulan_embeddings",
     "clap_embeddings",
 )
+# One row per layer: these tables count their tracks, not their rows.
+_LAYERED_EMBEDDING_TABLES = frozenset(f"{family}_embeddings" for family in EMBEDDING_LAYERS)
 _UTC_MICROSECOND_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z"
 )
@@ -1227,7 +1230,7 @@ class TrackRepository:
                     derived_counts = {
                         table: int(
                             connection.execute(
-                                f"SELECT COUNT({'DISTINCT track_id' if table == 'mert_v2_embeddings' else '*'}) FROM {table}"
+                                f"SELECT COUNT({'DISTINCT track_id' if table in _LAYERED_EMBEDDING_TABLES else '*'}) FROM {table}"
                             ).fetchone()[0]
                         )
                         for table in _DERIVED_TRACK_TABLES
@@ -1349,7 +1352,7 @@ class TrackRepository:
                         derived_rows_deleted = sum(
                             int(
                                 connection.execute(
-                                    f"SELECT COUNT({'DISTINCT track_id' if table == 'mert_v2_embeddings' else '*'}) "
+                                    f"SELECT COUNT({'DISTINCT track_id' if table in _LAYERED_EMBEDDING_TABLES else '*'}) "
                                     f"FROM {table} WHERE track_id = ?",
                                     (expected.track_id,),
                                 ).fetchone()[0]

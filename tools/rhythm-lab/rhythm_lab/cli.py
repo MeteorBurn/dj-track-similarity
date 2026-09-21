@@ -29,6 +29,7 @@ from .artifact_io import (
     publish_promoted_artifact,
 )
 from .features import (
+    artifact_feature_compatibility,
     available_feature_sources,
     canonical_feature_set,
     default_feature_set,
@@ -320,6 +321,13 @@ def promote_profile_model(
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
         raise PromotionError(f"Artifact calibration is required but not available: {reason}")
+    # The gate the web app shows as "spec_compatible", for every promotion path.
+    compatible, reason = artifact_feature_compatibility(
+        feature_set=payload_feature_set,
+        feature_names=feature_names,
+    )
+    if not compatible:
+        raise PromotionError(str(reason))
 
     _report_promotion_progress(progress_callback, "Preparing manifest for the main app", 35)
     target = Path(target_root) / profile.artifact_prefix

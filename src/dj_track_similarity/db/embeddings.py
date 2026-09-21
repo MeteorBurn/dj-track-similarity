@@ -12,7 +12,7 @@ import numpy as np
 from ..analysis_models import EmbeddingFamilySpec, current_embedding_spec
 from .ddl import FLOAT32_LE, FLOAT32_LE_BYTES
 from .schema import validate_library_schema
-from .mert_v2_layers import require_mert_v2_layers, validate_mert_v2_layer
+from .embedding_layers import require_embedding_layers, validate_embedding_layer
 
 
 _EMBEDDING_TABLES: Mapping[str, str] = {
@@ -265,7 +265,7 @@ def read_valid_embeddings(
     identities: Mapping[int, str],
     catalog_uuid: str,
     connection: sqlite3.Connection,
-    mert_v2_layer: int = 24,
+    layer: int | None = None,
 ) -> dict[int, np.ndarray]:
     """Read every valid embedding for *identities* in one statement.
 
@@ -273,23 +273,24 @@ def read_valid_embeddings(
     that does not validate" rule. It takes already-verified current
     identities instead of re-reading ``library`` and ``tracks`` once per
     track, so a full-library load costs one query rather than three per track.
+    A layered family is read at *layer*, by default its default layer.
     """
 
-    validate_mert_v2_layer(family, mert_v2_layer)
+    layer = validate_embedding_layer(family, layer)
     table = _EMBEDDING_TABLES.get(family)
     if table is None:
         raise ValueError(f"unsupported embedding family: {family!r}")
-    if family == "mert_v2":
-        require_mert_v2_layers(connection)
+    if layer is not None:
+        require_embedding_layers(connection, family)
     if not identities:
         return {}
     spec = current_embedding_spec(family)
     pairs = _validated_identity_pairs(identities, catalog_uuid)
     layer_filter = ""
     layer_parameters: tuple[int, ...] = ()
-    if family == "mert_v2":
+    if layer is not None:
         layer_filter = "AND embeddings.layer = ?"
-        layer_parameters = (mert_v2_layer,)
+        layer_parameters = (layer,)
 
     # Every structural test — identity match, dimension, normalization and
     # blob length — is a predicate SQLite can apply while it reads. Doing it
@@ -353,11 +354,14 @@ def write_valid_embedding_in_transaction(
     family: str,
     embedding: Sequence[float] | np.ndarray,
     analyzed_at: str,
-    mert_v2_layer: int = 24,
+    layer: int | None = None,
 ) -> None:
-    """Validate and UPSERT one embedding in a caller-owned transaction."""
+    """Validate and UPSERT one embedding in a caller-owned transaction.
 
-    validate_mert_v2_layer(family, mert_v2_layer)
+    A layered family is written at *layer*, by default its default layer.
+    """
+
+    layer = validate_embedding_layer(family, layer)
     if not connection.in_transaction:
         raise RuntimeError("embedding writes require an active library transaction")
     table = _EMBEDDING_TABLES.get(family)
@@ -389,12 +393,12 @@ def write_valid_embedding_in_transaction(
     layer_placeholder = ""
     conflict_key = "track_id"
     layer_parameters: tuple[int, ...] = ()
-    if family == "mert_v2":
-        require_mert_v2_layers(connection)
+    if layer is not None:
+        require_embedding_layers(connection, family)
         layer_column = ", layer"
         layer_placeholder = ", ?"
         conflict_key = "track_id, layer"
-        layer_parameters = (mert_v2_layer,)
+        layer_parameters = (layer,)
     connection.execute(
         f"""
         INSERT INTO {table}(

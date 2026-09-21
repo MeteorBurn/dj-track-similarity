@@ -7,6 +7,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from api_test_support import create_api_client
+from embedding_test_support import same_vector_layers
 import dj_track_similarity.api.application as api
 from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
@@ -150,6 +151,7 @@ def test_weighted_candidate_preview_uses_typed_targets_without_sidecar_write(
                         family=output.analysis_family,
                         vector=vector,
                         analyzed_at="2026-07-24T12:00:00Z",
+                        layer_vectors=same_vector_layers(output.analysis_family, vector),
                     ),
                 ),
             )
@@ -209,6 +211,7 @@ def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
                         family=output.analysis_family,
                         vector=vector,
                         analyzed_at="2026-07-24T12:00:00Z",
+                        layer_vectors=same_vector_layers(output.analysis_family, vector),
                     ),
                 ),
             )

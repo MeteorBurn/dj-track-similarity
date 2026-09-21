@@ -11,7 +11,6 @@ from dataclasses import fields
 import numpy as np
 
 from ..analysis_models import (
-    AnalysisOutput,
     AnalysisTarget,
     ClassifierCandidate,
     ClassifierFeatureRow,
@@ -24,6 +23,7 @@ from .ddl import FLOAT32_LE, ClassifierScoreRecord
 from .sonara_core_validation import (
     SONARA_CORE_COLUMNS,
 )
+from ..classifier.manifest import classifier_source_layer
 from ..classifier.sonara_features import resolve_sonara_classifier_feature
 
 
@@ -43,8 +43,14 @@ _CLASSIFIER_PROBABILITY_TOLERANCE = 1e-9
 
 def _classifier_input_query_parts(
     specification: ClassifierSpecification,
-) -> tuple[list[str], list[str], dict[str, AnalysisOutput]]:
-    """Build the fixed-table joins needed by one classifier recipe."""
+) -> tuple[list[str], list[str], dict[str, str]]:
+    """Build the fixed-table joins needed by one classifier recipe.
+
+    Each feature source joins its own row: ``family@N`` at layer N and a bare
+    token at the family's default layer, so artifacts promoted before layer
+    tokens keep reading the vector they were trained on. Returns the selected
+    columns, the joins and the blob column of each embedding source.
+    """
 
     outputs_by_family = {
         output.analysis_family: output
@@ -58,15 +64,36 @@ def _classifier_input_query_parts(
         "tracks.file_modified_ns",
     ]
     joins: list[str] = []
-    for family, output in outputs_by_family.items():
+    joined_aliases: set[str] = set()
+    embedding_columns: dict[str, str] = {}
+    sources = dict.fromkeys(
+        feature_name.partition(":")[0] for feature_name in specification.feature_names
+    )
+    for source in sources:
+        family, layer = classifier_source_layer(source)
+        output = outputs_by_family.get(family)
+        if output is None:
+            raise ValueError(f"classifier feature source has no required input: {source}")
         table = table_for_output(output)
         if table is None:
             raise ValueError(
                 "unsupported classifier input "
                 f"{output.analysis_family}/{output.output_kind}"
             )
-        alias = f"classifier_{family}"
-        layer_filter = f" AND {alias}.layer = 24" if family == "mert_v2" else ""
+        alias = f"classifier_{family}" if layer is None else f"classifier_{family}_{layer}"
+        if output.output_kind == "embedding":
+            embedding_columns[source] = f"{alias}_embedding_blob"
+        elif output.key != ("sonara", "core"):
+            raise ValueError(
+                "unsupported classifier input "
+                f"{output.analysis_family}/{output.output_kind}"
+            )
+        if alias in joined_aliases:
+            # "family" and "family@<default>" name one stored row.
+            continue
+        joined_aliases.add(alias)
+        # A literal layer keeps the default-layer partial index usable.
+        layer_filter = "" if layer is None else f" AND {alias}.layer = {int(layer)}"
         joins.append(
             f"JOIN {table} AS {alias} ON {alias}.track_id = tracks.track_id{layer_filter}"
         )
@@ -76,37 +103,29 @@ def _classifier_input_query_parts(
                 for column in SONARA_CORE_COLUMNS
                 if column not in _SONARA_IDENTITY_COLUMNS
             )
-        elif output.output_kind == "embedding":
-            select_columns.append(
-                f"{alias}.embedding_blob AS {family}_embedding_blob"
-            )
         else:
-            raise ValueError(
-                "unsupported classifier input "
-                f"{output.analysis_family}/{output.output_kind}"
-            )
-    return select_columns, joins, outputs_by_family
+            select_columns.append(f"{alias}.embedding_blob AS {alias}_embedding_blob")
+    return select_columns, joins, embedding_columns
 
 
 def _classifier_feature_vector_from_row(
     row: sqlite3.Row,
     specification: ClassifierSpecification,
     *,
-    outputs_by_family: Mapping[str, AnalysisOutput],
+    embedding_columns: Mapping[str, str],
 ) -> np.ndarray:
     embedding_vectors = {
-        family: np.frombuffer(row[f"{family}_embedding_blob"], dtype=FLOAT32_LE)
-        for family, output in outputs_by_family.items()
-        if output.output_kind == "embedding"
+        source: np.frombuffer(row[column], dtype=FLOAT32_LE)
+        for source, column in embedding_columns.items()
     }
     values: list[float] = []
     for feature_name in specification.feature_names:
-        family, separator, key = feature_name.partition(":")
-        if not separator or family not in outputs_by_family:
+        source, separator, key = feature_name.partition(":")
+        if not separator:
             raise ValueError(
                 f"classifier feature has no required input: {feature_name}"
             )
-        if family == "sonara":
+        if source == "sonara":
             resolved = resolve_sonara_classifier_feature(key)
             if resolved is None:
                 raise ValueError(f"unsupported SONARA classifier feature: {key}")
@@ -117,7 +136,12 @@ def _classifier_feature_vector_from_row(
             else:
                 values.append(float(np.frombuffer(raw, dtype=FLOAT32_LE)[index]))
         else:
-            values.append(float(embedding_vectors[family][int(key)]))
+            vector = embedding_vectors.get(source)
+            if vector is None:
+                raise ValueError(
+                    f"classifier feature has no required input: {feature_name}"
+                )
+            values.append(float(vector[int(key)]))
     return _readonly_copy(np.asarray(values, dtype=FLOAT32_LE))
 
 
@@ -126,7 +150,7 @@ def _classifier_work_item_from_row(
     specification: ClassifierSpecification,
     *,
     catalog_uuid: str,
-    outputs_by_family: Mapping[str, AnalysisOutput],
+    embedding_columns: Mapping[str, str],
 ) -> tuple[ClassifierCandidate, ClassifierFeatureRow]:
     target = AnalysisTarget(
         catalog_uuid=catalog_uuid,
@@ -145,7 +169,7 @@ def _classifier_work_item_from_row(
         vector=_classifier_feature_vector_from_row(
             row,
             specification,
-            outputs_by_family=outputs_by_family,
+            embedding_columns=embedding_columns,
         ),
     )
     return candidate, feature_row

@@ -18,6 +18,7 @@ from dj_track_similarity.analysis.model_runners import (
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write
+from embedding_test_support import same_vector_layers
 from dj_track_similarity.library_models import TrackSummary
 from dj_track_similarity.search.reference_compare import (
     ReferenceCompareQuery,
@@ -145,23 +146,20 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     assert all(
         result.ok
         for result in database.save_embedding_results(
-            (
+            tuple(
                 EmbeddingWrite(
-                    target=seed,
+                    target=target,
                     output=EmbeddingOutput(
                         family="muq",
-                        vector=_muq_vector(1.0, 0.0),
+                        vector=vector,
                         analyzed_at=_NOW,
+                        layer_vectors=same_vector_layers("muq", vector),
                     ),
-                ),
-                EmbeddingWrite(
-                    target=muq_top,
-                    output=EmbeddingOutput(
-                        family="muq",
-                        vector=_muq_vector(0.8, 0.6),
-                        analyzed_at=_NOW,
-                    ),
-                ),
+                )
+                for target, vector in (
+                    (seed, _muq_vector(1.0, 0.0)),
+                    (muq_top, _muq_vector(0.8, 0.6)),
+                )
             )
         )
     )

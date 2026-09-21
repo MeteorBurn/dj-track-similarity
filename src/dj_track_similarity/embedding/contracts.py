@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
@@ -43,6 +43,15 @@ class DecodedAudioEmbeddingAdapter(EmbeddingRuntime, Protocol):
         self,
         decoded_items: list[DecodedAudio],
     ) -> list[NDArray[np.float32]]: ...
+
+
+class LayeredAudioEmbeddingAdapter(DecodedAudioEmbeddingAdapter, Protocol):
+    def embed_decoded_layers_batch(
+        self,
+        decoded_items: list[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[tuple[NDArray[np.float32], ...]]: ...
 
 
 class TextEmbeddingAdapter(EmbeddingIdentity, Protocol):

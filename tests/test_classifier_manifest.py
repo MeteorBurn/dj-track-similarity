@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from dj_track_similarity.analysis_models import EMBEDDING_LAYERS
 from dj_track_similarity.classifier.manifest import (
     load_classifier_manifest_summary,
 )
@@ -89,7 +90,8 @@ def test_embedding_manifest_checks_current_embedding_dimension(
     tmp_path: Path,
 ) -> None:
     for family in ("muq", "mert_v2"):
-        names = [f"{family}:0", f"{family}:1023", "clap:1"]
+        # A layer token names a stored layer; the bare token is the default one.
+        names = [f"{family}@3:0", f"{family}:1023", "clap:1"]
         model_path, manifest_path = _write_manifest(
             tmp_path / family,
             _manifest_payload(feature_names=names),
@@ -119,6 +121,20 @@ def test_embedding_manifest_checks_current_embedding_dimension(
             f"outside the current {family} dimension 1024" in error
             for error in invalid_summary.errors
         )
+
+        layer_count = EMBEDDING_LAYERS[family].count
+        for source in (f"{family}@0", f"{family}@{layer_count + 1}", f"{family}@03", "clap@1"):
+            layer_model, layer_manifest = _write_manifest(
+                tmp_path / family / source.replace("@", "-at-"),
+                _manifest_payload(feature_names=[f"{source}:0"]),
+            )
+            layer_summary = load_classifier_manifest_summary(
+                layer_model,
+                expected_classifier_key="test_classifier",
+                metadata_path=layer_manifest,
+            )
+            assert layer_summary.status == "invalid", source
+            assert any(f"'{source}:0'" in error for error in layer_summary.errors)
 
 
 def test_manifest_rejects_duplicate_feature_names(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from api_test_support import create_api_client
 import dj_track_similarity.api.application as api
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
+from dj_track_similarity.analysis_models import EMBEDDING_LAYERS
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.analysis.sonara_runtime import (
     DEFAULT_SONARA_BPM_MAX,
@@ -467,3 +468,23 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
             connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             for table in sonara_tables
         ] == [0, 0, 0, 0]
+
+    # A layered family stores one row per layer; its reset counts tracks.
+    with closing(database.connect()) as connection, connection:
+        connection.executemany(
+            "INSERT INTO muq_embeddings(track_id, layer, track_uuid, dim, normalization, "
+            "embedding_blob, analyzed_at) VALUES (?, ?, ?, 1024, 'l2', ?, ?)",
+            [
+                (track_id, layer, track_uuid, bytes(4096), stamp)
+                for layer in range(1, EMBEDDING_LAYERS["muq"].count + 1)
+            ],
+        )
+
+    muq = client.post("/api/analysis/reset", json={"analysis_family": "muq"})
+
+    assert muq.status_code == 200
+    assert muq.json() == {
+        "feature_rows_deleted": 0,
+        "embedding_rows_deleted": 1,
+        "classifier_rows_deleted": 0,
+    }

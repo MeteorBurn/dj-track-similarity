@@ -86,6 +86,9 @@ class _Repository:
     ) -> tuple[float, float]:
         return (bpm_min, bpm_max)
 
+    def require_embedding_layer_storage(self, family: str) -> None:
+        pass
+
     def current_sonara_track_count(self) -> int:
         return 1
 

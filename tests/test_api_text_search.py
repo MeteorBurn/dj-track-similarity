@@ -24,6 +24,7 @@ from dj_track_similarity.db.embeddings import current_track_identity, read_valid
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.track_models import FileTags, ScannedFile
+from embedding_test_support import same_vector_layers
 
 
 class FakeClapAdapter(ClapEmbeddingAdapter):
@@ -396,14 +397,16 @@ def _track_with_embedding(
         identity.track_id,
         identity.track_uuid,
     )
+    vector = _typed_vector(output, embedding)
     result = db.save_embedding_results(
         (
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
                     family=output.analysis_family,
-                    vector=_typed_vector(output, embedding),
+                    vector=vector,
                     analyzed_at="2026-07-24T12:00:00.000000Z",
+                    layer_vectors=same_vector_layers(output.analysis_family, vector),
                 ),
             ),
         )

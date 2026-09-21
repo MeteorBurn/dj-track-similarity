@@ -20,6 +20,7 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write
+from embedding_test_support import same_vector_layers
 from dj_track_similarity.evaluation.seed_sampling import (
     export_seed_sample,
 )
@@ -283,38 +284,23 @@ def _save_ml_embeddings(
     db.register_analysis_outputs(
         (mert_v2, muq, clap, maest_analysis, maest_embedding)
     )
+    vectors = {
+        family: _unit_vector(current_embedding_spec(family).dimension, axis)
+        for family in ("mert_v2", "muq", "clap", "maest")
+    }
+    outputs = {
+        family: EmbeddingOutput(
+            family=family,
+            vector=vector,
+            analyzed_at=_NOW,
+            layer_vectors=same_vector_layers(family, vector),
+        )
+        for family, vector in vectors.items()
+    }
     embedding_results = db.save_embedding_results(
-        (
-            EmbeddingWrite(
-                target=target,
-                output=EmbeddingOutput(
-                    family="mert_v2",
-                    vector=_unit_vector(
-                        current_embedding_spec("mert_v2").dimension, axis
-                    ),
-                    analyzed_at=_NOW,
-                ),
-            ),
-            EmbeddingWrite(
-                target=target,
-                output=EmbeddingOutput(
-                    family="muq",
-                    vector=_unit_vector(
-                        current_embedding_spec("muq").dimension, axis
-                    ),
-                    analyzed_at=_NOW,
-                ),
-            ),
-            EmbeddingWrite(
-                target=target,
-                output=EmbeddingOutput(
-                    family="clap",
-                    vector=_unit_vector(
-                        current_embedding_spec("clap").dimension, axis
-                    ),
-                    analyzed_at=_NOW,
-                ),
-            ),
+        tuple(
+            EmbeddingWrite(target=target, output=outputs[family])
+            for family in ("mert_v2", "muq", "clap")
         )
     )
     assert all(result.ok for result in embedding_results)
@@ -325,14 +311,7 @@ def _save_ml_embeddings(
                 genres=(MaestGenreScore(label="Techno", score=0.9),),
                 syncopated_rhythm=None,
                 analyzed_at=_NOW,
-                embedding=EmbeddingOutput(
-                    family="maest",
-                    vector=_unit_vector(
-                        current_embedding_spec("maest").dimension,
-                        axis,
-                    ),
-                    analyzed_at=_NOW,
-                ),
+                embedding=outputs["maest"],
             ),
         )
     )

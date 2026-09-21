@@ -3,10 +3,12 @@ from __future__ import annotations
 import threading
 import time
 import warnings
+from collections.abc import Callable
 
 import numpy as np
 
 from ..analysis_models import (
+    EMBEDDING_LAYERS,
     MUQ_CHECKPOINT_ID,
     MUQ_MODEL_NAME,
     MUQ_MODEL_REVISION,
@@ -15,11 +17,15 @@ from ..analysis_models import (
 )
 from ..audio.loader import DecodedAudio
 from .audio import _prepare_windows
+from .contracts import EmbeddingCancelledError
 from .loading import _bind_verified_local_snapshot
 from .numerics import _average_l2_window_embeddings, _normalize_rows
 from ..runtime import select_torch_device
 
 _MUQ_CONSTRUCTION_LOCK = threading.RLock()
+# Layer 1 is hidden_states[0], the conv front end; layer k + 1 follows
+# conformer block k; layer 13 is hidden_states[12], the last hidden state.
+_LAYERS = EMBEDDING_LAYERS["muq"]
 
 _MUQ_WEIGHT_NORM_WARNING_SILENCED = False
 
@@ -68,6 +74,9 @@ class MuqEmbeddingAdapter:
             "resampler": "torchaudio",
             "window_selection": "consecutive-full-coverage-end-aligned-tail",
             "short_audio": "right-zero-pad-to-window",
+            "hidden_state_extraction": "all-13-hidden-states-conv-front-end-then-12-conformer-blocks",
+            "layer_pooling": "time-mean+per-window-l2+window-mean+per-layer-l2",
+            "embedding_layers": list(range(1, _LAYERS.count + 1)),
             "device_precision": "cuda-float16-autocast-float32-mel-otherwise-float32-eval-no-compile",
             "model_revision": self.model_revision,
             "checkpoint_filename": self.checkpoint_filename,
@@ -81,13 +90,21 @@ class MuqEmbeddingAdapter:
         self._load_model()
 
     def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
-        self._load_model()
-        return self._embed_decoded_items(decoded_items)
+        return [
+            layers[_LAYERS.default - 1]
+            for layers in self.embed_decoded_layers_batch(decoded_items)
+        ]
 
-    def _embed_decoded_items(
+    def embed_decoded_layers_batch(
         self,
         decoded_items: list[DecodedAudio],
-    ) -> list[np.ndarray]:
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[tuple[np.ndarray, ...]]:
+        """Return layers 1..13 per track from one forward pass per window batch."""
+
+        _check_cancelled(cancelled)
+        self._load_model()
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
@@ -100,26 +117,20 @@ class MuqEmbeddingAdapter:
             model_label="MuQ",
         )
 
-        pooled_windows: list[np.ndarray] = []
+        pooled_windows: list[list[np.ndarray]] = [[] for _ in range(_LAYERS.count)]
         inference_started = time.perf_counter()
-        use_float16 = self._device().startswith("cuda")
         for start in range(0, len(all_windows), self.inference_batch_size):
+            _check_cancelled(cancelled)
             wavs = torch.stack(
                 all_windows[start : start + self.inference_batch_size],
                 dim=0,
             ).to(device=self._device(), dtype=torch.float32)
-            # Float16 halves the conv and conformer activations of 30 s windows;
-            # the mel front end stays float32 (see _load_model).
-            with torch.inference_mode(), torch.autocast(
-                device_type="cuda", dtype=torch.float16, enabled=use_float16
+            for layer_windows, rows in zip(
+                pooled_windows, self._pooled_hidden_states(wavs), strict=True,
             ):
-                outputs = self._model(wavs, output_hidden_states=False)
-            hidden = getattr(outputs, "last_hidden_state", None)
-            if hidden is None:
-                raise ValueError("MuQ model output does not include last_hidden_state")
-            pooled_tensor = hidden.mean(dim=1).float()
-            pooled_windows.extend(_normalize_rows(pooled_tensor.detach().cpu().numpy().astype(np.float32)))
+                layer_windows.extend(rows)
         inference_seconds = time.perf_counter() - inference_started
+        _check_cancelled(cancelled)
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
             "inference_seconds": inference_seconds,
@@ -127,7 +138,36 @@ class MuqEmbeddingAdapter:
             "windows": len(all_windows),
         }
 
-        return _average_l2_window_embeddings(pooled_windows, track_windows)
+        layer_tracks = [
+            _average_l2_window_embeddings(layer_windows, track_windows)
+            for layer_windows in pooled_windows
+        ]
+        return [tuple(track_layers) for track_layers in zip(*layer_tracks)]
+
+    def _pooled_hidden_states(self, wavs) -> list[list[np.ndarray]]:
+        """L2 window rows of every hidden state's time mean, one list per layer.
+
+        Only pooled rows leave this call, so a batch's 13 hidden states are
+        freed before the next forward pass instead of staying alive through it.
+        """
+
+        torch = self._torch
+        assert torch is not None and self._model is not None
+        # Float16 halves the conv and conformer activations of 30 s windows;
+        # the mel front end stays float32 (see _load_model).
+        with torch.inference_mode(), torch.autocast(
+            device_type="cuda",
+            dtype=torch.float16,
+            enabled=self._device().startswith("cuda"),
+        ):
+            outputs = self._model(wavs, output_hidden_states=True)
+        states = getattr(outputs, "hidden_states", None)
+        if not isinstance(states, (tuple, list)) or len(states) != _LAYERS.count:
+            raise ValueError(f"MuQ must return exactly {_LAYERS.count} hidden states")
+        return [
+            _normalize_rows(hidden.mean(dim=1).float().detach().cpu().numpy().astype(np.float32))
+            for hidden in states
+        ]
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -188,6 +228,11 @@ def _keep_mel_in_float32(model, torch) -> None:
             return preprocessing(x, features)
 
     inner.preprocessing = float32_preprocessing
+
+
+def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise EmbeddingCancelledError("MuQ embedding cancelled")
 
 
 def _silence_muq_weight_norm_deprecation() -> None:

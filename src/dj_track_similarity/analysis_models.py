@@ -201,6 +201,91 @@ def current_embedding_spec(family: str) -> EmbeddingFamilySpec:
         ) from error
 
 
+@dataclass(frozen=True, slots=True)
+class EmbeddingLayers:
+    count: int
+    default: int
+
+
+# Families that store one vector per model layer, numbered from 1. The default
+# layer holds the family's primary vector: the one read wherever a single
+# vector per track is meant.
+EMBEDDING_LAYERS: Mapping[str, EmbeddingLayers] = MappingProxyType(
+    {
+        "maest": EmbeddingLayers(count=13, default=13),
+        "mert_v2": EmbeddingLayers(count=24, default=24),
+        "muq": EmbeddingLayers(count=13, default=13),
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingLayerHint:
+    label: str
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingLayerHints:
+    note: str
+    layers: Mapping[int, EmbeddingLayerHint]
+
+
+def _layer_hints(
+    note: str,
+    *entries: tuple[range, str, str],
+) -> EmbeddingLayerHints:
+    return EmbeddingLayerHints(
+        note=note,
+        layers=MappingProxyType(
+            {
+                layer: EmbeddingLayerHint(label=label, source=source)
+                for layers, label, source in entries
+                for layer in layers
+            }
+        ),
+    )
+
+
+# What published probing says each layer of a layered family is good at. The
+# labels are Russian UI copy, the sources English citations; a layer without
+# published evidence has no hint. The note says why a hint is no promise for
+# similarity search.
+EMBEDDING_LAYER_HINTS: Mapping[str, EmbeddingLayerHints] = MappingProxyType(
+    {
+        "maest": _layer_hints(
+            "Подсказки — статья MAEST (ISMIR 2023, Fig. 2): только теги "
+            "MagnaTagATune, блоки 5–12; вариант 13 — вход классификатора стилей.",
+            (range(7, 10), "музыкальные теги", "Tagging: MagnaTagATune"),
+            (range(13, 14), "выход стилей Discogs-519", "Input of the Discogs-519 style classifier"),
+        ),
+        "mert_v2": _layer_hints(
+            "Подсказки — выбор слоёв авторами MERT-v2 FullSong для обученных "
+            "предсказателей на указанных задачах, а не гарантия специализации "
+            "поиска похожих треков.",
+            (range(12, 13), "инструменты", "Instruments: MTG-Jamendo"),
+            (range(13, 14), "настроение / тема", "Mood/theme: MTG-Jamendo"),
+            (range(16, 17), "жанр", "Genre: MTG-Jamendo"),
+            (range(22, 23), "top-50 теги", "Top-50 tags: MTG-Jamendo"),
+            (range(23, 24), "доли / тональность / теги", "Beat: GTZAN; key: GiantSteps; tagging: MagnaTagATune"),
+            (range(24, 25), "жанр / эмоции", "Genre: GTZAN; emotion: EmoMusic"),
+        ),
+        # Our MuQ layer is the paper's layer + 1: layer 1 is the conv front end.
+        "muq": _layer_hints(
+            "Подсказки — лучшие слои пробинга в статье MuQ (arXiv 2501.01108, "
+            "Fig. 7) для модели того же семейства, а не нашего чекпоинта; не "
+            "гарантия для поиска похожих.",
+            (range(2, 4), "певец / высота тона", "Singer: VocalSet; pitch: NSynth"),
+            (range(4, 5), "инструмент", "Instrument: NSynth"),
+            (range(5, 7), "тональность", "Key: GiantSteps"),
+            (range(7, 8), "жанр / эмоции", "Genre: GTZAN; emotion: EMO"),
+            (range(8, 9), "вокальная техника", "Singing technique: VocalSet (weak spread)"),
+            (range(10, 14), "структура", "Structure: Harmonix (weak spread)"),
+        ),
+    }
+)
+
+
 _EMBEDDING_DIM_BY_FAMILY = {
     family: spec.dimension
     for family, spec in CURRENT_EMBEDDING_SPECS.items()
@@ -365,16 +450,26 @@ class EmbeddingOutput:
             "vector",
             _readonly_float32_vector(self.vector, family=family),
         )
-        if self.layer_vectors is not None:
-            if family != "mert_v2" or len(self.layer_vectors) != 24:
-                raise ValueError("layer_vectors requires all 24 MERT-v2 layers in order")
-            layers = tuple(
+        layers = EMBEDDING_LAYERS.get(family)
+        if layers is None:
+            if self.layer_vectors is not None:
+                raise ValueError(f"{family} embeddings have no layers")
+        else:
+            # Readiness takes the default-layer row as the whole layer set, so
+            # a default-only write would pass for complete: carry every layer.
+            if self.layer_vectors is None or len(self.layer_vectors) != layers.count:
+                raise ValueError(
+                    f"layer_vectors requires all {layers.count} {family} layers in order"
+                )
+            vectors = tuple(
                 _readonly_float32_vector(vector, family=family)
                 for vector in self.layer_vectors
             )
-            if not np.array_equal(layers[-1], self.vector):
-                raise ValueError("MERT-v2 layer 24 must equal the primary embedding")
-            object.__setattr__(self, "layer_vectors", layers)
+            if not np.array_equal(vectors[layers.default - 1], self.vector):
+                raise ValueError(
+                    f"{family} layer {layers.default} must equal the primary embedding"
+                )
+            object.__setattr__(self, "layer_vectors", vectors)
 
 
 @dataclass(frozen=True, slots=True)

@@ -544,15 +544,17 @@ class FakeMuqAudioModel:
         self.audio_calls: list[torch.Tensor] = []
 
     def __call__(self, wavs, *, output_hidden_states=True):
-        assert output_hidden_states is False
+        assert output_hidden_states is True
         self.batch_shapes.append(tuple(wavs.shape))
         self.batch_dtypes.append(wavs.dtype)
         self.audio_calls.append(wavs.detach().cpu().clone())
-        hidden = torch.zeros((wavs.shape[0], 2, 3), dtype=torch.float32, device=wavs.device)
+        # State k is a scaled basis vector rotated by k, so every layer differs.
+        states = torch.zeros((13, wavs.shape[0], 2, 3), dtype=torch.float32, device=wavs.device)
         for index in range(wavs.shape[0]):
             first = int(wavs[index, 0].item())
-            hidden[index, :, (first - 1) % hidden.shape[-1]] = 1.0 + abs(first) % 7
-        return types.SimpleNamespace(last_hidden_state=hidden)
+            for layer in range(13):
+                states[layer, index, :, (first - 1 + layer) % 3] = 1.0 + abs(first) % 7
+        return types.SimpleNamespace(last_hidden_state=states[-1], hidden_states=tuple(states))
 
 
 class SharedAudioMuqAdapter(MuqEmbeddingAdapter):
@@ -586,19 +588,19 @@ def test_muq_covers_each_track_with_consecutive_windows_and_preserves_pooling() 
         [torch.cat((short_audio, torch.zeros(window_size - short_audio.numel())))],
     ]
     expected_windows = [window for windows in expected_track_windows for window in windows]
-    expected_vectors = []
+    expected_layers = []
     for windows in expected_track_windows:
         # Each synthetic model output is a scaled basis vector: window L2
         # normalization must remove that scale before track-level averaging.
         counts = np.bincount([(int(window[0]) - 1) % 3 for window in windows], minlength=3).astype(np.float32)
-        expected_vectors.append(counts / np.linalg.norm(counts))
+        expected_layers.append([np.roll(counts, layer) / np.linalg.norm(counts) for layer in range(13)])
 
-    reference_vectors = None
+    reference_layers = None
     for batch_size in (1, 8, 64):
         adapter = SharedAudioMuqAdapter()
         adapter.window_seconds = 10.0
         adapter.inference_batch_size = batch_size
-        vectors = adapter.embed_decoded_batch(decoded)
+        track_layers = adapter.embed_decoded_layers_batch(decoded)
         actual_windows = [window for batch in adapter.fake_model.audio_calls for window in batch]
         assert len(actual_windows) == 34
         for actual, expected in zip(actual_windows, expected_windows, strict=True):
@@ -607,15 +609,28 @@ def test_muq_covers_each_track_with_consecutive_windows_and_preserves_pooling() 
             (min(batch_size, 34 - start), window_size) for start in range(0, 34, batch_size)
         ]
         assert all(dtype == torch.float32 for dtype in adapter.fake_model.batch_dtypes)
-        for actual, expected in zip(vectors, expected_vectors, strict=True):
-            assert actual.dtype == np.float32
-            assert np.linalg.norm(actual) == pytest.approx(1.0)
-            np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
-        if reference_vectors is None:
-            reference_vectors = vectors
+        for layers, expected in zip(track_layers, expected_layers, strict=True):
+            assert len(layers) == 13
+            for actual, expected_layer in zip(layers, expected, strict=True):
+                assert actual.dtype == np.float32
+                assert np.linalg.norm(actual) == pytest.approx(1.0)
+                np.testing.assert_allclose(actual, expected_layer, rtol=1e-6, atol=1e-7)
+        if reference_layers is None:
+            reference_layers = track_layers
         else:
-            for actual, reference in zip(vectors, reference_vectors, strict=True):
-                np.testing.assert_array_equal(actual, reference)
+            for layers, reference in zip(track_layers, reference_layers, strict=True):
+                for actual, expected_layer in zip(layers, reference, strict=True):
+                    np.testing.assert_array_equal(actual, expected_layer)
+
+    # The single-vector call returns layer 13, the last hidden state.
+    adapter = SharedAudioMuqAdapter()
+    adapter.window_seconds = 10.0
+    for actual, layers in zip(adapter.embed_decoded_batch(decoded), reference_layers, strict=True):
+        np.testing.assert_array_equal(actual, layers[-1])
+    adapter = SharedAudioMuqAdapter()
+    with pytest.raises(EmbeddingCancelledError):
+        adapter.embed_decoded_layers_batch(decoded, cancelled=lambda: bool(adapter.fake_model.audio_calls))
+    assert len(adapter.fake_model.audio_calls) == 1
 
 
 def test_muq_embed_decoded_batch_resamples_to_strict_24khz_float32() -> None:
@@ -931,12 +946,25 @@ class FakeMaestHead(torch.nn.Module):
         return self.logits
 
 
+class FakeMaestBlock(torch.nn.Module):
+    def __init__(self, number: int) -> None:
+        super().__init__()
+        self.number = number
+
+    def forward(self, tokens):
+        # Only patch tokens change, so the head input stays the CLS/DIST mean.
+        tokens = tokens.clone()
+        tokens[:, 2:, 10 + self.number] += 1.0 + self.number
+        return tokens
+
+
 class FakeMaestModel(torch.nn.Module):
     labels = ["A", "B", "C"] + [f"label-{index}" for index in range(3, 519)]
 
     def __init__(self) -> None:
         super().__init__()
         self.head = FakeMaestHead()
+        self.blocks = torch.nn.Sequential(*(FakeMaestBlock(number) for number in range(1, 13)))
         self.audio_calls = []
         self.predict_calls = 0
         self.feature_calls = []
@@ -980,7 +1008,11 @@ class FakeMaestModel(torch.nn.Module):
         self.feature_calls.append(len(blocks))
         if self.feature_error is not None:
             raise self.feature_error
-        return blocks, blocks
+        if blocks.ndim != 2:
+            return blocks, blocks
+        # CLS and DIST carry the head input; the two patch tokens average to twice it.
+        tokens = self.blocks(torch.stack((blocks, blocks, blocks, 3 * blocks), dim=1))
+        return tokens[:, 0], tokens[:, 1]
 
     def predict_labels(self, audio):
         self.predict_calls += 1
@@ -1022,6 +1054,7 @@ def test_maest_analyze_decoded_batch_returns_genres_and_embeddings() -> None:
         assert sum(adapter.fake_model.feature_calls) == 5
         assert adapter.fake_model.forward_features == original_features
         assert not adapter.fake_model.head._forward_hooks
+        assert not any(block._forward_hooks for block in adapter.fake_model.blocks)
         for result, (_, embeddings), expected_scores in zip(
             results, adapter.fake_model.outputs, adapter.fake_model.predictions,
         ):
@@ -1032,6 +1065,14 @@ def test_maest_analyze_decoded_batch_returns_genres_and_embeddings() -> None:
             assert result.embedding.shape == (768,)
             assert result.embedding.dtype == np.float32
             np.testing.assert_allclose(result.embedding, expected_embedding)
+            # Layers 1-12 are each block's patch-token mean over the track; 13 is the head input.
+            assert len(result.layer_embeddings) == 13
+            np.testing.assert_array_equal(result.layer_embeddings[-1], result.embedding)
+            for number, layer in enumerate(result.layer_embeddings[:-1], start=1):
+                expected_block = 2 * mean_embedding
+                expected_block[11 : 11 + number] += np.arange(2, number + 2)
+                assert layer.shape == (768,) and layer.dtype == np.float32
+                np.testing.assert_allclose(layer, expected_block / np.linalg.norm(expected_block), rtol=1e-6)
 
 
 def test_maest_analyze_decoded_batch_rejects_invalid_native_outputs(monkeypatch) -> None:

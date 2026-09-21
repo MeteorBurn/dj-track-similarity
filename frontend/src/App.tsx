@@ -1,5 +1,5 @@
 import { useSearchRequests } from "./useSearchRequests";
-import { useMertV2Layers } from "./useMertV2Layers";
+import { useEmbeddingLayers } from "./useEmbeddingLayers";
 import { useTextSearch } from "./useTextSearch";
 import { useJobState } from "./useJobState";
 import type { MouseEvent } from "react";
@@ -173,7 +173,7 @@ export function App() {
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
   const [seedSearchModel, setSeedSearchModel] = useState<SeedSearchModel>("sonara");
-  const mertV2Layers = useMertV2Layers(databasePath, databaseCatalogUuid, librarySummary);
+  const embeddingLayers = useEmbeddingLayers(seedSearchModel, databasePath, databaseCatalogUuid, librarySummary);
   const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("similarity");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
@@ -274,7 +274,7 @@ export function App() {
     analysisDevice,
     textEmbeddingFamily,
     seedSearchModel,
-    mertV2Layer: mertV2Layers.layer,
+    embeddingLayer: embeddingLayers.layer,
     setResults,
     addSeed,
     setNotice,
@@ -1472,7 +1472,7 @@ export function App() {
         />
 
         <SearchPlaylistPanel
-          mertV2Layers={mertV2Layers}
+          embeddingLayers={embeddingLayers}
           activeSearchTab={activeSearchTab}
           collapsed={searchCollapsed}
           onToggleCollapsed={() => togglePanel("search")}

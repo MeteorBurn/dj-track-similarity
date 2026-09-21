@@ -81,7 +81,7 @@ def _liked_payload(identity: TrackIdentity, liked: bool) -> dict[str, object]:
     }
 
 
-def test_mert_v2_layers_returns_current_stored_vector_counts(monkeypatch, tmp_path: Path) -> None:
+def test_embedding_layers_returns_current_stored_row_counts(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "layers.sqlite"
     database = LibraryDatabase(db_path)
     identities = []
@@ -100,15 +100,23 @@ def test_mert_v2_layers_returns_current_stored_vector_counts(monkeypatch, tmp_pa
         assert saved[0].ok
     database.mark_missing(identities[4].track_id)
     with closing(database.connect()) as connection, connection:
-        connection.execute("UPDATE mert_v2_embeddings SET track_uuid = 'stale' WHERE track_id = ?", (identities[5].track_id,))
+        # A stale identity on the default-layer row withdraws the whole track.
+        connection.execute("UPDATE mert_v2_embeddings SET track_uuid = 'stale' WHERE track_id = ? AND layer = 24", (identities[5].track_id,))
+        # Counts are row presence: a stored vector is not decoded again.
         connection.execute("UPDATE mert_v2_embeddings SET embedding_blob = ? WHERE track_id = ? AND layer = 24", (np.full(1024, np.nan, dtype=np.float32).tobytes(), identities[6].track_id))
+        connection.execute("DELETE FROM mert_v2_embeddings WHERE track_id = ? AND layer = 12", (identities[6].track_id,))
 
     with _client(monkeypatch, db_path) as client:
-        layers = client.get("/api/library/mert-v2/layers")
-        assert layers.status_code == 200
-        assert layers.json() == {"catalog_uuid": database.catalog_uuid, "layers": [
-            {"layer": layer, "track_count": 4 if layer == 24 else 5} for layer in range(1, 25)
-        ]}
+        response = client.get("/api/library/embedding-layers/mert_v2")
+        assert response.status_code == 200
+        payload = response.json()
+        assert (payload["catalog_uuid"], payload["family"], payload["default_layer"]) == (database.catalog_uuid, "mert_v2", 24)
+        assert set(payload) == {"catalog_uuid", "family", "default_layer", "note", "layers"}
+        assert [(row["layer"], row["track_count"]) for row in payload["layers"]] == [
+            (layer, 4 if layer == 12 else 5) for layer in range(1, 25)
+        ]
+        assert all(set(row) == {"layer", "track_count", "label", "source"} for row in payload["layers"])
+        assert client.get("/api/library/embedding-layers/clap").status_code == 404
 
 
 def test_tracks_endpoint_returns_paginated_typed_current_summaries(

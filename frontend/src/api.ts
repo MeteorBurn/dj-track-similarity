@@ -48,9 +48,14 @@ export type TrackMutationIdentity = {
   track_uuid: string;
 };
 
-export type MertV2LayersResponse = {
+export type LayeredEmbeddingFamily = Extract<EmbeddingSource, "mert_v2" | "muq" | "maest">;
+
+export type EmbeddingLayersResponse = {
   catalog_uuid: string;
-  layers: { layer: number; track_count: number }[];
+  family: LayeredEmbeddingFamily;
+  default_layer: number;
+  note: string | null;
+  layers: { layer: number; track_count: number; label: string | null; source: string | null }[];
 };
 
 export type MaestMelExportRequest = TrackMutationIdentity & {
@@ -215,7 +220,7 @@ export type SearchResult = {
 
 export type EmbeddingSearchPayload = {
   analysis_family: EmbeddingSource;
-  mert_v2_layer?: number;
+  layer?: number | null;
   seed_track_ids: number[];
   limit: number;
   min_similarity?: number | null;
@@ -225,7 +230,7 @@ export type EmbeddingSearchPayload = {
 
 export type EmbeddingRandomTrackPayload = {
   analysis_family: EmbeddingSource;
-  mert_v2_layer?: number;
+  layer?: number | null;
   exclude_track_ids: number[];
 };
 

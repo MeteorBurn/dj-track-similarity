@@ -12,9 +12,9 @@ Tables (emission order matches FK dependency order):
   5.  sonara_embeddings     — SONARA float32-le embedding BLOBs
       sonara_fingerprints   — SONARA native base64 acoustic fingerprints
   6.  maest_genres          — MAEST genre predictions + syncopated_rhythm flag
-  7.  maest_embeddings      — MAEST float32-le embedding BLOBs
+  7.  maest_embeddings      — MAEST float32-le embedding BLOBs, 13 layers/track
   8.  mert_v2_embeddings    — MERT-v2 float32-le embedding BLOBs, 24 layers/track
-  9.  muq_embeddings        — MuQ float32-le embedding BLOBs
+  9.  muq_embeddings        — MuQ float32-le embedding BLOBs, 13 layers/track
   10. mulan_embeddings      — MuQ-MuLan float32-le embedding BLOBs
   11. clap_embeddings       — CLAP float32-le embedding BLOBs
   12. classifier_scores     — Rhythm Lab classifier scores
@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -253,19 +254,23 @@ CREATE TABLE maest_genres (
 );
 """
 
-_DDL_MAEST_EMBEDDINGS = """
+# Per-layer tables: one row per model layer, layers numbered from 1. Their
+# layer counts and dimensions mirror EMBEDDING_LAYERS and CURRENT_EMBEDDING_SPECS
+# in analysis_models, spelled inline for the reason FLOAT32_LE_BYTES gives.
+_MAEST_EMBEDDINGS_TABLE = """
 CREATE TABLE maest_embeddings (
-    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
-    track_uuid         TEXT    NOT NULL,
-    dim                INTEGER NOT NULL CHECK(dim > 0),
-    normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
-    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
-    analyzed_at        TEXT    NOT NULL
+    track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+    layer INTEGER NOT NULL CHECK(layer BETWEEN 1 AND 13),
+    track_uuid TEXT NOT NULL,
+    dim INTEGER NOT NULL CHECK(dim = 768),
+    normalization TEXT NOT NULL CHECK(normalization = 'l2'),
+    embedding_blob BLOB NOT NULL CHECK(length(embedding_blob) = dim * 4),
+    analyzed_at TEXT NOT NULL,
+    PRIMARY KEY(track_id, layer)
 );
-CREATE INDEX idx_maest_embeddings_track_uuid ON maest_embeddings(track_uuid);
 """
 
-MERT_V2_EMBEDDINGS_DDL = """
+_MERT_V2_EMBEDDINGS_TABLE = """
 CREATE TABLE mert_v2_embeddings (
     track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
     layer INTEGER NOT NULL CHECK(layer BETWEEN 1 AND 24),
@@ -278,21 +283,60 @@ CREATE TABLE mert_v2_embeddings (
 );
 """
 
-_DDL_MERT_V2_EMBEDDINGS = MERT_V2_EMBEDDINGS_DDL + """
-CREATE INDEX idx_mert_v2_embeddings_track_uuid ON mert_v2_embeddings(track_uuid);
+_MUQ_EMBEDDINGS_TABLE = """
+CREATE TABLE muq_embeddings (
+    track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+    layer INTEGER NOT NULL CHECK(layer BETWEEN 1 AND 13),
+    track_uuid TEXT NOT NULL,
+    dim INTEGER NOT NULL CHECK(dim = 1024),
+    normalization TEXT NOT NULL CHECK(normalization = 'l2'),
+    embedding_blob BLOB NOT NULL CHECK(length(embedding_blob) = dim * 4),
+    analyzed_at TEXT NOT NULL,
+    PRIMARY KEY(track_id, layer)
+);
 """
 
-_DDL_MUQ_EMBEDDINGS = """
-CREATE TABLE muq_embeddings (
-    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
-    track_uuid         TEXT    NOT NULL,
-    dim                INTEGER NOT NULL CHECK(dim > 0),
-    normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
-    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
-    analyzed_at        TEXT    NOT NULL
-);
+#: The exact CREATE TABLE text of each per-layer table, by family. The layer
+#: shape guard compares a library's stored table SQL with it.
+LAYERED_EMBEDDINGS_DDL = MappingProxyType(
+    {
+        "maest": _MAEST_EMBEDDINGS_TABLE,
+        "mert_v2": _MERT_V2_EMBEDDINGS_TABLE,
+        "muq": _MUQ_EMBEDDINGS_TABLE,
+    }
+)
+
+#: Partial covering index of each per-layer table's default layer, by family:
+#: readiness reads one row per track through it instead of scanning every
+#: layer. A query uses it only when its WHERE spells the same literal layer.
+LAYERED_EMBEDDINGS_DEFAULT_INDEX_DDL = MappingProxyType(
+    {
+        "maest": """
+CREATE INDEX IF NOT EXISTS idx_maest_embeddings_default
+    ON maest_embeddings(track_id, track_uuid) WHERE layer = 13;
+""",
+        "mert_v2": """
+CREATE INDEX IF NOT EXISTS idx_mert_v2_embeddings_default
+    ON mert_v2_embeddings(track_id, track_uuid) WHERE layer = 24;
+""",
+        "muq": """
+CREATE INDEX IF NOT EXISTS idx_muq_embeddings_default
+    ON muq_embeddings(track_id, track_uuid) WHERE layer = 13;
+""",
+    }
+)
+
+_DDL_MAEST_EMBEDDINGS = _MAEST_EMBEDDINGS_TABLE + """
+CREATE INDEX idx_maest_embeddings_track_uuid ON maest_embeddings(track_uuid);
+""" + LAYERED_EMBEDDINGS_DEFAULT_INDEX_DDL["maest"]
+
+_DDL_MERT_V2_EMBEDDINGS = _MERT_V2_EMBEDDINGS_TABLE + """
+CREATE INDEX idx_mert_v2_embeddings_track_uuid ON mert_v2_embeddings(track_uuid);
+""" + LAYERED_EMBEDDINGS_DEFAULT_INDEX_DDL["mert_v2"]
+
+_DDL_MUQ_EMBEDDINGS = _MUQ_EMBEDDINGS_TABLE + """
 CREATE INDEX idx_muq_embeddings_track_uuid ON muq_embeddings(track_uuid);
-"""
+""" + LAYERED_EMBEDDINGS_DEFAULT_INDEX_DDL["muq"]
 
 _DDL_MULAN_EMBEDDINGS = """
 CREATE TABLE mulan_embeddings (

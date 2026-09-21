@@ -16,6 +16,7 @@ from ..analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisWriteResult,
+    EMBEDDING_LAYERS,
     EmbeddingOutput,
     EmbeddingWrite,
     MaestGenreScore,
@@ -54,14 +55,14 @@ from .sonara_results import prepare_sonara_write
 if TYPE_CHECKING:
     from ..track_models import TrackFileState
     from ..embedding.clap import ClapEmbeddingAdapter
+    from ..embedding.contracts import LayeredAudioEmbeddingAdapter
     from ..embedding.maest import MaestAnalysisResult
-    from ..embedding.mert_v2 import MertV2EmbeddingAdapter
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 _EmbeddingResult = np.ndarray | tuple[np.ndarray, ...]
 class AnalysisWriteRepository(Protocol):
-    def require_mert_v2_layer_storage(self) -> None: ...
+    def require_embedding_layer_storage(self, family: str) -> None: ...
 
     def require_maest_export_source(self, target: AnalysisTarget | int) -> TrackFileState: ...
 
@@ -305,6 +306,10 @@ class MaestModelRunner:
                     raise result
                 analyzed_at = utc_timestamp()
                 genre_scores = _maest_genres(result.genres)
+                layers = tuple(
+                    _l2_normalize(vector, model="MAEST")
+                    for vector in result.layer_embeddings
+                )
                 prepared.append(
                     MaestWrite(
                         target=item.candidate.target,
@@ -313,8 +318,9 @@ class MaestModelRunner:
                         analyzed_at=analyzed_at,
                         embedding=EmbeddingOutput(
                             family="maest",
-                            vector=_l2_normalize(result.embedding, model="MAEST"),
+                            vector=layers[EMBEDDING_LAYERS["maest"].default - 1],
                             analyzed_at=analyzed_at,
+                            layer_vectors=layers,
                         ),
                     )
                 )
@@ -390,6 +396,8 @@ class EmbeddingModelRunner:
             raise ValueError(f"Unsupported embedding model: {model}") from KeyError(model)
         self._active_outputs = (embedding_analysis_output(model, self.adapter),)
         self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
+        # Adapters of these models honour a cancel request inside a batch.
+        self.cancellable = model == "clap" or model in EMBEDDING_LAYERS
         self.cancelled: Callable[[], bool] | None = None
 
     @property
@@ -417,8 +425,8 @@ class EmbeddingModelRunner:
         items: Sequence[AnalysisBatchItem],
     ) -> Sequence[Exception | None]:
         self._check_cancelled()
-        if self.model == "mert_v2":
-            repository.require_mert_v2_layer_storage()
+        if self.model in EMBEDDING_LAYERS:
+            repository.require_embedding_layer_storage(self.model)
         self.last_ffmpeg_fallback_track_ids = frozenset()
         vectors = self._embedding_vectors(items)
         prepared: list[EmbeddingWrite | Exception] = []
@@ -431,7 +439,10 @@ class EmbeddingModelRunner:
                         target=item.candidate.target,
                         output=EmbeddingOutput(
                             family=self.model,
-                            vector=vector[-1] if isinstance(vector, tuple) else vector,
+                            vector=(
+                                vector[EMBEDDING_LAYERS[self.model].default - 1]
+                                if isinstance(vector, tuple) else vector
+                            ),
                             analyzed_at=utc_timestamp(),
                             layer_vectors=vector if isinstance(vector, tuple) else None,
                         ),
@@ -448,18 +459,18 @@ class EmbeddingModelRunner:
         return _merge_write_results(prepared, writes, write_results)
 
     def _check_cancelled(self) -> None:
-        if self.model in {"mert_v2", "clap"} and self.cancelled is not None and self.cancelled():
+        if self.cancellable and self.cancelled is not None and self.cancelled():
             raise EmbeddingCancelledError(f"{self.model.upper()} analysis cancelled")
 
     def _embed_decoded_items(self, decoded_items: list[DecodedAudio]) -> list[_EmbeddingResult]:
         self._check_cancelled()
-        if self.model in {"mert_v2", "clap"}:
+        if self.cancellable:
             try:
                 vectors: list[_EmbeddingResult]
-                if self.model == "mert_v2":
-                    vectors = list(cast("MertV2EmbeddingAdapter", self.adapter).embed_decoded_layers_batch(
-                        decoded_items, cancelled=self.cancelled,
-                    ))
+                if self.model in EMBEDDING_LAYERS:
+                    vectors = list(cast(
+                        "LayeredAudioEmbeddingAdapter", self.adapter,
+                    ).embed_decoded_layers_batch(decoded_items, cancelled=self.cancelled))
                 else:
                     vectors = list(cast(
                         "ClapEmbeddingAdapter", self.adapter,
@@ -476,7 +487,7 @@ class EmbeddingModelRunner:
                 raise
         return list(self.adapter.embed_decoded_batch(decoded_items))
 
-    def _mert_v2_vectors(self, items: list[AnalysisBatchItem]) -> list[_EmbeddingResult | Exception]:
+    def _layered_vectors(self, items: list[AnalysisBatchItem]) -> list[_EmbeddingResult | Exception]:
         try:
             return list(self._embed_decoded_items(_decoded_items(items)))
         except EmbeddingCancelledError:
@@ -509,8 +520,8 @@ class EmbeddingModelRunner:
         if direct_indexes:
             direct_items = [items[index] for index in direct_indexes]
             vectors = (
-                self._mert_v2_vectors(direct_items)
-                if self.model == "mert_v2"
+                self._layered_vectors(direct_items)
+                if self.model in EMBEDDING_LAYERS
                 else self._embed_decoded_items(_decoded_items(direct_items))
             )
             if len(vectors) != len(direct_items):

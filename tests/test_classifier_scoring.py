@@ -17,6 +17,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     ClassifierScoreWrite,
     ClassifierSpecification,
+    EMBEDDING_LAYERS,
     EmbeddingOutput,
     EmbeddingWrite,
     current_embedding_spec,
@@ -138,6 +139,14 @@ def _write_embedding(
 ) -> None:
     vector = np.zeros(current_embedding_spec(output.analysis_family).dimension, dtype=np.float32)
     vector[0] = 1.0
+    # Every other layer of a layered family holds a different vector, so a
+    # reader that is not pinned to the default layer sees the wrong one.
+    other = np.roll(vector, 1)
+    layers = EMBEDDING_LAYERS.get(output.analysis_family)
+    layer_vectors = None if layers is None else tuple(
+        vector if layer == layers.default else other
+        for layer in range(1, layers.count + 1)
+    )
     results = db.save_embedding_results(
         (
             EmbeddingWrite(
@@ -146,6 +155,7 @@ def _write_embedding(
                     family=output.analysis_family,
                     vector=vector,
                     analyzed_at=_NOW,
+                    layer_vectors=layer_vectors,
                 ),
             ),
         )
@@ -367,17 +377,30 @@ def test_production_scoring_loads_current_embeddings(
         target = _insert_track(db)
         _write_sonara_core(db, target)
         _write_embedding(db, target, output)
-        names = (f"{family}:0",)
+        # The bare token reads the default layer, as promoted artifacts always
+        # have; "family@3" reads layer 3, which holds a different vector.
+        names = (f"{family}:0", f"{family}@3:1")
         model_path = _write_artifact(
             tmp_path / f"{family}-artifact",
             feature_set=f"{family}-features",
             feature_names=list(names),
             feature_count=len(names),
         )
+        requirements = load_classifier_requirements(
+            db,
+            "test_classifier",
+            model_path=model_path,
+        )
+        rows = db.load_classifier_work_batch(
+            requirements.specification,
+            after_track_id=0,
+            limit=10,
+        )
+        assert [row.vector.tolist() for _candidate, row in rows] == [[1.0, 1.0]]
         _install_fake_joblib(
             monkeypatch,
             payload={
-                "model": _ProbabilityModel((0.25, 0.75), feature_count=1),
+                "model": _ProbabilityModel((0.25, 0.75), feature_count=2),
             },
         )
 
@@ -390,7 +413,7 @@ def test_production_scoring_loads_current_embeddings(
         assert result["scored"] == 1
         assert result["skipped"] == 0
         stored = _score_rows(db, "test_classifier")
-        assert stored[0][1] == json.dumps(list(names))
+        assert json.loads(stored[0][1]) == list(names)
         assert stored[0][2] == "positive"
         assert stored[0][4] == pytest.approx(0.75)
 

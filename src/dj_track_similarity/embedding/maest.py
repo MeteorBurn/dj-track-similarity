@@ -15,6 +15,7 @@ import numpy as np
 if TYPE_CHECKING:
     from torch import Tensor
 from ..analysis_models import (
+    EMBEDDING_LAYERS,
     MAEST_CHECKPOINT_ID,
     MAEST_MODEL_NAME,
     MAEST_MODEL_VERSION,
@@ -29,12 +30,18 @@ from ..verified_assets import bind_verified_file
 
 
 _MAEST_CONSTRUCTION_LOCK = threading.RLock()
+# Layers 1..12 follow transformer blocks 1..12; layer 13 is the head input.
+_LAYERS = EMBEDDING_LAYERS["maest"]
+# CLS and distillation tokens precede the patch tokens in every block output.
+_PREFIX_TOKENS = 2
 
 
 @dataclass(frozen=True)
 class MaestAnalysisResult:
     genres: list[dict[str, float | str]]
+    # The default layer; genres, export and single-vector readers use it.
     embedding: np.ndarray
+    layer_embeddings: tuple[np.ndarray, ...]
     mel_spectrogram: MaestMelSpectrogram | None = None
 
 
@@ -95,6 +102,9 @@ class MaestEmbeddingAdapter:
             "model_input": "1d-raw-waveform-melspectrogram-input-false",
             "score_activation": "sigmoid-logits",
             "score_pooling": "upstream-sigmoid-then-block-mean-then-top-k",
+            "hidden_state_extraction": "12-transformer-block-forward-hooks-then-head-input-same-pass",
+            "layer_pooling": "transformer-block-patch-token-mean+storage-block-mean+per-layer-l2",
+            "embedding_layers": list(range(1, _LAYERS.count + 1)),
             "dtype": "float32",
             "device_precision": "float32-eval",
             "checkpoint_release": self.checkpoint_release,
@@ -128,8 +138,15 @@ class MaestEmbeddingAdapter:
         device = self._device()
         _move_maest_runtime_modules(self._model, device)
         expected_labels = list(self._model.labels)
+        transformer_blocks = list(self._model.blocks)
+        if len(transformer_blocks) != _LAYERS.count - 1:
+            raise ValueError(
+                f"MAEST must have {_LAYERS.count - 1} transformer blocks, "
+                f"found {len(transformer_blocks)}"
+            )
         genres_by_track: list[list[dict[str, float | str]]] = []
-        embedding_rows: list[np.ndarray] = []
+        # One row list per layer: blocks 1..12, then the head input.
+        layer_rows: list[list[np.ndarray]] = [[] for _ in range(_LAYERS.count)]
         block_track_indexes: list[int] = []
         spectrograms: list[MaestMelSpectrogram | None] = []
         prepare_seconds = 0.0
@@ -142,6 +159,8 @@ class MaestEmbeddingAdapter:
             with torch.inference_mode():
                 captured: list[np.ndarray] = []
                 head_outputs: list[tuple[Tensor, Tensor]] = []
+                # Split feature batches fire each hook once per sub-batch, in order.
+                block_outputs: list[list[Tensor]] = [[] for _ in transformer_blocks]
 
                 def capture_head(_module, args, output):
                     if len(args) != 1:
@@ -149,10 +168,21 @@ class MaestEmbeddingAdapter:
                     # The mean-distilled head receives the native block embeddings.
                     head_outputs.append((args[0], output))
 
+                def capture_block(pooled: list[Tensor]):
+                    def hook(_module, _args, output):
+                        # Pool here: keeping every block's full token sequence
+                        # would hold 12 x [mel blocks, 1685, 768] until the pass ends.
+                        pooled.append(output[:, _PREFIX_TOKENS:, :].mean(dim=1))
+
+                    return hook
+
                 with ExitStack() as hooks:
                     hooks.enter_context(_maest_feature_batches(self._model, self.inference_batch_size, torch))
                     head_handle = self._model.head.register_forward_hook(capture_head)
                     hooks.callback(head_handle.remove)
+                    for block, pooled in zip(transformer_blocks, block_outputs):
+                        block_handle = block.register_forward_hook(capture_block(pooled))
+                        hooks.callback(block_handle.remove)
                     if include_mel_spectrogram:
                         def capture_mel(_module, _args, output):
                             captured.append(output.detach().cpu().numpy().copy())
@@ -171,11 +201,18 @@ class MaestEmbeddingAdapter:
                     expected_rows=block_count,
                 )
                 _validate_maest_predictions(scores, labels, expected_labels)
-                embedding_rows.extend(
-                    np.array(
-                        embeddings.detach().cpu().numpy(), dtype=np.float32, copy=True,
+                if not all(block_outputs):
+                    raise ValueError("MAEST did not run every transformer block")
+                layer_outputs = [torch.cat(pooled, dim=0) for pooled in block_outputs]
+                for number, values in enumerate(layer_outputs, start=1):
+                    _validate_maest_output(
+                        values, name=f"transformer block {number} embeddings", width=self.dim,
+                        expected_rows=block_count,
                     )
-                )
+                for rows, values in zip(layer_rows, [*layer_outputs, embeddings]):
+                    rows.extend(
+                        np.array(values.detach().cpu().numpy(), dtype=np.float32, copy=True)
+                    )
                 spectrograms.append(
                     _maest_mel_spectrogram(self._model, captured, block_count)
                     if include_mel_spectrogram else None
@@ -190,20 +227,27 @@ class MaestEmbeddingAdapter:
             "windows": len(block_track_indexes),
         }
 
-        # Storage needs one unit vector; native inference returns block embeddings.
-        averaged_embeddings = _average_maest_embeddings(
-            embedding_rows,
-            block_track_indexes,
-            expected_tracks=len(decoded_items),
-        )
+        # Storage needs one unit vector per layer; native inference returns
+        # one row per mel block.
+        layer_tracks = [
+            _average_maest_embeddings(
+                rows,
+                block_track_indexes,
+                expected_tracks=len(decoded_items),
+            )
+            for rows in layer_rows
+        ]
         return [
             MaestAnalysisResult(
                 genres=genres,
-                embedding=embedding,
+                embedding=layers[_LAYERS.default - 1],
+                layer_embeddings=layers,
                 mel_spectrogram=spectrogram,
             )
-            for genres, embedding, spectrogram in zip(
-                genres_by_track, averaged_embeddings, spectrograms,
+            for genres, layers, spectrogram in zip(
+                genres_by_track,
+                (tuple(track_layers) for track_layers in zip(*layer_tracks)),
+                spectrograms,
             )
         ]
 

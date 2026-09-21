@@ -5,19 +5,21 @@ from itertools import combinations
 import json
 from pathlib import Path
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 
 import numpy as np
 
+from dj_track_similarity.analysis_models import EMBEDDING_LAYERS
+
 from .features import (
-    MERT_V2_DEFAULT_LAYER,
     available_feature_sources,
     build_feature_matrix,
     canonical_feature_set,
     default_feature_set,
     feature_sources,
     source_availability_error,
-    stored_mert_v2_layers,
+    stored_embedding_layers,
 )
 from .lab_db import ClassifierProfile, RhythmLabDatabase
 from .source_db import SourceDatabase, SourceTrack
@@ -39,41 +41,43 @@ def benchmark_plan(
     strategy: str,
     feature_sets: Sequence[str] = (),
     *,
-    mert_v2_layers: Sequence[int] = (),
+    stored_layers: Mapping[str, Sequence[int]] = MappingProxyType({}),
 ) -> tuple[str, ...]:
     """Feature sets a strategy trains up front, given the library's available sources.
 
-    ``available`` holds bare family tokens; ``mert_v2_layers`` lists the stored
-    MERT-v2 layers. ``greedy`` returns its opening round (the singles); later
-    rounds depend on metrics. ``layers`` needs MERT-v2 and trains one set per
-    stored layer; ``layers+all`` adds each layer joined with every other
-    available family. ``custom`` requires every set to be trainable here.
+    ``available`` holds bare family tokens; ``stored_layers`` lists the stored
+    layers of each layered family. ``greedy`` returns its opening round (the
+    singles); later rounds depend on metrics. ``layers`` trains one set per
+    stored layer of every available layered family; ``layers+all`` adds each
+    layer joined with every other available family. ``custom`` requires every
+    set to be trainable here.
     """
 
     clean_strategy = _benchmark_strategy(strategy)
     sources = feature_sources(canonical_feature_set(available)) if available else ()
-    layers = tuple(sorted({int(layer) for layer in mert_v2_layers}))
     if clean_strategy == "custom":
         plan = _normalize_feature_sets(feature_sets)
         for feature_set in plan:
-            error = _availability_error(feature_set, sources, layers)
+            error = _availability_error(feature_set, sources, stored_layers)
             if error is not None:
                 raise ValueError(error)
         return tuple(plan)
     if clean_strategy in {"layers", "layers+all"}:
-        if "mert_v2" not in sources or not layers:
-            raise ValueError("MERT_V2 data is not stored in this library")
         layer_tokens = tuple(
-            "mert_v2" if layer == MERT_V2_DEFAULT_LAYER else f"mert_v2@{layer}"
-            for layer in layers
+            token
+            for family in sources
+            if family in EMBEDDING_LAYERS
+            for token in _layer_tokens(family, stored_layers.get(family, ()))
         )
-        others = tuple(source for source in sources if source != "mert_v2")
-        if clean_strategy == "layers" or not others:
-            return layer_tokens
-        return (
-            *layer_tokens,
-            *(canonical_feature_set((*others, token)) for token in layer_tokens),
-        )
+        if not layer_tokens:
+            families = ", ".join(family.upper() for family in EMBEDDING_LAYERS)
+            raise ValueError(f"No layered model ({families}) is stored in this library")
+        joined: list[str] = []
+        for token in layer_tokens:
+            others = tuple(source for source in sources if source != token.partition("@")[0])
+            if clean_strategy == "layers+all" and others:
+                joined.append(canonical_feature_set((*others, token)))
+        return (*layer_tokens, *joined)
     if clean_strategy == "full":
         return tuple(
             canonical_feature_set(combo)
@@ -93,11 +97,11 @@ def planned_run_count(
     strategy: str,
     feature_sets: Sequence[str] = (),
     *,
-    mert_v2_layers: Sequence[int] = (),
+    stored_layers: Mapping[str, Sequence[int]] = MappingProxyType({}),
 ) -> int:
     """Exact run count for fixed strategies; the n(n+1)/2 upper bound for greedy."""
 
-    plan = benchmark_plan(available, strategy, feature_sets, mert_v2_layers=mert_v2_layers)
+    plan = benchmark_plan(available, strategy, feature_sets, stored_layers=stored_layers)
     return _planned_runs(plan, strategy)
 
 
@@ -118,7 +122,7 @@ def run_ablation_benchmark(
     clean_strategy = _benchmark_strategy(strategy)
     source = SourceDatabase(source_db_path)
     available = available_feature_sources(source.feature_states())
-    layers = stored_mert_v2_layers(source)
+    layers = stored_embedding_layers(source)
     plan = _run_plan(available, clean_strategy, feature_sets, layers)
     planned_runs = _planned_runs(plan, clean_strategy)
     profiles, skipped_profiles = _selected_profiles(labels_path, profile_keys)
@@ -131,7 +135,7 @@ def run_ablation_benchmark(
         "model_family": MODEL_FAMILY,
         "strategy": clean_strategy,
         "available_sources": list(available),
-        "available_mert_v2_layers": list(layers),
+        "available_layers": {family: list(stored) for family, stored in layers.items()},
         "feature_sets": list(plan),
         "planned_runs": planned_runs,
         "calibrate_finalists": bool(calibrate_finalists),
@@ -199,7 +203,7 @@ def benchmark_profile_ablation(
     labels_db.sync_track_sightings(source)
     labels_by_identity = labels_db.training_labels(catalog_uuid=source.catalog_uuid)
     available = available_feature_sources(source.feature_states())
-    layers = stored_mert_v2_layers(source)
+    layers = stored_embedding_layers(source)
     plan = _run_plan(available, clean_strategy, feature_sets, layers)
     # One shared pool for every recipe: representatives that store every
     # available family, so rows are comparable across the benchmark.
@@ -328,13 +332,20 @@ def _run_plan(
     available: Sequence[str],
     strategy: str,
     feature_sets: Sequence[str],
-    mert_v2_layers: Sequence[int],
+    stored_layers: Mapping[str, Sequence[int]],
 ) -> tuple[str, ...]:
     # Custom keeps sets with unavailable sources so the report can mark them
     # "unavailable" instead of failing the whole benchmark.
     if strategy == "custom":
         return tuple(_normalize_feature_sets(feature_sets))
-    return benchmark_plan(available, strategy, mert_v2_layers=mert_v2_layers)
+    return benchmark_plan(available, strategy, stored_layers=stored_layers)
+
+
+def _layer_tokens(family: str, layers: Sequence[int]) -> tuple[str, ...]:
+    """Canonical tokens of one family's stored layers, ascending; the default one bare."""
+
+    stored = sorted({int(layer) for layer in layers})
+    return feature_sources("+".join(f"{family}@{layer}" for layer in stored)) if stored else ()
 
 
 def _planned_runs(plan: Sequence[str], strategy: str) -> int:
@@ -346,10 +357,10 @@ def _planned_runs(plan: Sequence[str], strategy: str) -> int:
 def _availability_error(
     feature_set: str,
     available: Sequence[str],
-    mert_v2_layers: Sequence[int],
+    stored_layers: Mapping[str, Sequence[int]],
 ) -> str | None:
     for source in feature_sources(feature_set):
-        error = source_availability_error(source, available, mert_v2_layers)
+        error = source_availability_error(source, available, stored_layers)
         if error is not None:
             return error
     return None

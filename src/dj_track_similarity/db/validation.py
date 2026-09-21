@@ -11,7 +11,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from ..analysis.config import normalize_sonara_bpm_range
-from ..analysis_models import CURRENT_EMBEDDING_SPECS, FingerprintOutput
+from ..analysis_models import CURRENT_EMBEDDING_SPECS, EMBEDDING_LAYERS, FingerprintOutput
 from .connection import connect_database_read_only
 from .embeddings import EmbeddingTrackIdentity, validate_embedding_row_payload
 from .schema import validate_library_schema
@@ -419,9 +419,11 @@ def _build_track_query() -> _TrackQuery:
             f"{family}.normalization",
             f"{family}.embedding_blob",
         ]
-        # MERT-v2 stores 24 layer rows per track; joining all of them would
-        # validate and count every track 24 times. Layer 24 is its stored vector.
-        layer_filter = " AND mert_v2.layer = 24" if family == "mert_v2" else ""
+        # A layered family stores one row per layer; joining all of them would
+        # validate and count every track once per layer. Only the default
+        # layer, the family's primary vector, is validated here.
+        layers = EMBEDDING_LAYERS.get(family)
+        layer_filter = f" AND {family}.layer = {layers.default}" if layers is not None else ""
         joins.append(
             f"LEFT JOIN {family}_embeddings AS {family}"
             f" ON {family}.track_id = t.track_id{layer_filter}"

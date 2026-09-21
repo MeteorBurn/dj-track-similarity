@@ -26,6 +26,7 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write
+from embedding_test_support import same_vector_layers
 from dj_track_similarity.track_models import (
     FileTags,
     ScannedFile,
@@ -980,17 +981,19 @@ def _save_cli_candidate_analysis(
             AnalysisOutput("sonara", "core"),
         )
     )
+    mert_v2_vector = _expanded_unit_vector(
+        current_embedding_spec("mert_v2").dimension,
+        embedding,
+    )
     embedding_result = db.save_embedding_results(
         (
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
                     family="mert_v2",
-                    vector=_expanded_unit_vector(
-                        current_embedding_spec("mert_v2").dimension,
-                        embedding,
-                    ),
+                    vector=mert_v2_vector,
                     analyzed_at=_NOW,
+                    layer_vectors=same_vector_layers("mert_v2", mert_v2_vector),
                 ),
             ),
         )
@@ -1028,17 +1031,17 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
     clap = current_embedding_analysis_output("clap")
     maest_analysis, maest_embedding = _maest_outputs()
     db.register_analysis_outputs((muq, clap, maest_analysis, maest_embedding))
+    muq_vector = _expanded_unit_vector(current_embedding_spec("muq").dimension, vector)
+    maest_vector = _expanded_unit_vector(current_embedding_spec("maest").dimension, vector)
     embedding_results = db.save_embedding_results(
         (
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
                     family="muq",
-                    vector=_expanded_unit_vector(
-                        current_embedding_spec("muq").dimension,
-                        vector,
-                    ),
+                    vector=muq_vector,
                     analyzed_at=_NOW,
+                    layer_vectors=same_vector_layers("muq", muq_vector),
                 ),
             ),
             EmbeddingWrite(
@@ -1064,11 +1067,9 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
                 analyzed_at=_NOW,
                 embedding=EmbeddingOutput(
                     family="maest",
-                    vector=_expanded_unit_vector(
-                        current_embedding_spec("maest").dimension,
-                        vector,
-                    ),
+                    vector=maest_vector,
                     analyzed_at=_NOW,
+                    layer_vectors=same_vector_layers("maest", maest_vector),
                 ),
             ),
         )

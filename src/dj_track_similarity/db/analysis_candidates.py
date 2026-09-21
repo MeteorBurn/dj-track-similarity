@@ -6,12 +6,13 @@ import sqlite3
 from collections.abc import Sequence
 
 from ..analysis_models import (
+    EMBEDDING_LAYERS,
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
 )
 from .embeddings import EmbeddingTrackIdentity
-from .mert_v2_layers import require_mert_v2_layers
+from .embedding_layers import require_embedding_layers
 
 
 _TABLE_BY_OUTPUT = {
@@ -166,24 +167,19 @@ def ready_target_keys_by_output(
                     "unsupported analysis output "
                     f"{output.analysis_family}/{output.output_kind}"
                 )
-            if output.analysis_family == "mert_v2":
-                require_mert_v2_layers(connection)
-                rows = tuple(
-                    (int(row[0]), str(row[1]))
-                    for row in connection.execute(
-                        "SELECT track_id, track_uuid FROM mert_v2_embeddings "
-                        "WHERE dim = 1024 AND normalization = 'l2' "
-                        "GROUP BY track_id, track_uuid, analyzed_at HAVING COUNT(*) = 24"
-                    )
-                    if (expected := current_tracks.get(int(row[0]))) is not None
-                    and str(row[1]) == expected.track_uuid
-                )
-            else:
-                rows = _valid_embedding_rows(
-                    connection,
-                    table=table,
-                    current_tracks=current_tracks,
-                )
+            # A layered family is ready on its default-layer row: the writer
+            # replaces all layers of a track in one validated transaction, so
+            # that row stands for the set. A track migrated with only the
+            # default layer is ready too; resetting the family refills it.
+            layers = EMBEDDING_LAYERS.get(output.analysis_family)
+            if layers is not None:
+                require_embedding_layers(connection, output.analysis_family)
+            rows = _valid_embedding_rows(
+                connection,
+                table=table,
+                current_tracks=current_tracks,
+                layer=None if layers is None else layers.default,
+            )
 
         else:
             raise ValueError(
@@ -214,11 +210,16 @@ def _valid_embedding_rows(
     *,
     table: str,
     current_tracks: dict[int, EmbeddingTrackIdentity],
+    layer: int | None = None,
 ) -> tuple[tuple[int, str], ...]:
+    # The literal layer spells the WHERE of the partial default-layer index, so
+    # the planner reads that covering index alone instead of every layer row.
+    layer_filter = "" if layer is None else f"WHERE layer = {int(layer)}"
     rows = connection.execute(
         f"""
         SELECT track_id, track_uuid
         FROM {table}
+        {layer_filter}
         """
     ).fetchall()
     valid: list[tuple[int, str]] = []

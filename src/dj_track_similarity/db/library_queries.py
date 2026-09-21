@@ -18,6 +18,8 @@ from pathlib import Path
 
 from .tracks import utc_now_text
 
+from ..analysis_models import EMBEDDING_LAYERS
+
 from ..library_models import (
     EmbeddingSummary,
     ExportTrackRow,
@@ -619,18 +621,23 @@ class LibraryQueryRepository:
         def count_rows(connection: sqlite3.Connection, table: str) -> int:
             return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
+        def count_embedded_tracks(connection: sqlite3.Connection, family: str) -> int:
+            # A layered family stores one row per layer: count tracks, not rows.
+            count = "COUNT(DISTINCT track_id)" if family in EMBEDDING_LAYERS else "COUNT(*)"
+            return int(
+                connection.execute(f"SELECT {count} FROM {family}_embeddings").fetchone()[0]
+            )
+
         with closing(self.connect()) as connection:
             return LibrarySummary(
                 tracks=count_rows(connection, "tracks"),
                 sonara=count_rows(connection, "sonara_features"),
                 maest_analysis=count_rows(connection, "maest_genres"),
-                maest_embedding=count_rows(connection, "maest_embeddings"),
-                mert_v2=int(connection.execute(
-                    "SELECT COUNT(DISTINCT track_id) FROM mert_v2_embeddings"
-                ).fetchone()[0]),
-                muq=count_rows(connection, "muq_embeddings"),
-                mulan=count_rows(connection, "mulan_embeddings"),
-                clap=count_rows(connection, "clap_embeddings"),
+                maest_embedding=count_embedded_tracks(connection, "maest"),
+                mert_v2=count_embedded_tracks(connection, "mert_v2"),
+                muq=count_embedded_tracks(connection, "muq"),
+                mulan=count_embedded_tracks(connection, "mulan"),
+                clap=count_embedded_tracks(connection, "clap"),
                 liked=count_rows(connection, "likes"),
                 classifiers=count_rows(connection, "classifier_scores"),
                 **_sonara_range_fields(connection),

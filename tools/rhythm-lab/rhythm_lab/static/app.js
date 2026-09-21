@@ -51,7 +51,6 @@ const FEATURE_FAMILY_LABELS = {
 };
 // Picker order in the UI; the backend canonical order is being aligned to it.
 const FEATURE_FAMILY_ORDER = ["sonara", "maest", "mert_v2", "muq", "mulan", "clap"];
-const MERT_V2_DEFAULT_LAYER = 24;
 const DEFAULT_BENCHMARK_STRATEGY = "singles+all";
 // Labels are UI copy; the keys are the values sent to the API.
 const BENCHMARK_STRATEGY_LABELS = {
@@ -59,8 +58,8 @@ const BENCHMARK_STRATEGY_LABELS = {
   "singles+all": "One at a time + all",
   greedy: "Greedy selection",
   full: "Full grid",
-  layers: "MERT-v2 layers",
-  "layers+all": "MERT-v2 layers + others",
+  layers: "Model layers",
+  "layers+all": "Model layers + others",
   custom: "Custom list",
 };
 const BENCHMARK_RUN_WARNING = 30;
@@ -84,7 +83,8 @@ let latestTrainingReadiness = null;
 let latestProfileSummary = null;
 let promoteFeatureSetEl = null;
 let selectedTrainingFeatureSet = null;
-let recipeMertV2Layer = null;
+// Layer picked per layered family in the rack, kept while the family is unchecked.
+let recipeLayers = {};
 let sourceCatalogUuid = null;
 let sourceSwitchPending = false;
 let benchmarkStrategy = DEFAULT_BENCHMARK_STRATEGY;
@@ -260,7 +260,7 @@ function resetProfileRecipeState() {
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
   selectedTrainingFeatureSet = null;
-  recipeMertV2Layer = null;
+  recipeLayers = {};
   benchmarkCustomSets = [];
   latestBenchmarkReport = null;
   trainingViewProfileKey = null;
@@ -523,7 +523,7 @@ async function switchSource(path) {
     // Stored families and recipe evidence belong to the newly selected library.
     latestTrainingReadiness = null;
     selectedTrainingFeatureSet = null;
-    recipeMertV2Layer = null;
+    recipeLayers = {};
     benchmarkCustomSets = [];
     latestBenchmarkReport = null;
     trainingViewProfileKey = null;
@@ -1204,8 +1204,7 @@ function syncRecipeFromReadiness(data) {
   const recipe = data?.feature_recipe?.feature_set;
   if (!recipe) return;
   selectedTrainingFeatureSet = String(recipe);
-  const layer = recipeMertV2LayerFromRecipe(selectedTrainingFeatureSet);
-  if (layer !== null) recipeMertV2Layer = layer;
+  rememberRecipeLayers(selectedTrainingFeatureSet, data);
 }
 
 function promoteBlockedTitle(selected) {
@@ -1485,8 +1484,9 @@ function missingLabelText(data) {
 
 // ---- Training recipe builder ------------------------------------------------
 // A recipe is a "+"-joined set of stored feature families in the server's
-// canonical order; MERT-v2 may carry a layer as "mert_v2@N" (bare token =
-// layer 24). Only families reported in available_feature_sources are offered.
+// canonical order; a layered family (embedding_layers) may carry a layer as
+// "family@N" (bare token = its default layer). Only families reported in
+// available_feature_sources are offered.
 
 function familyLabel(family) {
   return FEATURE_FAMILY_LABELS[family] || String(family || "").toUpperCase();
@@ -1505,23 +1505,55 @@ function recipeTokenLabel(token) {
   return layer ? `${familyLabel(family)} layer ${layer}` : familyLabel(family);
 }
 
-function recipeMertV2LayerFromRecipe(featureSet) {
-  const token = recipeTokens(featureSet).find(item => recipeTokenFamily(item) === "mert_v2");
+function layeredFamilies(data = latestTrainingReadiness) {
+  return Object.keys(data?.embedding_layers || {});
+}
+
+function defaultLayer(family, data = latestTrainingReadiness) {
+  const layer = Number(data?.embedding_layers?.[family]?.default);
+  return Number.isFinite(layer) && layer > 0 ? layer : null;
+}
+
+function layerLabel(family, layer, data = latestTrainingReadiness) {
+  return String(data?.embedding_layers?.[family]?.labels?.[String(layer)] || "");
+}
+
+// What published probing says the explicit layers of a recipe are good at.
+function recipeLayerHint(featureSet, data = latestTrainingReadiness) {
+  return recipeTokens(featureSet)
+    .map(token => {
+      const [family, layer] = token.split("@");
+      return layer ? layerLabel(family, layer, data) : "";
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function recipeLayerFromRecipe(featureSet, family, data = latestTrainingReadiness) {
+  const token = recipeTokens(featureSet).find(item => recipeTokenFamily(item) === family);
   if (!token) return null;
   const layer = Number(token.split("@")[1]);
-  return Number.isFinite(layer) && layer > 0 ? layer : MERT_V2_DEFAULT_LAYER;
+  return Number.isFinite(layer) && layer > 0 ? layer : defaultLayer(family, data);
 }
 
-function storedMertV2Layers(data = latestTrainingReadiness) {
-  return (data?.mert_v2_layers || []).map(Number).filter(layer => Number.isFinite(layer) && layer > 0);
+function rememberRecipeLayers(featureSet, data = latestTrainingReadiness) {
+  layeredFamilies(data).forEach(family => {
+    const layer = recipeLayerFromRecipe(featureSet, family, data);
+    if (layer !== null) recipeLayers[family] = layer;
+  });
 }
 
-function currentMertV2Layer(data = latestTrainingReadiness) {
-  const fromRecipe = recipeMertV2LayerFromRecipe(selectedTrainingFeatureSet);
+function storedLayers(family, data = latestTrainingReadiness) {
+  return (data?.embedding_layers?.[family]?.stored || []).map(Number).filter(layer => Number.isFinite(layer) && layer > 0);
+}
+
+function currentLayer(family, data = latestTrainingReadiness) {
+  const fromRecipe = recipeLayerFromRecipe(selectedTrainingFeatureSet, family, data);
   if (fromRecipe !== null) return fromRecipe;
-  if (recipeMertV2Layer !== null) return recipeMertV2Layer;
-  const layers = storedMertV2Layers(data);
-  return !layers.length || layers.includes(MERT_V2_DEFAULT_LAYER) ? MERT_V2_DEFAULT_LAYER : layers[layers.length - 1];
+  if (recipeLayers[family] !== undefined) return recipeLayers[family];
+  const layers = storedLayers(family, data);
+  const fallback = defaultLayer(family, data);
+  return !layers.length || layers.includes(fallback) ? fallback : layers[layers.length - 1];
 }
 
 function selectedRecipeFamilies() {
@@ -1536,18 +1568,21 @@ function orderedFamilies(families) {
   ];
 }
 
-function buildRecipe(families, layer, data = latestTrainingReadiness) {
+function buildRecipe(families, layerFor, data = latestTrainingReadiness) {
   return orderedFamilies(data?.available_feature_sources || [])
     .filter(family => families.has(family))
-    .map(family => (family === "mert_v2" && Number(layer) !== MERT_V2_DEFAULT_LAYER ? `mert_v2@${layer}` : family))
+    .map(family => {
+      const fallback = defaultLayer(family, data);
+      const layer = fallback === null ? null : Number(layerFor(family));
+      return layer !== null && layer !== fallback ? `${family}@${layer}` : family;
+    })
     .join("+");
 }
 
 async function applyRecipe(featureSet) {
   cancelScheduledReadinessRefresh();
   selectedTrainingFeatureSet = featureSet ? String(featureSet) : null;
-  const layer = recipeMertV2LayerFromRecipe(selectedTrainingFeatureSet);
-  if (layer !== null) recipeMertV2Layer = layer;
+  rememberRecipeLayers(selectedTrainingFeatureSet);
   syncRecipeRack(latestTrainingReadiness);
   await loadTrainingView();
 }
@@ -1568,8 +1603,8 @@ async function handleTrainingControlChange(event) {
 function handleRackChange(target) {
   const rackEl = document.getElementById("recipeRack");
   if (!rackEl) return;
-  const layerChanged = target.matches("select[data-recipe-layer]");
-  if (layerChanged) recipeMertV2Layer = Number(target.value) || MERT_V2_DEFAULT_LAYER;
+  const layerFamily = target.matches("select[data-recipe-layer]") ? target.dataset.recipeLayer : null;
+  if (layerFamily) recipeLayers[layerFamily] = Number(target.value) || defaultLayer(layerFamily);
   const families = new Set(
     Array.from(rackEl.querySelectorAll("input[data-recipe-family]"))
       .filter(input => input.checked)
@@ -1579,12 +1614,11 @@ function handleRackChange(target) {
     if (target.matches("input")) target.checked = true;
     return;
   }
-  if (layerChanged && !families.has("mert_v2")) return;
-  const recipe = buildRecipe(families, layerChanged ? recipeMertV2Layer : currentMertV2Layer());
+  if (layerFamily && !families.has(layerFamily)) return;
+  const recipe = buildRecipe(families, family => (family === layerFamily ? recipeLayers[family] : currentLayer(family)));
   if (!recipe || recipe === selectedTrainingFeatureSet) return;
   selectedTrainingFeatureSet = recipe;
-  const tokenLayer = recipeMertV2LayerFromRecipe(recipe);
-  if (tokenLayer !== null) recipeMertV2Layer = tokenLayer;
+  rememberRecipeLayers(recipe);
   readinessRequestId += 1;
   updateRecipeLine();
   scheduleReadinessRefresh();
@@ -1610,11 +1644,15 @@ function renderRecipeSlots(data) {
   const available = orderedFamilies(data?.available_feature_sources || []);
   if (!available.length) return '<span class="meta">This library has no stored feature sources.</span>';
   const selected = selectedRecipeFamilies();
-  const layers = storedMertV2Layers(data);
-  const layer = currentMertV2Layer(data);
   return available.map(family => {
-    const layerSelect = family === "mert_v2" && layers.length
-      ? `<select data-recipe-layer aria-label="MERT-v2 layer" title="MERT-v2 layer stored in this library">${layers.map(value => `<option value="${value}" ${value === layer ? "selected" : ""}>Layer ${value}</option>`).join("")}</select>`
+    const layers = storedLayers(family, data);
+    const layer = currentLayer(family, data);
+    const name = familyLabel(family);
+    const layerSelect = layers.length
+      ? `<select data-recipe-layer="${escapeHtml(family)}" aria-label="${escapeHtml(name)} layer" title="${escapeHtml(name)} layer stored in this library">${layers.map(value => {
+        const label = layerLabel(family, value, data);
+        return `<option value="${value}" ${value === layer ? "selected" : ""}>Layer ${value}${label ? ` · ${escapeHtml(label)}` : ""}</option>`;
+      }).join("")}</select>`
       : "";
     return `<div class="recipe-slot">
       <label>
@@ -1627,7 +1665,7 @@ function renderRecipeSlots(data) {
 }
 
 function rackSignature(data) {
-  return JSON.stringify([orderedFamilies(data?.available_feature_sources || []), storedMertV2Layers(data)]);
+  return JSON.stringify([orderedFamilies(data?.available_feature_sources || []), data?.embedding_layers || {}]);
 }
 
 // Rebuild the slots only when the library's stored models change; otherwise
@@ -1644,8 +1682,9 @@ function syncRecipeRack(data = latestTrainingReadiness) {
   rackEl.querySelectorAll("input[data-recipe-family]").forEach(input => {
     input.checked = selected.has(input.dataset.recipeFamily);
   });
-  const layerSelect = rackEl.querySelector("select[data-recipe-layer]");
-  if (layerSelect) layerSelect.value = String(currentMertV2Layer(data));
+  rackEl.querySelectorAll("select[data-recipe-layer]").forEach(select => {
+    select.value = String(currentLayer(select.dataset.recipeLayer, data));
+  });
   updateRecipeLine(data);
 }
 
@@ -1667,8 +1706,16 @@ function missingFamiliesText(data) {
 
 // ---- Benchmark panel ---------------------------------------------------------
 
+// Stored layers of every available layered family: one "layers" run each.
+function storedLayerCount(data = latestTrainingReadiness) {
+  const available = data?.available_feature_sources || [];
+  return layeredFamilies(data)
+    .filter(family => available.includes(family))
+    .reduce((total, family) => total + storedLayers(family, data).length, 0);
+}
+
 function benchmarkStrategies(data = latestTrainingReadiness) {
-  const hasLayers = (data?.available_feature_sources || []).includes("mert_v2") && storedMertV2Layers(data).length > 0;
+  const hasLayers = storedLayerCount(data) > 0;
   return Object.keys(BENCHMARK_STRATEGY_LABELS).filter(key => hasLayers || !key.startsWith("layers"));
 }
 
@@ -1678,7 +1725,7 @@ function normalizeBenchmarkStrategy(data = latestTrainingReadiness) {
 
 function plannedBenchmarkRuns(data = latestTrainingReadiness) {
   const n = (data?.available_feature_sources || []).length;
-  const layers = storedMertV2Layers(data).length;
+  const layers = storedLayerCount(data);
   switch (benchmarkStrategy) {
     case "singles": return { count: n, bound: false };
     case "singles+all": return { count: n > 1 ? n + 1 : n, bound: false };
@@ -1824,9 +1871,11 @@ function renderBenchmarkResults(report = latestBenchmarkReport) {
       ? `${(row.mean * 100).toFixed(1)}${row.std !== null ? ` ± ${(row.std * 100).toFixed(1)}` : ""}`
       : "";
     const delta = isTrained && reference ? (row === reference ? "baseline" : formatLadderDelta(row.mean, reference.mean)) : "";
+    const layerHint = recipeLayerHint(row.featureSet);
+    const recipeCode = `<code>${escapeHtml(row.featureSet)}</code>${layerHint ? ` · ${escapeHtml(layerHint)}` : ""}`;
     const recipe = isTrained
-      ? `<code>${escapeHtml(row.featureSet)}</code>`
-      : `<code>${escapeHtml(row.featureSet)}</code> <span class="meta">${escapeHtml(row.error || row.status)}</span>`;
+      ? recipeCode
+      : `${recipeCode} <span class="meta">${escapeHtml(row.error || row.status)}</span>`;
     const action = isTrained
       ? `<button type="button" data-recipe-apply="${escapeHtml(row.featureSet)}" title="Make ${escapeHtml(row.featureSet)} the training recipe">Use this recipe</button>`
       : "";

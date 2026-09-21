@@ -9,7 +9,8 @@ from types import MappingProxyType
 
 import numpy as np
 
-from dj_track_similarity.analysis_models import current_embedding_spec
+from dj_track_similarity.analysis_models import EMBEDDING_LAYERS, current_embedding_spec
+from dj_track_similarity.classifier.manifest import classifier_source_layer
 from dj_track_similarity.classifier.sonara_features import (
     SONARA_CLASSIFIER_SCALAR_ALIASES,
     SONARA_CLASSIFIER_VECTOR_ALIASES,
@@ -17,16 +18,15 @@ from dj_track_similarity.classifier.sonara_features import (
 )
 
 from .lab_db import RhythmLabDatabase
-from .source_db import MERT_V2_DEFAULT_LAYER, SourceDatabase, SourceTrack
+from .source_db import SourceDatabase, SourceTrack
 
 
 # The only recipe universe: any duplicate-free subset is a valid feature set,
 # and its canonical string lists the sources in this owner-mandated order
-# (the UI mirrors it). MERT-v2 stores 24 layers; a source token may select one
-# as "mert_v2@<layer>". The bare token is the layer Rhythm Lab has always read,
-# so existing artifacts keep matching.
+# (the UI mirrors it). A layered family (EMBEDDING_LAYERS) may select one of
+# its stored layers as "<family>@<layer>", the grammar the main app scores;
+# the bare token is the default layer, so existing artifacts keep matching.
 SUPPORTED_FEATURE_SOURCES = ("sonara", "maest", "mert_v2", "muq", "mulan", "clap")
-_LAYERED_FAMILIES = ("mert_v2",)
 _SONARA_CORE_SCALAR_FIELDS = (
     "bpm",
     "onset_density",
@@ -375,29 +375,26 @@ def _canonical_sources(raw: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _parse_feature_source(token: str) -> tuple[str, int]:
-    family, separator, layer_text = token.partition("@")
+    family = token.partition("@")[0]
     if family not in SUPPORTED_FEATURE_SOURCES:
         raise ValueError(f"Unsupported feature source: {family or token}")
-    if not separator:
-        return family, MERT_V2_DEFAULT_LAYER if family in _LAYERED_FAMILIES else 0
-    if family not in _LAYERED_FAMILIES:
-        raise ValueError(f"{family.upper()} does not store embedding layers: {token}")
-    if not layer_text.isdigit() or int(layer_text) < 1 or str(int(layer_text)) != layer_text:
-        raise ValueError(f"{family.upper()} layer must be a positive integer: {token}")
-    return family, int(layer_text)
+    _family, layer = classifier_source_layer(token)
+    return family, 0 if layer is None else layer
 
 
 def _source_token(family: str, layer: int) -> str:
-    if family in _LAYERED_FAMILIES and layer != MERT_V2_DEFAULT_LAYER:
+    layers = EMBEDDING_LAYERS.get(family)
+    if layers is not None and layer != layers.default:
         return f"{family}@{layer}"
     return family
 
 
 def split_feature_source(source: str) -> tuple[str, int | None]:
-    """``"mert_v2@12"`` -> ``("mert_v2", 12)``; ``"mert_v2"``/``"sonara"`` -> layer ``None`` (stored default)."""
+    """``"muq@4"`` -> ``("muq", 4)``; ``"muq"``/``"muq@13"``/``"sonara"`` -> layer ``None`` (stored default)."""
 
     family, layer = _parse_feature_source(str(source).strip().lower())
-    if family in _LAYERED_FAMILIES and layer != MERT_V2_DEFAULT_LAYER:
+    layers = EMBEDDING_LAYERS.get(family)
+    if layers is not None and layer != layers.default:
         return family, layer
     return family, None
 
@@ -420,22 +417,26 @@ def available_feature_sources(feature_states: Mapping[str, object]) -> tuple[str
 def source_availability_error(
     source: str,
     available: Sequence[str],
-    mert_v2_layers: Sequence[int] = (),
+    stored_layers: Mapping[str, Sequence[int]] = MappingProxyType({}),
 ) -> str | None:
     """Why one recipe token cannot be trained from this library, or ``None``."""
 
     family, layer = split_feature_source(source)
     if family not in available:
         return f"{family.upper()} data is not stored in this library"
-    if layer is not None and layer not in tuple(mert_v2_layers):
+    if layer is not None and layer not in tuple(stored_layers.get(family, ())):
         return f"{family.upper()} layer {layer} is not stored in this library"
     return None
 
 
-def stored_mert_v2_layers(source: SourceDatabase) -> tuple[int, ...]:
-    """Layers with stored MERT-v2 rows in this library, ascending."""
+def stored_embedding_layers(source: SourceDatabase) -> dict[str, tuple[int, ...]]:
+    """Stored layers of every layered family in this library, ascending; empty when none."""
 
-    return tuple(sorted({int(layer) for layer in source.mert_v2_stored_layers()}))
+    stored = source.stored_embedding_layers()
+    return {
+        family: tuple(sorted({int(layer) for layer in stored.get(family, ())}))
+        for family in EMBEDDING_LAYERS
+    }
 
 
 def load_source_embeddings(
@@ -444,7 +445,7 @@ def load_source_embeddings(
     *,
     track_ids: Sequence[int] | None,
 ):
-    """Load one recipe token's vectors; ``mert_v2@N`` reads layer N, bare tokens the default."""
+    """Load one recipe token's vectors; ``family@N`` reads layer N, bare tokens the default."""
 
     family, layer = split_feature_source(token)
     if layer is None:

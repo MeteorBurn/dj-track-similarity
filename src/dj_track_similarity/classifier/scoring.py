@@ -22,6 +22,7 @@ from ..analysis_models import (
 from .manifest import (
     ClassifierManifestSummary,
     classifier_manifest_api_fields,
+    classifier_source_layer,
     load_classifier_manifest_summary,
     resolve_classifier_artifact_paths,
     require_scoring_compatible_manifest,
@@ -426,9 +427,11 @@ def _validate_feature_inputs(
     }
     feature_families: list[str] = []
     for feature_name in specification.feature_names:
-        family, separator, key = feature_name.partition(":")
+        source, separator, key = feature_name.partition(":")
+        family = source.partition("@")[0]
         if not separator or family not in _SUPPORTED_FEATURE_FAMILIES or not key:
             raise ValueError(f"unsupported classifier feature: {feature_name}")
+        classifier_source_layer(source)
         if family not in feature_families:
             feature_families.append(family)
         output = outputs_by_family.get(family)

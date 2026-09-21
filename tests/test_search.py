@@ -22,6 +22,7 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.search.engine import SearchFilters, SimilaritySearch
 from dj_track_similarity.search.vector_index import ExactVectorSearchBackend
 from dj_track_similarity.track_models import FileTags, ScannedFile
+from embedding_test_support import same_vector_layers
 
 
 _NOW = "2026-07-24T12:00:00.000000Z"
@@ -57,13 +58,13 @@ def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(
             layer_vectors=tuple(layer_vector if layer == 12 else final_vector for layer in range(1, 25)),
         )),))
         assert saved[0].ok
-    layer_search = SimilaritySearch(db, "mert_v2", analysis_output=output, mert_v2_layer=12)
+    layer_search = SimilaritySearch(db, "mert_v2", analysis_output=output, layer=12)
     layer_results = layer_search.search(layer_search.resolve_targets([target.track_id for target in seeds]), limit=20)
     assert [result.target for result in layer_results] == [far, bridge]
     assert [result.score for result in layer_results] == pytest.approx([1.0, 0.0])
     for invalid in (0, 25, True):
         with pytest.raises(ValueError, match="layer"):
-            SimilaritySearch(db, "mert_v2", analysis_output=output, mert_v2_layer=invalid)
+            SimilaritySearch(db, "mert_v2", analysis_output=output, layer=invalid)
 
 
 def test_search_epsilon_keeps_only_candidates_near_the_best_score(
@@ -260,6 +261,7 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
                     family=output.analysis_family,
                     vector=rewritten,
                     analyzed_at="2026-07-24T13:00:00.000000Z",
+                    layer_vectors=same_vector_layers(output.analysis_family, rewritten),
                 ),
             ),
         )
@@ -367,14 +369,16 @@ def _add_track(
         identity.track_id,
         identity.track_uuid,
     )
+    vector = _query(output, values)
     result = db.save_embedding_results(
         (
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
                     family=output.analysis_family,
-                    vector=_query(output, values),
+                    vector=vector,
                     analyzed_at=_NOW,
+                    layer_vectors=same_vector_layers(output.analysis_family, vector),
                 ),
             ),
         )

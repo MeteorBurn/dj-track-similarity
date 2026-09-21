@@ -25,6 +25,7 @@ from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write
+from embedding_test_support import same_vector_layers
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -359,11 +360,7 @@ def _embedding(
         family=output.analysis_family,
         vector=vector,
         analyzed_at=_NOW,
-        layer_vectors=(
-            tuple(vector for _ in range(24))
-            if output.analysis_family == "mert_v2"
-            else None
-        ),
+        layer_vectors=same_vector_layers(output.analysis_family, vector),
     )
     if output.analysis_family == "maest":
         assert maest_analysis is not None

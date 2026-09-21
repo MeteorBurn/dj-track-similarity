@@ -15,10 +15,17 @@ import threading
 import numpy as np
 
 from dj_track_similarity.analysis_models import (
+    EMBEDDING_LAYERS,
     current_embedding_spec,
 )
+from dj_track_similarity.classifier.manifest import classifier_source_layer
 from dj_track_similarity.db.analysis_candidates import table_for_output
 from dj_track_similarity.db.connection import connect_database, write_lock_for_path
+from dj_track_similarity.db.embedding_layers import (
+    embedding_layers_capability,
+    require_embedding_layers,
+    validate_embedding_layer,
+)
 from dj_track_similarity.db.schema import validate_library_schema
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
@@ -112,8 +119,6 @@ FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
         "clap": CLAP_EMBEDDING_OUTPUT,
     }
 )
-# MERT-v2 stores 24 layers per track; a bare "mert_v2" source token reads this one.
-MERT_V2_DEFAULT_LAYER = 24
 
 
 def _source_table(output: SourceOutput) -> str:
@@ -285,7 +290,7 @@ class SourceDatabase:
         self._feature_inventory_lock = threading.RLock()
         self._feature_inventory_signature: tuple[tuple[int, int], ...] | None = None
         self._feature_inventory_counts: Mapping[str, int] | None = None
-        self._feature_inventory_layers: tuple[int, ...] = ()
+        self._feature_inventory_layers: Mapping[str, tuple[int, ...]] = MappingProxyType({})
 
     def _validate_library(self, *, expected_catalog_uuid: str | None) -> str:
         with closing(_readonly_connection(self.path)) as connection:
@@ -340,15 +345,15 @@ class SourceDatabase:
         counts, _layers = self._load_feature_inventory()
         return counts, _feature_source_states(counts)
 
-    def mert_v2_stored_layers(self) -> tuple[int, ...]:
-        """MERT-v2 layers with rows for current tracks, ascending; empty without the table."""
+    def stored_embedding_layers(self) -> Mapping[str, tuple[int, ...]]:
+        """Stored layers of each layered family for current tracks, ascending; empty without its table."""
 
         _counts, layers = self._load_feature_inventory()
         return layers
 
     def _load_feature_inventory(
         self,
-    ) -> tuple[Mapping[str, int], tuple[int, ...]]:
+    ) -> tuple[Mapping[str, int], Mapping[str, tuple[int, ...]]]:
         with self._feature_inventory_lock:
             before = _storage_change_signature(self.path)
             if (
@@ -357,8 +362,12 @@ class SourceDatabase:
             ):
                 return self._feature_inventory_counts, self._feature_inventory_layers
             with closing(self.connect()) as connection:
+                for family in EMBEDDING_LAYERS:
+                    # A one-vector-per-track table has no layer to read: name the migration.
+                    if embedding_layers_capability(connection, family) != "absent":
+                        require_embedding_layers(connection, family)
                 loaded = _feature_counts(connection)
-                layers = _mert_v2_layers(connection)
+                layers = MappingProxyType(_stored_layers(connection))
             counts = MappingProxyType(dict(loaded))
             after = _storage_change_signature(self.path)
             if before == after:
@@ -368,7 +377,7 @@ class SourceDatabase:
             else:
                 self._feature_inventory_signature = None
                 self._feature_inventory_counts = None
-                self._feature_inventory_layers = ()
+                self._feature_inventory_layers = MappingProxyType({})
             return counts, layers
 
     def _required_source_tokens(
@@ -386,13 +395,13 @@ class SourceDatabase:
         tokens = tuple(dict.fromkeys(str(token).strip().lower() for token in required_sources))
         if not tokens:
             raise ValueError("required_sources must name at least one feature source")
-        layers = self.mert_v2_stored_layers()
+        layers = self.stored_embedding_layers()
         for token in tokens:
             family, layer = _split_source_token(token)
             if layer is None:
                 if counts.get(family, 0) == 0:
                     return None
-            elif layer not in layers:
+            elif layer not in layers.get(family, ()):
                 return None
         return tokens
 
@@ -536,11 +545,10 @@ class SourceDatabase:
         track_ids: Iterable[int] | None = None,
         layer: int | None = None,
     ) -> SourceEmbeddingMatrix:
-        """Load one family's vectors; ``layer`` selects a stored MERT-v2 layer (default 24)."""
+        """Load one family's vectors; ``layer`` selects a stored layer, by default the family's default one."""
 
         clean_family = _embedding_family(family)
-        if layer is not None and clean_family != "mert_v2":
-            raise ValueError(f"{clean_family.upper()} does not store embedding layers")
+        validate_embedding_layer(clean_family, layer)
         spec = current_embedding_spec(clean_family)
         selected_ids = (
             None
@@ -1317,8 +1325,10 @@ def _ready_embedding_vectors(
         "t.missing_since IS NULL",
         "a.track_uuid = t.track_uuid",
     ]
-    if family == "mert_v2":
-        base_clauses.append(f"a.layer = {_mert_v2_layer(layer)}")
+    resolved_layer = validate_embedding_layer(family, layer)
+    if resolved_layer is not None:
+        # A literal default layer lets SQLite use the default-layer partial index.
+        base_clauses.append(f"a.layer = {int(resolved_layer)}")
     chunks: list[list[int] | None]
     if track_ids is not None:
         clean_ids = list(dict.fromkeys(_positive_track_id(value) for value in track_ids))
@@ -2061,9 +2071,9 @@ def _feature_counts(connection: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
     for source, output in FEATURE_SOURCE_OUTPUTS.items():
         table = _source_table(output)
-        layer_sql = (
-            f"AND data.layer = {MERT_V2_DEFAULT_LAYER}" if source == "mert_v2" else ""
-        )
+        # One row per track: a layered family counts its default-layer rows.
+        layers = EMBEDDING_LAYERS.get(source)
+        layer_sql = f"AND data.layer = {int(layers.default)}" if layers else ""
         try:
             row = connection.execute(
                 f"""
@@ -2085,49 +2095,41 @@ def _feature_counts(connection: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
-def _mert_v2_layers(connection: sqlite3.Connection) -> tuple[int, ...]:
-    try:
-        rows = connection.execute(
-            f"""
-            SELECT DISTINCT data.layer
-            FROM {_source_table(MERT_V2_EMBEDDING_OUTPUT)} AS data
-            JOIN tracks AS t USING(track_id)
-            WHERE t.missing_since IS NULL
-            ORDER BY data.layer
-            """
-        ).fetchall()
-    except sqlite3.OperationalError as error:
-        if _is_missing_table_error(error):
-            return ()
-        raise
-    return tuple(int(row[0]) for row in rows)
+def _stored_layers(connection: sqlite3.Connection) -> dict[str, tuple[int, ...]]:
+    stored: dict[str, tuple[int, ...]] = {}
+    for family in EMBEDDING_LAYERS:
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT DISTINCT data.layer
+                FROM {_source_table(EMBEDDING_OUTPUTS[family])} AS data
+                JOIN tracks AS t USING(track_id)
+                WHERE t.missing_since IS NULL
+                ORDER BY data.layer
+                """
+            ).fetchall()
+        except sqlite3.OperationalError as error:
+            if not _is_missing_table_error(error):
+                raise
+            rows = []
+        stored[family] = tuple(int(row[0]) for row in rows)
+    return stored
 
 
 def _is_missing_table_error(error: sqlite3.OperationalError) -> bool:
     return "no such table" in str(error).lower()
 
 
-def _mert_v2_layer(layer: int | None) -> int:
-    if layer is None:
-        return MERT_V2_DEFAULT_LAYER
-    if isinstance(layer, bool) or int(layer) < 1:
-        raise ValueError("MERT_V2 layer must be a positive integer")
-    return int(layer)
-
-
 def _split_source_token(token: str) -> tuple[str, int | None]:
-    """``"mert_v2@12"`` -> ``("mert_v2", 12)``; bare tokens -> layer ``None``."""
+    """``"muq@4"`` -> ``("muq", 4)``; bare and default-layer tokens -> layer ``None``."""
 
-    family, _separator, layer_text = str(token).strip().lower().partition("@")
+    clean = str(token).strip().lower()
+    family = clean.partition("@")[0]
     if family not in FEATURE_SOURCE_OUTPUTS:
         raise ValueError(f"Unsupported feature source: {family or token}")
-    if not layer_text:
-        return family, None
-    if family != "mert_v2":
-        raise ValueError(f"{family.upper()} does not store embedding layers: {token}")
-    if not layer_text.isdigit():
-        raise ValueError(f"MERT_V2 layer must be a positive integer: {token}")
-    return family, _mert_v2_layer(int(layer_text))
+    _family, layer = classifier_source_layer(clean)
+    layers = EMBEDDING_LAYERS.get(family)
+    return family, None if layers is None or layer == layers.default else layer
 
 
 def _ready_source_conditions(
@@ -2139,9 +2141,8 @@ def _ready_source_conditions(
     conditions: list[str] = []
     for token in dict.fromkeys(sources):
         family, layer = _split_source_token(token)
-        layer_sql = ""
-        if family == "mert_v2":
-            layer_sql = f" AND ready.layer = {_mert_v2_layer(layer)}"
+        resolved_layer = validate_embedding_layer(family, layer)
+        layer_sql = "" if resolved_layer is None else f" AND ready.layer = {int(resolved_layer)}"
         conditions.append(
             f"EXISTS (SELECT 1 FROM {_source_table(FEATURE_SOURCE_OUTPUTS[family])} AS ready "
             f"WHERE ready.track_id = {alias}.track_id{layer_sql})"

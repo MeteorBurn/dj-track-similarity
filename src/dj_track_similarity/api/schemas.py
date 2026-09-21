@@ -30,6 +30,8 @@ from ..analysis.config import (
     MIN_SONARA_BATCH_SIZE,
     parse_sonara_bpm_range,
 )
+from ..analysis_models import EMBEDDING_LAYERS
+from ..db.embedding_layers import validate_embedding_layer
 from ..scanner import SUPPORTED_AUDIO_EXTENSIONS
 
 
@@ -304,20 +306,32 @@ class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"] = "mert_v2"
-    mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
+    # None reads the family's default layer.
+    layer: int | None = Field(default=None, strict=True)
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1)
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     epsilon: float | None = Field(default=None, ge=0.0)
     noise: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    @model_validator(mode="after")
+    def _layer_belongs_to_family(self) -> "SearchRequest":
+        validate_embedding_layer(self.analysis_family, self.layer)
+        return self
+
 
 class EmbeddingRandomTrackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"] = "mert_v2"
-    mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
+    # None reads the family's default layer.
+    layer: int | None = Field(default=None, strict=True)
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _layer_belongs_to_family(self) -> "EmbeddingRandomTrackRequest":
+        validate_embedding_layer(self.analysis_family, self.layer)
+        return self
 
 
 class SonaraMixerWeights(BaseModel):
@@ -960,11 +974,16 @@ class SimilaritySearchResultResponse(_ResponseModel):
     preset_scores: dict[str, float] | None = None
 
 
-class MertV2LayerCountResponse(_ResponseModel):
-    layer: int = Field(ge=1, le=24)
+class EmbeddingLayerCountResponse(_ResponseModel):
+    layer: int = Field(ge=1, le=max(layers.count for layers in EMBEDDING_LAYERS.values()))
     track_count: int = Field(ge=0)
+    label: str | None
+    source: str | None
 
 
-class MertV2LayersResponse(_ResponseModel):
+class EmbeddingLayersResponse(_ResponseModel):
     catalog_uuid: str
-    layers: list[MertV2LayerCountResponse]
+    family: str
+    default_layer: int = Field(ge=1)
+    note: str | None
+    layers: list[EmbeddingLayerCountResponse]

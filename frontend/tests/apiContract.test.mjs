@@ -252,8 +252,8 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
 
   await api.track(7, { signal: controller.signal });
   await api.search({
-    analysis_family: "mert_v2",
-    mert_v2_layer: 12,
+    analysis_family: "muq",
+    layer: 7,
     seed_track_ids: [7],
     limit: 10,
     min_similarity: 0,
@@ -273,7 +273,7 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
   }, { signal: controller.signal });
   await api.randomEmbeddingTrack({
     analysis_family: "mert_v2",
-    mert_v2_layer: 12,
+    layer: 12,
     exclude_track_ids: [7],
   }, { signal: controller.signal });
   await api.textSearch({
@@ -285,7 +285,7 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
   }, { signal: controller.signal });
   const preview = await api.previewInfo(7, { signal: controller.signal });
   assert.equal(preview.duration_seconds, 120.25);
-  await api.mertV2Layers({ signal: controller.signal });
+  for (const family of ["mert_v2", "muq", "maest"]) await api.embeddingLayers(family, { signal: controller.signal });
 
   assert.deepEqual(
     calls.map(({ path }) => path),
@@ -297,7 +297,9 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
       "/api/search/random-track",
       "/api/search/text",
       "/api/tracks/7/preview-info",
-      "/api/library/mert-v2/layers"
+      "/api/library/embedding-layers/mert_v2",
+      "/api/library/embedding-layers/muq",
+      "/api/library/embedding-layers/maest"
     ]
   );
   assert.deepEqual(JSON.parse(calls[2].options.body), sonaraPayload);
@@ -306,11 +308,11 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
   });
   assert.deepEqual(JSON.parse(calls[4].options.body), {
     analysis_family: "mert_v2",
-    mert_v2_layer: 12,
+    layer: 12,
     exclude_track_ids: [7],
   });
-  assert.equal(JSON.parse(calls[1].options.body).mert_v2_layer, 12);
-  assert.equal(calls[7].options.body, undefined);
+  assert.equal(JSON.parse(calls[1].options.body).layer, 7);
+  for (const call of calls.slice(7)) assert.equal(call.options.body, undefined);
   for (const call of calls) {
     assert.equal(call.options.signal, controller.signal);
   }

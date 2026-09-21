@@ -10,6 +10,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from ..analysis_models import (
+    EMBEDDING_LAYERS,
     AnalysisOutput,
     OUTPUT_KINDS_BY_FAMILY,
     current_embedding_spec,
@@ -299,7 +300,8 @@ def _valid_embedding_rows(
             current_embedding_spec(output.analysis_family)
         except ValueError:
             return {}
-    layer_filter = "AND layer = 24" if output.analysis_family == "mert_v2" else ""
+    layers = EMBEDDING_LAYERS.get(output.analysis_family)
+    layer_filter = f"AND layer = {layers.default}" if layers is not None else ""
     embedding_fields = (
         ", dim, normalization, length(embedding_blob) AS embedding_bytes"
         if embedding

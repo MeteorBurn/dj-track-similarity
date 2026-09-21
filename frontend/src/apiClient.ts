@@ -16,10 +16,11 @@ import type {
   DatabaseOptimizationJobStatus,
   DatabaseSelection,
   DatabaseValidationJobStatus,
+  EmbeddingLayersResponse,
   EmbeddingRandomTrackPayload,
-  MertV2LayersResponse,
   EmbeddingSearchPayload,
   GenreTagJobStatus,
+  LayeredEmbeddingFamily,
   LibrarySummary,
   MaestMelExportRequest,
   PreviewInfo,
@@ -346,8 +347,8 @@ const analysisApi = {
 };
 
 const searchApi = {
-  mertV2Layers: (options?: { signal?: AbortSignal }) =>
-    request<MertV2LayersResponse>("/api/library/mert-v2/layers", { signal: options?.signal }),
+  embeddingLayers: (family: LayeredEmbeddingFamily, options?: { signal?: AbortSignal }) =>
+    request<EmbeddingLayersResponse>(`/api/library/embedding-layers/${family}`, { signal: options?.signal }),
   search: (payload: EmbeddingSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search", {
       method: "POST",

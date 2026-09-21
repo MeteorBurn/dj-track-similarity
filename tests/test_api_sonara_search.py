@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import fields
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api.application as api
 from dj_track_similarity.analysis_models import (
+    EMBEDDING_LAYERS,
     AnalysisOutput,
     AnalysisTarget,
     EmbeddingOutput,
@@ -22,6 +24,7 @@ from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write
+from embedding_test_support import same_vector_layers
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -110,23 +113,33 @@ def test_generic_search_endpoint_returns_muq_result_shape(
             assert payload[0]["track"]["track_id"] == candidate.track_id
             assert payload[0]["score"] == pytest.approx(0.9 / np.hypot(0.9, 0.1))
             assert payload[0]["score_breakdown"] is None
-            layer_request = {"analysis_family": family, "seed_track_ids": [seed.track_id for seed in seeds], "mert_v2_layer": 12}
+            seed_ids = [seed.track_id for seed in seeds]
+            layer_count = EMBEDDING_LAYERS[family].count
+            layer_request = {"analysis_family": family, "seed_track_ids": seed_ids, "layer": 12}
+            for invalid_layer in (0, layer_count + 1, True, "12"):
+                assert client.post(
+                    "/api/search", json={**layer_request, "layer": invalid_layer}
+                ).status_code == 422
+            _keep_only_default_layer(db, family)
             assert client.post("/api/search", json=layer_request).status_code == 400
-            if family == "mert_v2":
-                for target in (*seeds, candidate):
-                    final = db.load_analysis_vectors(output, targets=(target,))[0].vector
-                    layer = np.zeros_like(final)
-                    layer[1 if target == candidate else 0] = 1.0
-                    saved = db.save_embedding_results((EmbeddingWrite(target=target, output=EmbeddingOutput(
-                        family=family, vector=final, analyzed_at=_NOW,
-                        layer_vectors=tuple(layer if number == 12 else final for number in range(1, 25)),
-                    )),))
-                    assert saved[0].ok
-                selected_layer = client.post("/api/search", json=layer_request)
-                assert selected_layer.status_code == 200
-                assert len(selected_layer.json()) == 1
-                assert selected_layer.json()[0]["track"]["track_id"] == candidate.track_id
-                assert selected_layer.json()[0]["score"] == pytest.approx(0.0)
+            for target in (*seeds, candidate):
+                final = db.load_analysis_vectors(output, targets=(target,))[0].vector
+                layer = np.zeros_like(final)
+                layer[1 if target == candidate else 0] = 1.0
+                saved = db.save_embedding_results((EmbeddingWrite(target=target, output=EmbeddingOutput(
+                    family=family, vector=final, analyzed_at=_NOW,
+                    layer_vectors=tuple(layer if number == 12 else final for number in range(1, layer_count + 1)),
+                )),))
+                assert saved[0].ok
+            selected_layer = client.post("/api/search", json=layer_request)
+            assert selected_layer.status_code == 200
+            assert len(selected_layer.json()) == 1
+            assert selected_layer.json()[0]["track"]["track_id"] == candidate.track_id
+            assert selected_layer.json()[0]["score"] == pytest.approx(0.0)
+        # A family that stores one vector per track has no layer to select.
+        assert client.post(
+            "/api/search", json={"analysis_family": "clap", "seed_track_ids": [1], "layer": 1}
+        ).status_code == 422
 
 
 def test_sonara_search_endpoint_accepts_mixer_and_modifiers(
@@ -258,17 +271,19 @@ def test_random_embedding_track_uses_an_unselected_embedded_track(
     assert payload["track_id"] in {target.track_id for target in targets[1:]}
     assert payload["analysis_coverage"]["mert_v2"] is True
     client = TestClient(create_app(db_path))
-    assert client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "mert_v2_layer": 12}).status_code == 409
+    _keep_only_default_layer(db, "mert_v2")
+    assert client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "layer": 12}).status_code == 409
+    assert client.post("/api/search/random-track", json={"analysis_family": "mulan", "layer": 12}).status_code == 422
     target = targets[1]
     vector = db.load_analysis_vectors(output, targets=(target,))[0].vector
     saved = db.save_embedding_results((EmbeddingWrite(target=target, output=EmbeddingOutput(
         family="mert_v2", vector=vector, analyzed_at=_NOW, layer_vectors=tuple(vector for _ in range(24)),
     )),))
     assert saved[0].ok
-    layer_pick = client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "mert_v2_layer": 12})
+    layer_pick = client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "layer": 12})
     assert layer_pick.status_code == 200
     assert layer_pick.json()["track_id"] == target.track_id
-    assert client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "mert_v2_layer": 12,
+    assert client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "layer": 12,
                                                        "exclude_track_ids": [target.track_id]}).status_code == 409
 
 
@@ -395,12 +410,23 @@ def _add_embedding_track(
                     family=output.analysis_family,
                     vector=vector,
                     analyzed_at=_NOW,
+                    layer_vectors=same_vector_layers(output.analysis_family, vector),
                 ),
             ),
         )
     )[0]
     assert result.ok, result.error
     return target
+
+
+def _keep_only_default_layer(db: LibraryDatabase, family: str) -> None:
+    """Leave each track only its default layer, as a migrated library holds it."""
+
+    with closing(db.connect()) as connection, connection:
+        connection.execute(
+            f"DELETE FROM {family}_embeddings WHERE layer != ?",
+            (EMBEDDING_LAYERS[family].default,),
+        )
 
 
 def _track(db: LibraryDatabase, root: Path, name: str) -> AnalysisTarget:

@@ -60,8 +60,21 @@
       "discogs-maest-30s-pw-129e": 400,
       "discogs-maest-30s-pw-129e-519l": 519
     },
+    "transformer_blocks": {
+      "count": 12,
+      "block_output_shape": [
+        "mel_blocks",
+        "tokens",
+        768
+      ],
+      "token_order": "CLS, distillation, then patch tokens (1683 for a full 1875-frame mel block).",
+      "final_norm": "LayerNorm after block 12 feeds only the CLS and distillation tokens of block_embeddings."
+    },
     "adapter_embedding": {
-      "type": "numpy.ndarray",
+      "type": "tuple of numpy.ndarray, one per stored layer",
+      "layers": 13,
+      "layer_numbering": "Layers 1-12 are transformer blocks 1-12, each the mean of its patch tokens; layer 13 is block_embeddings, the classification head input.",
+      "default_layer": 13,
       "shape": [
         768
       ],
@@ -91,7 +104,8 @@
     "adapter": {
       "model": "discogs-maest-30s-pw-129e-519l",
       "top_k_default": 3,
-      "embedding_pooling": "Mean native block embeddings, then final L2 normalization.",
+      "embedding_pooling": "For each stored layer: mean its per-mel-block rows over the track, then final L2 normalization.",
+      "layer_capture": "Forward hooks on the 12 transformer blocks pool patch tokens inside the hook during the same predict_labels pass; the head hook captures layer 13. Split feature batches fire each hook once per sub-batch, concatenated in call order.",
       "genre_selection": "Apply top-k after native sigmoid and mean over blocks; capture block embeddings from the same native pass."
     }
   }

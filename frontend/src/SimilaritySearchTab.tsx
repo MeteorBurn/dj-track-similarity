@@ -2,8 +2,8 @@ import { Search, Shuffle } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type { SonaraMixerWeights, SonaraModifiers } from "./api";
 import type { SearchFiltersState, SearchHelpText } from "./SearchPlaylistPanel";
-import { MertV2LayerSelect } from "./MertV2LayerSelect";
-import type { MertV2LayerState } from "./useMertV2Layers";
+import { EmbeddingLayerSelect } from "./EmbeddingLayerSelect";
+import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 import {
   seedSearchModels,
   seedSearchModelPresentation,
@@ -25,7 +25,7 @@ export function SimilaritySearchTab({
   onSearch,
   onAddRandomTrack
 }: {
-  layerState: MertV2LayerState;
+  layerState: EmbeddingLayerState;
   model: SeedSearchModel;
   onModelChange: (value: SeedSearchModel) => void;
   currentAnalysisCount: number;
@@ -41,15 +41,15 @@ export function SimilaritySearchTab({
 }) {
   const { label, title, description } = seedSearchModelPresentation[model];
   const showSonara = model === "sonara";
-  const missingReason = model === "mert_v2" && layerState.loading
-    ? "Loading MERT-v2 layer coverage…"
-    : model === "mert_v2" && layerState.error
+  const missingReason = layerState.layered && layerState.loading
+    ? `Loading ${label} layer coverage…`
+    : layerState.layered && layerState.error
       ? layerState.error
       : currentAnalysisCount > 0
         ? ""
         : showSonara
           ? "No SONARA analysis is available in the selected catalog. Run SONARA analysis first."
-          : `No current ${label}${model === "mert_v2" ? ` L${layerState.layer}` : ""} embeddings are available in the selected catalog. Run ${label} analysis first.`;
+          : `No current ${label}${layerState.layer !== null ? ` L${layerState.layer}` : ""} embeddings are available in the selected catalog. Run ${label} analysis first.`;
   const requestTitle = missingReason || (showSonara
     ? "Найти похожие треки через SONARA по выбранным seed-трекам"
     : `Find acoustically similar tracks with current ${label} embeddings.`);
@@ -139,7 +139,7 @@ export function SimilaritySearchTab({
           />
         </label>
       </div>
-      {model === "mert_v2" ? <MertV2LayerSelect state={layerState} /> : null}
+      {layerState.layered ? <EmbeddingLayerSelect state={layerState} modelLabel={label} /> : null}
       <small id="seed-search-model-description" className="embedding-search-requirement">{description}</small>
       {showSonara ? (
         <div className="sonara-search-settings">

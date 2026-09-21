@@ -54,6 +54,7 @@ from .sonara_staging import SonaraStagingConfig, StagedSonaraResult
 from .ml_staging import MLStagingConfig, MLStagedResult, analyze_and_store_staged_ml
 from .._shutdown import defer_keyboard_interrupt
 from ..analysis_models import (
+    EMBEDDING_LAYERS,
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
@@ -742,8 +743,8 @@ class AnalysisJobManager:
             self._update(job_id, current_model=model, model_name=runner.model_name)
             model_started = time.time()
             try:
-                if model == "mert_v2":
-                    self.db.require_mert_v2_layer_storage()
+                if model in EMBEDDING_LAYERS:
+                    self.db.require_embedding_layer_storage(model)
                 with handle.lock:
                     if handle.preflight_complete:
                         loaded = False
@@ -819,7 +820,7 @@ class AnalysisJobManager:
                         continue
                     runner_locks.enter_context(handle.lock)
                     runner = handle.runner
-                    if isinstance(runner, EmbeddingModelRunner) and model in {"mert_v2", "clap"}:
+                    if isinstance(runner, EmbeddingModelRunner) and runner.cancellable:
                         runner.cancelled = lambda: self.get(job_id).cancel_requested
                 results = analyze_and_store_staged_ml(
                     repository=self.db,
@@ -882,7 +883,7 @@ class AnalysisJobManager:
                 device=runner.device,
             )
             with lifecycle.handles[model].lock:
-                if isinstance(runner, EmbeddingModelRunner) and model in {"mert_v2", "clap"}:
+                if isinstance(runner, EmbeddingModelRunner) and runner.cancellable:
                     runner.cancelled = lambda: self.get(job_id).cancel_requested
                 if not self._run_model_batch(
                     job_id,
@@ -1032,7 +1033,11 @@ class AnalysisJobManager:
                 model=model,
             )
             for item in items:
-                if model in {"mert_v2", "clap"} and self.get(job_id).cancel_requested:
+                if (
+                    isinstance(runner, EmbeddingModelRunner)
+                    and runner.cancellable
+                    and self.get(job_id).cancel_requested
+                ):
                     raise EmbeddingCancelledError(f"{model.upper()} analysis cancelled")
                 try:
                     item_results = _validated_runner_results(

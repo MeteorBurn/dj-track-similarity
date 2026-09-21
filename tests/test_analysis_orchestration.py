@@ -105,7 +105,7 @@ class _FakeRepository:
         default_factory=dict,
     )
 
-    def require_mert_v2_layer_storage(self) -> None:
+    def require_embedding_layer_storage(self, family: str) -> None:
         pass
 
     def register_analysis_outputs(
@@ -885,7 +885,7 @@ def test_ml_runtime_runner_is_not_reused_across_runtime_settings(tmp_path: Path)
 
 
 def test_model_preflight_failure_preserves_prior_active_output() -> None:
-    for model in ("muq", "mert_v2"):
+    for model in ("mulan", "muq"):
         old_output = AnalysisOutput(model, "embedding")
         new_output = AnalysisOutput(model, "embedding")
         repository = _FakeRepository([], active_by_key={old_output.key: old_output})
@@ -893,10 +893,10 @@ def test_model_preflight_failure_preserves_prior_active_output() -> None:
             model, (new_output,), preflight_error=RuntimeError("checkpoint SHA-256 mismatch"),
         )
 
-        def require_layers():
-            raise RuntimeError("MERT-v2 layer schema is absent")
+        def require_layers(family: str):
+            raise RuntimeError(f"{family} layer schema is absent")
 
-        repository.require_mert_v2_layer_storage = require_layers
+        repository.require_embedding_layer_storage = require_layers
         status = AnalysisJobManager(
             repository, model_runners={model: runner},
         ).run_sync(models=[model], device="cpu")
@@ -905,8 +905,8 @@ def test_model_preflight_failure_preserves_prior_active_output() -> None:
         assert repository.events == []
         assert repository.active_analysis_output(model, "embedding") is old_output
         assert "preflight failed" in status.events[-1].message
-        if model == "mert_v2":
-            assert "layer schema is absent" in status.events[-1].message
+        if model == "muq":
+            assert "muq layer schema is absent" in status.events[-1].message
             assert runner.preflight_calls == 0
         else:
             assert "checkpoint SHA-256 mismatch" in status.events[-1].message
@@ -979,15 +979,14 @@ class _FakeMuqAdapter(MuqEmbeddingAdapter):
     def preflight(self) -> None:
         pass
 
-    def embed_decoded_batch(
+    def embed_decoded_layers_batch(
         self,
         decoded_items: Sequence[DecodedAudio],
         *,
         cancelled: Callable[[], bool] | None = None,
-    ) -> list[np.ndarray]:
-        vector = np.zeros(1024, dtype=np.float32)
-        vector[0] = 1.0
-        return [vector.copy() for _item in decoded_items]
+    ) -> list[tuple[np.ndarray, ...]]:
+        layers = tuple(np.eye(1, 1024, layer, dtype=np.float32)[0] for layer in range(13))
+        return [layers for _item in decoded_items]
 
 
 class _FakeMertV2Adapter(MertV2EmbeddingAdapter):
@@ -1036,6 +1035,9 @@ class _FakeClapAdapter(ClapEmbeddingAdapter):
 class _EmbeddingWriteRepository:
     writes: tuple[EmbeddingWrite, ...] = ()
 
+    def require_embedding_layer_storage(self, family: str) -> None:
+        pass
+
     def save_embedding_results(
         self,
         writes: Sequence[EmbeddingWrite],
@@ -1080,6 +1082,8 @@ def test_embedding_runner_writes_typed_contract_output_only() -> None:
     assert write.output.family == runner.active_outputs[0].analysis_family
     assert write.output.vector.shape == (1024,)
     assert np.linalg.norm(write.output.vector) == pytest.approx(1.0)
+    assert len(write.output.layer_vectors) == 13
+    assert write.output.vector[12] == 1.0
 
 
 class _FakeMulanAdapter(MuqMulanEmbeddingAdapter):
@@ -1162,7 +1166,7 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     assert vector.shape == (1024,)
     assert vector[0] == pytest.approx(1.0)
     for layer in range(1, 25):
-        rows = database.load_analysis_vectors(runner.active_outputs[0], mert_v2_layer=layer)
+        rows = database.load_analysis_vectors(runner.active_outputs[0], layer=layer)
         assert len(rows) == 1
         assert rows[0].target.track_uuid == mutation.identity.track_uuid
         np.testing.assert_array_equal(rows[0].vector, layers[layer - 1])
@@ -1255,6 +1259,7 @@ class _FakeMaestAdapter(MaestEmbeddingAdapter):
                 MaestAnalysisResult(
                     genres=[{"label": "Electronic---Breaks", "score": 0.9}],
                     embedding=vector,
+                    layer_embeddings=tuple(np.roll(vector, layer) for layer in range(1, 13)) + (vector,),
                 )
             )
         return results
@@ -1317,6 +1322,8 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
     assert write.syncopated_rhythm is True
     assert write.embedding is not None
     assert np.linalg.norm(write.embedding.vector) == pytest.approx(1.0)
+    assert len(write.embedding.layer_vectors) == 13
+    np.testing.assert_allclose(write.embedding.vector[:2], (0.6, 0.8), rtol=1e-6)
 
 
 @pytest.mark.parametrize("mode", ["run_job", "run_sync", "threaded", "queued"])

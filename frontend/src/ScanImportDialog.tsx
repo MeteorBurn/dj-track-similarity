@@ -89,7 +89,7 @@ export function ScanImportDialog({
                 <span>Workers</span>
                 <div className="stepper">
                   <button className="icon-button scan-import-workers-decrement-button" title="Уменьшить workers" disabled={disabled || settings.workers <= 1} onClick={() => onSettingsChange({ ...settings, workers: settings.workers - 1 })} type="button"><Minus size={15} /></button>
-                  <input name="scan-workers" type="number" min={1} max={maxWorkers} value={settings.workers} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, workers: Math.min(maxWorkers, Math.max(1, Number(event.target.value) || 1)) })} />
+                  <input name="scan-workers" aria-label="Workers" type="number" min={1} max={maxWorkers} value={settings.workers} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, workers: Math.min(maxWorkers, Math.max(1, Number(event.target.value) || 1)) })} />
                   <button className="icon-button scan-import-workers-increment-button" title="Увеличить workers" disabled={disabled || settings.workers >= maxWorkers} onClick={() => onSettingsChange({ ...settings, workers: settings.workers + 1 })} type="button"><Plus size={15} /></button>
                 </div>
               </div>

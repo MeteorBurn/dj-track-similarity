@@ -81,7 +81,6 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .danger-button:hover:not(:disabled), .rhythm-lab-stop-button:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .ready, .done { color: var(--green); }
 .blocked, .warning { color: var(--accent); }
-.muted { color: var(--text-muted); }
 .section-kicker, .sidebar-kicker { color: var(--text-muted); font-size: .87rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 500; }
 .empty-state { padding: 2.2rem 1rem; color: var(--text-muted); text-align: center; }
 

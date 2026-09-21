@@ -108,7 +108,7 @@ export function AudioDedupDialog({
   playingTrackId: number | null;
   onPreview: (file: AudioDedupFile) => void;
   onClose: () => void;
-  onDeleted: (message: string) => void;
+  onDeleted: (message: string, deletedTrackIds: number[]) => void;
 }) {
   const dedup = useAudioDedup({ open, databaseIdentity, job, setJob: onJobChange });
   const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>(job?.search_mode ?? "fingerprint_scan");
@@ -223,7 +223,7 @@ export function AudioDedupDialog({
     const parts = [`Удалено ${target}: ${result.deleted_track_ids.length}`];
     if (result.skipped.length > 0) parts.push(`пропущено ${result.skipped.length}`);
     if (result.failed.length > 0) parts.push(`с ошибкой ${result.failed.length}`);
-    onDeleted(parts.join(", "));
+    onDeleted(parts.join(", "), result.deleted_track_ids);
   }
 
   return (

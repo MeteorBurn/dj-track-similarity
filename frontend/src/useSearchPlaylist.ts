@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import type { SearchResult, Track, TrackDetail } from "./api";
+import type { SearchResult, Track, TrackDetail, TrackSummary } from "./api";
 import type { ActivityEvent } from "./jobUi";
-import { displayTrack } from "./trackDisplay";
+import { displayTrack, sameTrackIdentity } from "./trackDisplay";
 
 type ActivityAppender = (level: ActivityEvent["level"], message: string, detail?: string) => void;
 
@@ -56,6 +56,32 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
     }
   }
 
+  /**
+   * A track deleted from the catalogue leaves the seeds, the results and the
+   * set; everything else in them still names a live track and stays. The match
+   * is the full catalogue identity, so a list read from another library keeps
+   * a row that merely shares the numeric id.
+   */
+  function forgetTrack(deleted: TrackSummary) {
+    dropTracks((track) => sameTrackIdentity(track, deleted));
+  }
+
+  /**
+   * Audio Dedup reports its deletions as numeric ids of the open catalogue.
+   * Ids are never reused within one catalogue, so id plus catalogue is enough.
+   */
+  function forgetTrackIds(catalogUuid: string, trackIds: readonly number[]) {
+    const deleted = new Set(trackIds);
+    dropTracks((track) => track.catalog_uuid === catalogUuid && deleted.has(track.track_id));
+  }
+
+  function dropTracks(isDeleted: (track: TrackSummary) => boolean) {
+    const kept = (track: TrackSummary) => !isDeleted(track);
+    setSeedTracks((current) => current.filter(kept));
+    setResults((current) => current.filter((result) => kept(result.track)));
+    setPlaylist((current) => current.filter(kept));
+  }
+
   function resetSearchPlaylistState() {
     setSeedTracks([]);
     setResults([]);
@@ -83,6 +109,8 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
     removeSeed,
     removeFromPlaylist,
     togglePlaylist,
+    forgetTrack,
+    forgetTrackIds,
     resetSearchPlaylistState
   };
 }

@@ -27,7 +27,7 @@ export function NumberStepper({
       <span>{label}</span>
       <div className="stepper">
         <button className={`icon-button number-stepper-decrement-button ${classPrefix}-decrement-button`} title={`Уменьшить ${label}`} disabled={disabled || value <= minimum} onClick={() => update(value - 1)} type="button"><Minus size={15} /></button>
-        <input name={`${classPrefix}-value`} type="number" min={minimum} max={maximum} value={value} disabled={disabled} onChange={(event) => update(Number(event.target.value))} />
+        <input name={`${classPrefix}-value`} aria-label={label} type="number" min={minimum} max={maximum} value={value} disabled={disabled} onChange={(event) => update(Number(event.target.value))} />
         <button className={`icon-button number-stepper-increment-button ${classPrefix}-increment-button`} title={`Увеличить ${label}`} disabled={disabled || value >= maximum} onClick={() => update(value + 1)} type="button"><Plus size={15} /></button>
       </div>
     </div>

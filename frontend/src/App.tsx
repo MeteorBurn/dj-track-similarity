@@ -2,7 +2,6 @@ import { useSearchRequests } from "./useSearchRequests";
 import { useEmbeddingLayers } from "./useEmbeddingLayers";
 import { useTextSearch } from "./useTextSearch";
 import { useJobState } from "./useJobState";
-import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AudioLines, Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import { PlayerDock } from "./PlayerDock";
@@ -95,11 +94,6 @@ const analysisModelOrder = analysisSelectionOrder;
 const defaultScanWorkers = 8;
 const maxScanWorkers = 16;
 
-function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
-  const opened = window.open("/docs/", "_blank", "noopener,noreferrer");
-  if (opened) event.preventDefault();
-}
-
 function openRhythmLabWindow(result: RhythmLabLaunchResult, pendingWindow: Window | null) {
   if (pendingWindow) {
     pendingWindow.location.href = result.url;
@@ -171,6 +165,8 @@ export function App() {
     removeSeed,
     removeFromPlaylist,
     togglePlaylist,
+    forgetTrack,
+    forgetTrackIds,
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
   const [seedSearchModel, setSeedSearchModel] = useState<SeedSearchModel>("sonara");
@@ -1102,7 +1098,7 @@ export function App() {
       async () => {
         const result = await api.deleteTrack(track);
         cancelTrackDetailRequest();
-        resetSearchPlaylistState();
+        forgetTrack(track);
         appendActivity("ok", "Трек удалён из базы", displayTrack(track));
         return result;
       },
@@ -1375,10 +1371,8 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>
-            <a href="/docs/" target="_blank" rel="noreferrer" title="Открыть HTML документацию" onClick={openDocumentationWindow}>
-              <AudioLines className="brand-wave" size={34} aria-hidden="true" />
-              DJ Track Similarity
-            </a>
+            <AudioLines className="brand-wave" size={34} aria-hidden="true" />
+            DJ Track Similarity
           </h1>
         </div>
         <nav className="workbench-nav" aria-label="Рабочая область">
@@ -1744,7 +1738,8 @@ export function App() {
         playingTrackId={playingTrackId}
         onPreview={(file) => togglePreview({ track_id: file.track_id })}
         onClose={() => setAudioDedupOpen(false)}
-        onDeleted={(message) => {
+        onDeleted={(message, deletedTrackIds) => {
+          if (databaseCatalogUuidRef.current) forgetTrackIds(databaseCatalogUuidRef.current, deletedTrackIds);
           setNotice({ kind: "ok", text: message });
           appendActivity("info", message);
           void refreshLibrary(0, { refreshSummary: true });

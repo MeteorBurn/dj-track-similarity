@@ -824,22 +824,6 @@ h2 {
   position: relative;
 }
 
-.topbar h1 a {
-  color: inherit;
-  display: inline-block;
-  text-decoration: none;
-}
-
-.topbar h1 a:hover {
-  color: var(--accent-hover);
-}
-
-.topbar h1 a:focus-visible {
-  border-radius: 4px;
-  outline: 2px solid var(--accent-border);
-  outline-offset: 3px;
-}
-
 .topbar h1::after {
   background: linear-gradient(90deg, var(--brand-start), var(--brand-end));
   border-radius: 999px;
@@ -931,7 +915,7 @@ h2 {
   border: 1px solid var(--accent-soft-border);
   border-radius: 8px;
   background: var(--accent-soft-bg);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
+  box-shadow: 0 10px 28px var(--shadow-dialog);
   color: var(--text);
   font-weight: 600;
   text-align: center;
@@ -962,10 +946,6 @@ h2 {
 
 .workspace.search-collapsed {
   --search-column: 56px;
-}
-
-.workspace:is(.setup-collapsed, .library-collapsed, .search-collapsed) > .search-panel {
-  grid-column: auto;
 }
 
 .workspace[hidden] {
@@ -2743,7 +2723,7 @@ h2 {
   background: var(--surface-muted);
   border: 1px solid var(--border-soft);
   border-radius: 999px;
-  color: var(--text-primary);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
   padding: 1px 7px;
 }
@@ -3394,14 +3374,14 @@ h2 {
 
 .classifier-profile-meta .classifier-reset-button {
   background: transparent;
-  border-color: rgb(226 72 61 / 75%);
+  border-color: var(--danger-soft-border);
   color: var(--danger-text-hover);
   margin-left: 2px;
 }
 
 .classifier-profile-meta .classifier-reset-button:hover:not(:disabled) {
   background: transparent;
-  border-color: rgb(255 105 91 / 90%);
+  border-color: var(--danger-border-hover);
   color: var(--danger-text-hover);
 }
 
@@ -4850,17 +4830,8 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 }
 
 @media (max-width: 1180px) {
-  .workspace {
-    grid-template-columns: minmax(260px, 0.88fr) minmax(320px, 1.12fr);
-    height: auto;
-  }
-
   .track-list {
     max-height: min(720px, 70vh);
-  }
-
-  .search-panel {
-    grid-column: 1 / -1;
   }
 
   .search-workflow-section .results-list {
@@ -5095,10 +5066,6 @@ button.metadata-copy-value-button:hover:not(:disabled) {
    it takes the width of its own label rather than mirroring the select. */
 .dedup-run-button {
   justify-content: center;
-}
-
-.dedup-control-narrow {
-  min-width: 104px;
 }
 
 /* Wide enough for a band like "0.70 - 0.95", and fixed, so the field keeps its
@@ -5388,12 +5355,10 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   margin-left: -3px;
 }
 
-/* Sentences about the group as a whole: the fingerprint verdict is about the
-   pair rather than about either copy, and the hidden-copy count is about what
-   the filter left off screen. Both read under the group's chips and above the
-   cards, where they no longer compete with the group actions for the same row. */
-.dedup-group-fingerprint,
-.dedup-group-hidden {
+/* A sentence about the group as a whole: the fingerprint verdict is about the
+   pair rather than about either copy. It reads under the group's chips and above
+   the cards, where it does not compete with the group actions for the same row. */
+.dedup-group-fingerprint {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.4;
@@ -5477,7 +5442,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 .dedup-copies {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
 }
 
 .dedup-copy {
@@ -5865,8 +5830,7 @@ button.dedup-play-button {
 }
 .app-shell { padding: 0 12px 10px; }
 .topbar { height: 64px; margin-bottom: 0; max-width: none; gap: 24px; }
-.topbar h1 { font-size: 24px; font-weight: 650; white-space: nowrap; }
-.topbar h1 a { display: flex; align-items: center; gap: 15px; }
+.topbar h1 { display: flex; align-items: center; gap: 15px; font-size: 24px; font-weight: 650; white-space: nowrap; }
 .topbar h1::after { display: none; }
 .brand-wave { color: var(--accent); }
 .workbench-nav { display: flex; align-self: stretch; align-items: stretch; gap: 12px; margin-right: auto; }
@@ -5965,6 +5929,12 @@ button.dedup-play-button {
   .workbench-nav button { padding: 0 8px; font-size: 11px; }
   .workspace { grid-template-columns: minmax(270px, 28fr) minmax(360px, 41fr) minmax(310px, 31fr); }
   .player-track-info { width: 300px; }
+}
+/* The transport and tag buttons would squeeze the seek bar to nothing here;
+   BPM and key stay visible in the library rows. */
+@media (max-width: 1180px) {
+  .player-bpm, .player-key { display: none; }
+  .player-track-info { width: 220px; }
 }
 @media (max-width: 1050px) {
   .topbar { height: auto; min-height: 64px; flex-wrap: wrap; padding: 10px 0; }

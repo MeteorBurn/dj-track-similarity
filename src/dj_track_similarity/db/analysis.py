@@ -1268,6 +1268,8 @@ class AnalysisRepository:
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     normalize_analysis_outputs(normalized)
+                    if any(output.key == ("sonara", "timeline") for output in normalized):
+                        require_sonara_timeline(connection)
                     core_deleted = 0
                     embedding_deleted = 0
                     for output in normalized:

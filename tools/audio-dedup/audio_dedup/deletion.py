@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 from typing import Callable, Collection, Iterable
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db.analysis_candidates import require_sonara_timeline
 from dj_track_similarity.db.tracks import canonical_file_path
 from dj_track_similarity.rhythm_lab_collections import sonara_content_key
 from dj_track_similarity.track_models import TrackIdentity
@@ -33,6 +35,10 @@ def apply_duplicate_deletions(
     it anyway. An empty filter reviews the whole report and deletes anywhere.
     """
     selected_database = track_loading_module._resolve_database(database=database, db_path=db_path)
+    # A row is removed only after its file left the disk, so a library that
+    # cannot remove rows refuses the whole run before any file is touched.
+    with closing(selected_database.connect()) as connection:
+        require_sonara_timeline(connection)
     remove_file = _file_remover(deletion_mode)
     selected_filter = str(path_filter).strip().replace("\\", "/").lower()
     deleted_ids: list[int] = []

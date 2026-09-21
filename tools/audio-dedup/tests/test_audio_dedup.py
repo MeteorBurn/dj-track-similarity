@@ -519,7 +519,7 @@ def test_apply_duplicate_deletions_deletes_the_reviewer_selection_including_the_
         connection.close()
 
 
-def test_apply_duplicate_deletions_refuses_a_selection_that_empties_the_group(
+def test_apply_duplicate_deletions_refuses_an_emptied_group_or_a_library_without_timeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -538,6 +538,21 @@ def test_apply_duplicate_deletions_refuses_a_selection_that_empties_the_group(
     assert keeper_path.exists()
     assert duplicate_path.exists()
     assert all("group would lose every copy" in reason for reason in apply_result.skipped)
+
+    # A library that cannot remove the row refuses before any file leaves the disk.
+    with closing(sqlite3.connect(db_path)) as connection, connection:
+        connection.execute("DROP TABLE sonara_timeline")
+    with pytest.raises(RuntimeError, match="no sonara_timeline table"):
+        deletion_module.apply_duplicate_deletions(
+            db_path=db_path,
+            payload=result.payload,
+            selected_track_ids=[2],
+        )
+    assert duplicate_path.exists()
+    with closing(sqlite3.connect(db_path)) as connection:
+        assert connection.execute(
+            "SELECT track_id FROM tracks ORDER BY track_id"
+        ).fetchall() == [(1,), (2,)]
 
 
 def test_apply_duplicate_deletions_never_deletes_permanently_when_the_recycle_bin_fails(

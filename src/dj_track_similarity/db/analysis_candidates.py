@@ -38,7 +38,7 @@ def require_sonara_timeline(connection: sqlite3.Connection) -> None:
     if exists is None:
         raise RuntimeError(
             "This library database has no sonara_timeline table; "
-            "SONARA Timeline cannot be stored or read until the table is added"
+            "SONARA Timeline cannot be stored, read or removed until the table is added"
         )
 
 

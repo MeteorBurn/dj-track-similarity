@@ -49,7 +49,10 @@ def register_database_routes(
     @app.post("/api/database/clear", response_model=ClearLibraryResponse)
     def clear_database():
         with state.exclusive_db("clear the library") as database:
-            return database.clear_library()
+            try:
+                return database.clear_library()
+            except RuntimeError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/database/validation/jobs")
     def start_validation():

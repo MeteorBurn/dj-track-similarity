@@ -114,7 +114,9 @@ def test_new_library_database_bootstraps_one_sqlite_file(tmp_path: Path) -> None
         family: database.embedding_layers_capability(family) for family in EMBEDDING_LAYERS
     } == dict.fromkeys(EMBEDDING_LAYERS, "ready")
 
-    # A single-vector table from before per-layer storage is refused, never altered.
+    # A single-vector table from before per-layer storage, or a missing
+    # sonara_timeline table, is refused, never altered.
+    gone_path = (tmp_path / "gone.wav").resolve().as_posix()
     with closing(database.connect()) as connection, connection:
         for family in EMBEDDING_LAYERS:
             connection.execute(f"DROP TABLE {family}_embeddings")
@@ -123,6 +125,12 @@ def test_new_library_database_bootstraps_one_sqlite_file(tmp_path: Path) -> None
                 "track_uuid TEXT, dim INTEGER, normalization TEXT, embedding_blob BLOB, "
                 "analyzed_at TEXT)"
             )
+        connection.execute("DROP TABLE sonara_timeline")
+        track_id = int(connection.execute(
+            "INSERT INTO tracks(track_uuid, file_path, file_size_bytes, file_modified_ns, "
+            "last_scanned_at, created_at, updated_at) VALUES ('gone', ?, 1, 1, 'now', 'now', 'now')",
+            (gone_path,),
+        ).lastrowid)
         old_schema = connection.execute(
             "SELECT name, sql FROM sqlite_schema ORDER BY name"
         ).fetchall()
@@ -134,10 +142,20 @@ def test_new_library_database_bootstraps_one_sqlite_file(tmp_path: Path) -> None
             match="incompatible; migrate this database with scripts/migrate_layered_embeddings.py",
         ):
             reopened.load_analysis_vectors(AnalysisOutput(family, "embedding"))
+    identity = reopened.get_track_identity(track_id)
+    assert identity is not None
+    for refused in (
+        lambda: reopened.reset_analysis_outputs(analysis_outputs_for_sonara_runtime()),
+        reopened.clear_library,
+        lambda: reopened.remove_deleted_track(expected=identity, file_path=gone_path),
+    ):
+        with pytest.raises(RuntimeError, match="no sonara_timeline table"):
+            refused()
     with closing(reopened.connect()) as connection:
         assert connection.execute(
             "SELECT name, sql FROM sqlite_schema ORDER BY name"
         ).fetchall() == old_schema
+        assert [row[0] for row in connection.execute("SELECT track_id FROM tracks")] == [track_id]
 
 
 def test_library_records_each_scanned_root_once(tmp_path: Path) -> None:

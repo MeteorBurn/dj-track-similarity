@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..analysis_models import EMBEDDING_LAYERS
+from .analysis_candidates import require_sonara_timeline
 from .evaluation_sidecar import delete_evaluation_track_rows
 from .track_relocation import _apply_relocation_paths, _plan_relocation
 from .search_fts import (
@@ -1234,6 +1235,7 @@ class TrackRepository:
             with closing(self.connect()) as connection:
                 try:
                     connection.execute("BEGIN IMMEDIATE")
+                    require_sonara_timeline(connection)
                     tracks_deleted = int(
                         connection.execute(
                             "SELECT COUNT(*) FROM tracks"
@@ -1315,6 +1317,7 @@ class TrackRepository:
             with closing(self.connect()) as connection:
                 try:
                     connection.execute("BEGIN IMMEDIATE")
+                    require_sonara_timeline(connection)
                     if source_path.exists() or source_path.is_symlink():
                         raise RuntimeError(
                             "Source path still exists; refusing database removal"

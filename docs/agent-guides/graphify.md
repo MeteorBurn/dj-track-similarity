@@ -18,7 +18,7 @@ scripts. Tests, project documentation, and media are excluded; notes under
 edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
 `AGENTS.md` routes code work through this guide and the plugin skill. Claude's
 upstream PreToolUse guards add query-first reminders. Codex's upstream
-`hook-check` is a no-op in 0.9.61; its standing rule comes from these instructions.
+`hook-check` is a no-op in 0.9.65; its standing rule comes from these instructions.
 Tasks confined to `AGENTS.md`, configuration, locks, Git state, or the excluded
 agent layer use direct inspection; those files are outside the code graph.
 
@@ -54,11 +54,13 @@ unavailable graph data and verify findings directly in source.
 | Trace a connection | Inspect exact-node neighbors and the cited source; see the path limitation below |
 | Orient in unfamiliar architecture | `graphify god-nodes`, then `explain` |
 
-This project uses the CLI without a Graphify MCP server. In Graphify 0.9.61,
-`path` can resolve endpoints to semantic memory instead of code. Full code IDs
-do not reliably disambiguate those endpoints. Do not treat `No path` as evidence
-that a relationship is absent. Use a scoped `explain`, or inspect exact node IDs
-and directed `links` in `graph.json` with the project Graphify interpreter, then
+This project uses the CLI without a Graphify MCP server. In Graphify 0.9.65,
+`path` picks endpoints by token scoring, not exact-ID lookup: it splits a full
+node ID into tokens, does not recognize `path::Symbol`, and often resolves an
+endpoint to a module, parent class, or other code node. Do not treat `No path`
+or `No directed path` as evidence that a relationship is absent. Use a scoped
+`explain` with the exact ID or `path::Symbol`, or inspect exact node IDs and
+directed `links` in `graph.json` with the project Graphify interpreter, then
 verify the source. For incoming call relationships, use `affected` as above.
 
 Follow `.djts/skills/graphify/references/query.md` with these project rules:

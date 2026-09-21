@@ -42,7 +42,7 @@ are relative to this file. These guides are read by task, not imported as a batc
   that scope after plugin installation or refresh. Claude uses project scope.
   Do not add standalone skill copies or register a Graphify MCP server.
   Project PreToolUse hooks call the local CLI directly using Graphify's own
-  definitions: Claude `hook-guard search/read`, Codex `hook-check`. In 0.9.61,
+  definitions: Claude `hook-guard search/read`, Codex `hook-check`. In 0.9.65,
   `hook-check` is a no-op; Codex's query-first rule comes from `AGENTS.md` and
   the Graphify guide. Do not add a custom SessionStart script for this.
   New or changed Codex hooks require native trust review; configuration alone

@@ -589,13 +589,11 @@ export type MlPipelineSettings = {
   staged: MLStagedSettings;
 };
 
-export type AnalysisPipelineRequest = {
-  // One stage per run: SONARA and ML are never combined.
-  stage: "sonara" | "ml";
-  limit?: number;
-  sonara?: SonaraPipelineSettings;
-  ml?: MlPipelineSettings;
-};
+// One stage per run: SONARA and ML are never combined, and the server rejects
+// a request carrying the other stage's settings block.
+export type AnalysisPipelineRequest =
+  | { stage: "sonara"; limit?: number; sonara: SonaraPipelineSettings; ml?: never }
+  | { stage: "ml"; limit?: number; ml: MlPipelineSettings; sonara?: never };
 
 export type AudioDedupSearchMode = "fingerprint_scan" | "fingerprint_lsh";
 

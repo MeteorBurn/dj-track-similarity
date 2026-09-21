@@ -968,37 +968,45 @@ export function App() {
     setAnalysisPipelineJob(null);
     await run(
       async () => {
-        return api.analysisPipelineStart({
-          stage,
-          limit: limit === 0 ? undefined : limit,
-          sonara: {
-            mode: sonaraSettings.mode,
-            direct_batch_size: sonaraSettings.directBatchSize,
-            bpm_range: `${sonaraBpmRange.bpmMin}-${sonaraBpmRange.bpmMax}`,
-            staged: {
-              folder: sonaraSettings.staged.folder,
-              processes: sonaraSettings.staged.processes,
-              threads: sonaraSettings.staged.threads,
-              batch_size: sonaraSettings.staged.batchSize,
-              stage_size: sonaraSettings.staged.stageSize,
-            },
-          },
-          ml: {
-            mode: mlSettings.mode,
-            staged: {
-              folder: mlSettings.staged.folder,
-              copy_workers: mlSettings.staged.workers,
-              decode_workers: mlSettings.staged.workers,
-              stage_size: mlSettings.staged.stageSize,
-              inference_batch_size: analysisInferenceBatchSize,
-            },
-            models: mlModels,
-            device: analysisDevice,
-            top_k: 3,
-            track_batch_size: analysisTrackBatchSize,
-            inference_batch_size: analysisInferenceBatchSize
-          }
-        });
+        // Only the settings block of the started stage: the server rejects the other one.
+        return api.analysisPipelineStart(
+          stage === "sonara"
+            ? {
+                stage,
+                limit,
+                sonara: {
+                  mode: sonaraSettings.mode,
+                  direct_batch_size: sonaraSettings.directBatchSize,
+                  bpm_range: `${sonaraBpmRange.bpmMin}-${sonaraBpmRange.bpmMax}`,
+                  staged: {
+                    folder: sonaraSettings.staged.folder,
+                    processes: sonaraSettings.staged.processes,
+                    threads: sonaraSettings.staged.threads,
+                    batch_size: sonaraSettings.staged.batchSize,
+                    stage_size: sonaraSettings.staged.stageSize,
+                  },
+                },
+              }
+            : {
+                stage,
+                limit,
+                ml: {
+                  mode: mlSettings.mode,
+                  staged: {
+                    folder: mlSettings.staged.folder,
+                    copy_workers: mlSettings.staged.workers,
+                    decode_workers: mlSettings.staged.workers,
+                    stage_size: mlSettings.staged.stageSize,
+                    inference_batch_size: analysisInferenceBatchSize,
+                  },
+                  models: mlModels,
+                  device: analysisDevice,
+                  top_k: 3,
+                  track_batch_size: analysisTrackBatchSize,
+                  inference_batch_size: analysisInferenceBatchSize
+                },
+              }
+        );
       },
       (job) => {
         setAnalysisPipelineJob(job);

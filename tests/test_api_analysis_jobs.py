@@ -262,11 +262,12 @@ def test_api_pipeline_rejects_unknown_ml_staged_setting(
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["body", "ml", "staged", "unexpected"]
+    # The second "ml" is the stage tag Pydantic adds for the discriminated union.
+    assert response.json()["detail"][0]["loc"] == ["body", "ml", "ml", "staged", "unexpected"]
     assert response.json()["detail"][0]["type"] == "extra_forbidden"
 
 
-def test_api_pipeline_rejects_classifier_stage(
+def test_api_pipeline_accepts_only_its_own_stage_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -277,7 +278,8 @@ def test_api_pipeline_rejects_classifier_stage(
         return {"job_id": "pipeline-job", "state": "queued"}
 
     monkeypatch.setattr(AnalysisPipelineManager, "start", start)
-    response = _client(monkeypatch, tmp_path).post(
+    client = _client(monkeypatch, tmp_path)
+    classifiers = client.post(
         "/api/analysis/pipelines",
         json={
             "stage": "classifiers",
@@ -292,8 +294,27 @@ def test_api_pipeline_rejects_classifier_stage(
             "classifiers": {"classifier_keys": ["voice_presence"]},
         },
     )
+    # SONARA and ML never share a run: the other layer's block is refused,
+    # not silently dropped.
+    ml_with_sonara = client.post(
+        "/api/analysis/pipelines",
+        json={
+            "stage": "ml",
+            "ml": {"models": ["muq"], "device": "cpu"},
+            "sonara": {"bpm_range": "70-140"},
+        },
+    )
+    sonara_with_ml = client.post(
+        "/api/analysis/pipelines",
+        json={"stage": "sonara", "sonara": {"mode": "direct"}, "ml": {"mode": "staged"}},
+    )
 
-    assert response.status_code == 422
+    assert classifiers.status_code == 422
+    for response, other_layer in ((ml_with_sonara, "sonara"), (sonara_with_ml, "ml")):
+        assert response.status_code == 422
+        error = response.json()["detail"][0]
+        assert error["loc"][-1] == other_layer
+        assert error["type"] == "extra_forbidden"
     assert captured == []
 
 

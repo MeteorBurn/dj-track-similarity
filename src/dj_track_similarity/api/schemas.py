@@ -289,14 +289,27 @@ class MlPipelineSettings(BaseModel):
     staged: MLStagedSettings = Field(default_factory=MLStagedSettings)
 
 
-class AnalysisPipelineRequest(BaseModel):
+class SonaraPipelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # One stage per run: SONARA and ML are never combined.
-    stage: Literal["sonara", "ml"]
+    stage: Literal["sonara"]
     limit: int | None = None
     sonara: SonaraPipelineSettings = Field(default_factory=SonaraPipelineSettings)
+
+
+class MlPipelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: Literal["ml"]
+    limit: int | None = None
     ml: MlPipelineSettings = Field(default_factory=MlPipelineSettings)
+
+
+# One stage per run: SONARA and ML are never combined, so a block of the other
+# layer is refused by validation instead of being dropped.
+AnalysisPipelineRequest = Annotated[
+    SonaraPipelineRequest | MlPipelineRequest, Field(discriminator="stage")
+]
 
 
 class ClassifierResetRequest(BaseModel):

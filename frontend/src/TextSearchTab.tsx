@@ -420,7 +420,7 @@ export function TextSearchTab({
         className={`text-compare-toggle ${textCompareModels ? "active" : ""}`}
         role="switch"
         aria-checked={textCompareModels}
-        title="Искать обеими моделями и показать две выдачи рядом. Каждая получает свой вариант банка и автоматически учитывает оценки этого запроса."
+        title="Искать обеими моделями и показать две выдачи рядом. Каждая получает свой вариант банка; оценки этого запроса в A/B не учитываются, их применяет поиск одной моделью."
         onClick={() => onTextCompareModelsChange(!textCompareModels)}
         type="button"
       >

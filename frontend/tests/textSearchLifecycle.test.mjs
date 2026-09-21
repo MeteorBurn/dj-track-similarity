@@ -86,7 +86,7 @@ test("A/B keeps each model's bank and automatic weight while preserving a succes
     assert.deepEqual([...payload.negative_queries], [family === "clap" ? "rhythm/first clap negative" : "rhythm/first negative"]);
     assert.equal(payload.negative_weight, family === "clap" ? 0.7 : 0.3);
     assert.equal(payload.input_mode, "preset");
-    assert.equal(payload.use_feedback, true);
+    assert.equal(payload.use_feedback, false, "A/B must compare the models, not stored verdicts");
     assert.equal(payload.comparison_mode, "product_ab");
     assert.deepEqual([...payload.preset_banks.map((bank) => bank.key)], ["rhythm/first"]);
     assert.deepEqual([...payload.preset_banks[0].positive_queries], [...payload.positive_queries]);

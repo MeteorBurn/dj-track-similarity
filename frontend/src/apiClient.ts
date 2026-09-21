@@ -92,7 +92,7 @@ export type TextSearchPayload = {
    * hit belongs to. The merged bank alone cannot say. */
   preset_banks?: { key: string; positive_queries: string[] }[];
   /** Apply stored feedback for this exact query and model. The PROMPT UI
-   * requests this automatically in single-model and A/B searches. */
+   * requests this automatically in single-model searches, never in A/B. */
   use_feedback?: boolean;
 };
 

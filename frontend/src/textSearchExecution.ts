@@ -39,7 +39,9 @@ export function buildTextSearchArms(input: {
         }),
         input_mode: "preset", comparison_mode: input.compare ? "product_ab" : "single",
         ...(input.compare ? { comparison_id: input.comparisonId } : {}),
-        use_feedback: true,
+        // Feedback offsets live in each model's own space, so A/B under them
+        // would measure the clicks rather than the models.
+        use_feedback: !input.compare,
         limit: input.limit, device: input.device,
       },
     };

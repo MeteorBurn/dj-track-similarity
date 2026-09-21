@@ -136,6 +136,31 @@ test("a missing library file is opened only after confirmation, and then created
   assert.equal(ui.library.busy, false);
 });
 
+test("genres are written into the source audio files only after confirmation", async () => {
+  const h = harness();
+  const genreStarts = [];
+  h.api.librarySummary = async () => ({ maest_analysis: 3 });
+  h.api.genreTagJobStart = async () => {
+    genreStarts.push(true);
+    return { job_id: "genre-job", total: 3, status: "running", events: [], errors: [] };
+  };
+  let ui = await h.choose("A");
+
+  ui.library.onWriteMaestGenres();
+  ui = h.render();
+  assert.ok(ui.confirmation, "writing into source files asks first");
+  assert.equal(genreStarts.length, 0, "nothing is written before the answer");
+  ui.confirmation.onCancel();
+  ui = h.render();
+  assert.equal(ui.confirmation, undefined);
+  assert.equal(genreStarts.length, 0, "a declined write never starts");
+
+  ui.library.onWriteMaestGenres();
+  h.render().confirmation.onConfirm();
+  await flush();
+  assert.equal(genreStarts.length, 1);
+});
+
 test("like responses only update tracks in the current catalog with matching identity", async () => {
   const h = harness();
   const track = { track_id: 1, catalog_uuid: "A", track_uuid: "a", file_path: "a.wav", liked: false };

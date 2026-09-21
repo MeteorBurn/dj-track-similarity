@@ -1258,12 +1258,25 @@ export function App() {
     );
   }
 
-  async function handleGenreTagsApply() {
+  // Writing genres rewrites the source audio files, so it starts only after an
+  // explicit confirmation that names the file count and the replaced tag.
+  function handleGenreTagsApply() {
     if (!librarySummary.maest_analysis) {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
       return;
     }
-    const targetText = `${librarySummary.maest_analysis} MAEST треков`;
+    const count = librarySummary.maest_analysis;
+    requestConfirmation({
+      title: "Записать жанры в файлы?",
+      message:
+        `Записать жанры MAEST в тег Genre у ${count} аудиофайлов? ` +
+        "Текущее значение Genre в этих файлах будет заменено. Запись идёт прямо в файлы на диске.",
+      onConfirm: () => startGenreTagJob(count),
+    });
+  }
+
+  async function startGenreTagJob(count: number) {
+    const targetText = `${count} MAEST треков`;
     appendActivity("warn", "Запись жанров в теги файлов запущена", `${targetText} · standard Genre`);
     setProcessLogKind("genre_tags");
     setGenreTagJob(null);
@@ -1452,7 +1465,7 @@ export function App() {
           onOpenSonaraSettingsDialog={() => setSonaraSettingsDialogOpen(true)}
           onOpenMLSettingsDialog={() => setMlSettingsDialogOpen(true)}
           onRefreshTags={() => void handleRefreshTags()}
-          onWriteMaestGenres={() => void handleGenreTagsApply()}
+          onWriteMaestGenres={handleGenreTagsApply}
           onClearDatabase={() => requestConfirmation({
             title: "Очистить базу?",
             message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",

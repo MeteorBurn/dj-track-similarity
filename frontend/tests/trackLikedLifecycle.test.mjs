@@ -38,8 +38,13 @@ function harness() {
   let catalog = "A";
   let mutation;
   const likeCalls = [];
+  const switchCalls = [];
   const api = {
-    chooseDatabase: async () => ({ selected: true, path: `${catalog}.sqlite`, catalog_uuid: catalog }),
+    databaseDialog: async () => ({ path: `${catalog}.sqlite`, exists: true }),
+    switchDatabase: async (path, options) => {
+      switchCalls.push([path, options.create]);
+      return { selected: true, path, catalog_uuid: catalog };
+    },
     classifiers: async () => [],
     tracks: async () => ({ items: [], total: 0, offset: 0, limit: 200 }),
     librarySummary: async () => ({}),
@@ -91,7 +96,10 @@ function harness() {
   function render() {
     cursor = 0;
     const tree = App();
-    return { library: find(tree, "LibraryPanel"), search: find(tree, "SearchPlaylistPanel"), notice: textContent(find(tree, "notice").children) };
+    return {
+      library: find(tree, "LibraryPanel"), search: find(tree, "SearchPlaylistPanel"),
+      confirmation: find(tree, "ConfirmationDialog"), notice: textContent(find(tree, "notice").children),
+    };
   }
   async function choose(nextCatalog, rerender = true) {
     catalog = nextCatalog;
@@ -99,8 +107,34 @@ function harness() {
     await flush();
     return rerender ? render() : undefined;
   }
-  return { render, choose, likeCalls, api, startMutation: () => (mutation = deferred()) };
+  return { render, choose, likeCalls, switchCalls, api, startMutation: () => (mutation = deferred()) };
 }
+
+test("a missing library file is opened only after confirmation, and then created", async () => {
+  const h = harness();
+  await h.choose("A");
+  assert.deepEqual(h.switchCalls, [["A.sqlite", false]]);
+  h.api.databaseDialog = async () => ({ path: "B.sqlite", exists: false });
+
+  let ui = await h.choose("B");
+  const notice = ui.notice;
+  assert.ok(ui.confirmation, "a missing file asks before anything is created");
+  assert.equal(h.switchCalls.length, 1, "no switch before the answer");
+  ui.confirmation.onCancel();
+  ui = h.render();
+  assert.equal(ui.confirmation, undefined);
+  assert.equal(h.switchCalls.length, 1);
+  assert.equal(ui.library.databasePath, "A.sqlite");
+  assert.equal(ui.notice, notice);
+
+  ui = await h.choose("B");
+  ui.confirmation.onConfirm();
+  await flush();
+  ui = h.render();
+  assert.deepEqual(h.switchCalls.at(-1), ["B.sqlite", true]);
+  assert.equal(ui.library.databasePath, "B.sqlite");
+  assert.equal(ui.library.busy, false);
+});
 
 test("like responses only update tracks in the current catalog with matching identity", async () => {
   const h = harness();

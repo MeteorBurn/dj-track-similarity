@@ -73,7 +73,8 @@ class AppDatabaseState:
         self.database_optimization_jobs: DatabaseOptimizationJobManager | None = None
         self.audio_dedup_jobs: AudioDedupJobManager | None = None
         if db_path is not None:
-            self.switch(db_path)
+            # `dj-sim serve` has already opened or, with --create, created this file.
+            self.switch(db_path, create=True)
 
     def current(self) -> dict[str, object]:
         with self._lock:
@@ -85,13 +86,15 @@ class AppDatabaseState:
                 "selected": db is not None,
             }
 
-    def switch(self, path: str | Path) -> dict[str, object]:
+    def switch(self, path: str | Path, *, create: bool = False) -> dict[str, object]:
         selected = Path(path).expanduser()
         if not str(selected).strip() or not selected.name:
             raise ValueError("Database path is required")
         if selected.exists() and selected.is_dir():
             raise ValueError("Database path must be a file")
         selected = selected.resolve(strict=False)
+        if not create and not selected.exists():
+            raise FileNotFoundError(f"Library database not found: {selected}")
         cleanup_queue: AnalysisStageQueue | None = None
         cleanup_jobs: AnalysisJobManager | None = None
         cleanup_token = object()

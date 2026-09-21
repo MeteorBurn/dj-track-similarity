@@ -149,6 +149,15 @@ class AudioDedupDeleteRequest(BaseModel):
 
 class DatabaseSwitchRequest(BaseModel):
     path: str
+    # A missing file is refused unless the owner confirmed creating a new library.
+    create: bool = False
+
+
+class DatabaseDialogResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str | None
+    exists: bool
 
 
 class DatabaseStateResponse(BaseModel):

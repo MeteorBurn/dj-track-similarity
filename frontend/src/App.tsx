@@ -830,12 +830,37 @@ export function App() {
   async function handleChooseDatabase() {
     setBusy(true);
     try {
-      const value = await api.chooseDatabase();
-      if (!value.selected || !value.path) {
+      const choice = await api.databaseDialog();
+      const path = choice.path;
+      if (!path) {
         appendActivity("info", "Выбор базы отменен");
         setNotice({ kind: "idle", text: "Выбор базы отменен" });
         return;
       }
+      if (choice.exists) {
+        await handleSwitchDatabase(path, false);
+        return;
+      }
+      // A missing file would become a new empty library, so a typo in the
+      // name must not silently replace the owner's library.
+      requestConfirmation({
+        title: "Создать новую базу?",
+        message: `Базы нет: ${path}. Создать новую пустую базу?`,
+        onConfirm: () => handleSwitchDatabase(path, true)
+      });
+    } catch (error) {
+      const message = errorText(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось выбрать базу", message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSwitchDatabase(path: string, create: boolean) {
+    setBusy(true);
+    try {
+      const value = await api.switchDatabase(path, { create });
       if (value.path !== databasePath) suppressNextLibraryRefresh.current = true;
       resetDatabaseScopedState();
       adoptDatabaseScope(value.catalog_uuid);
@@ -850,8 +875,8 @@ export function App() {
       const promotedClassifiers = await promotedClassifiersRequest;
       adoptClassifierProfiles(promotedClassifiers);
       await loadLatestJobs(promotedClassifiers);
-      appendActivity("ok", "База выбрана", value.path);
-      setNotice({ kind: "ok", text: value.path });
+      appendActivity("ok", "База выбрана", path);
+      setNotice({ kind: "ok", text: path });
     } catch (error) {
       const message = errorText(error);
       setNotice({ kind: "error", text: message });

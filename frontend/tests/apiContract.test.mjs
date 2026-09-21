@@ -179,6 +179,29 @@ test("track deletion client sends the current track identity to the delete endpo
   });
 });
 
+test("database dialog only reports the pick; the switch endpoint opens it and creates only on request", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options) => {
+    calls.push({ path, options });
+    return jsonResponse(path === "/api/database/dialog"
+      ? { path: "D:/db/new.sqlite", exists: false }
+      : { path: "D:/db/new.sqlite", evaluation_path: null, catalog_uuid: "catalog", selected: true });
+  });
+
+  assert.deepEqual(await api.databaseDialog(), { path: "D:/db/new.sqlite", exists: false });
+  await api.switchDatabase("D:/db/library.sqlite", { create: false });
+  const selection = await api.switchDatabase("D:/db/new.sqlite", { create: true });
+
+  assert.equal(selection.catalog_uuid, "catalog");
+  assert.deepEqual(calls.map(({ path, options }) => [options.method, path]), [
+    ["POST", "/api/database/dialog"],
+    ["POST", "/api/database/switch"],
+    ["POST", "/api/database/switch"],
+  ]);
+  assert.deepEqual(JSON.parse(calls[1].options.body), { path: "D:/db/library.sqlite", create: false });
+  assert.deepEqual(JSON.parse(calls[2].options.body), { path: "D:/db/new.sqlite", create: true });
+});
+
 test("CLAP text search client keeps positive and negative prompt arrays separate", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {

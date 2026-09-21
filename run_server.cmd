@@ -6,6 +6,7 @@ set "PORT=8765"
 set "FRONTEND_PORT=5173"
 set "DB_DIR=%~dp0database"
 set "DB_PATH="
+set "DB_CREATE="
 set "MODE="
 set "FRONTEND_HOST="
 set "FRONTEND_URL="
@@ -41,6 +42,8 @@ if not defined MODE (
     echo.
     if "%INTERACTIVE_START%"=="1" (
         call :prompt_database
+        if errorlevel 1 goto :setup_error
+        call :confirm_database
         if errorlevel 1 goto :setup_error
     )
     call :prompt_mode
@@ -127,6 +130,7 @@ echo.
 set "DJ_TRACK_SIMILARITY_LAUNCHER_HOST=%HOST%"
 set "DJ_TRACK_SIMILARITY_LAUNCHER_PORT=%PORT%"
 set "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE=%DB_PATH%"
+set "DJ_TRACK_SIMILARITY_LAUNCHER_CREATE=%DB_CREATE%"
 set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV=1"
 set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_HOST=%FRONTEND_HOST%"
 python "%PROJECT_ROOT%\scripts\run_server_launcher.py" %*
@@ -188,6 +192,24 @@ exit /b 0
 echo [ERROR] No database selected. Choose a database explicitly.
 exit /b 1
 
+:confirm_database
+rem A path that does not exist becomes a new library only after an explicit "y".
+setlocal EnableDelayedExpansion
+if exist "!DB_PATH!" (
+    endlocal
+    exit /b 0
+)
+set "DB_CREATE_CHOICE="
+set /p "DB_CREATE_CHOICE=Database not found: "!DB_PATH!". Create a new library there? [y/N]: "
+if /I not "!DB_CREATE_CHOICE!"=="y" (
+    endlocal
+    goto :database_required
+)
+endlocal
+set "DB_CREATE=1"
+echo.
+exit /b 0
+
 :prompt_mode
 echo Choose server mode:
 echo   1. Local only     http://127.0.0.1:%FRONTEND_PORT%/
@@ -220,12 +242,14 @@ echo Examples:
 echo   run_server.cmd
 echo   run_server.cmd local --db "C:\path\selected.sqlite"
 echo   run_server.cmd lan --db "C:\path\selected.sqlite"
+echo   run_server.cmd local --db "C:\path\new.sqlite" --create
 echo   run_server.cmd local --help
 echo.
 echo With no arguments, the launcher looks in "%DB_DIR%" first.
 echo If it finds one or more .sqlite databases there, it lists them and asks
-echo which one to open (or type a path to open/create one elsewhere).
-echo If none are found, it asks for a database path to open or create.
+echo which one to open. If none are found, it asks for a database path.
+echo Type a path to open an existing library, or confirm to create a new one
+echo when the file does not exist. Anything but "y" cancels creation.
 echo There is no default database. Empty input cancels startup.
 echo It then asks whether to start in local or LAN mode.
 echo Explicit local or lan commands use only the arguments you provide.

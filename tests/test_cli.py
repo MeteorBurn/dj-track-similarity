@@ -141,7 +141,28 @@ def test_serve_without_database_starts_unselected_and_creates_no_bundle(
     assert captured["uvicorn_kwargs"]["port"] == 8877
 
 
-def test_serve_creates_selected_current_database_and_passes_log_config(
+def test_library_commands_refuse_an_omitted_or_missing_database(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    music_root = tmp_path / "music"
+    music_root.mkdir()
+    missing_path = tmp_path / "typo.sqlite"
+
+    omitted = CliRunner().invoke(cli.app, ["scan", str(music_root)])
+    missing = CliRunner().invoke(
+        cli.app, ["scan", str(music_root), "--db", str(missing_path)]
+    )
+
+    assert omitted.exit_code == 1
+    assert "Choose a library database with --db" in omitted.output
+    assert missing.exit_code == 1
+    assert f"Library database not found: {missing_path}" in missing.output
+    assert list(tmp_path.glob("*.sqlite")) == []
+
+
+def test_serve_creates_a_missing_database_only_with_create_and_passes_log_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -173,9 +194,25 @@ def test_serve_creates_selected_current_database_and_passes_log_config(
 
     monkeypatch.setattr(uvicorn, "run", fake_run)
 
+    refused = CliRunner().invoke(cli.app, ["serve", "--db", str(db_path)])
+
+    assert refused.exit_code == 1
+    assert f"Library database not found: {db_path}" in refused.output
+    assert not db_path.exists()
+    assert captured == {}
+
     result = CliRunner().invoke(
         cli.app,
-        ["serve", "--db", str(db_path), "--port", "8877", "--log-level", "warning"],
+        [
+            "serve",
+            "--db",
+            str(db_path),
+            "--create",
+            "--port",
+            "8877",
+            "--log-level",
+            "warning",
+        ],
     )
 
     assert result.exit_code == 0
@@ -280,6 +317,7 @@ def test_analyze_cli_passes_separate_ml_batch_sizes(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(cli_analysis, "AnalysisJobManager", _FakeAnalysisManager)
+    LibraryDatabase(tmp_path / "library.sqlite")
 
     result = CliRunner().invoke(
         cli.app,
@@ -330,7 +368,7 @@ def test_text_search_cli_writes_adapter_stderr_to_app_log(
     tmp_path: Path,
 ) -> None:
     log_path = tmp_path / "app.log"
-    db_path = tmp_path / "library.sqlite"
+    db_path = LibraryDatabase(tmp_path / "library.sqlite").path
     monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
 
     class FakeClapAdapter:
@@ -432,6 +470,7 @@ def test_analyze_cli_joins_worker_before_close_after_progress_failure(
     monkeypatch.setattr(cli_progress, "threading", SimpleNamespace(
         Thread=ObservedThread, Event=CompletionEvent,
     ))
+    LibraryDatabase(tmp_path / "library.sqlite")
     controller = threading.Thread(target=finish_worker, daemon=True)
     controller.start()
     try:

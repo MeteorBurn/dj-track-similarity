@@ -27,7 +27,7 @@ from ..analysis.config import (
 from ..analysis.jobs import AnalysisJobManager
 from ..analysis.sonara_runtime import DEFAULT_SONARA_BPM_PRESET, SONARA_BPM_PRESETS
 from ..classifier.scoring import analyze_classifier as run_classifier_analysis
-from .common import _db
+from .common import DATABASE_OPTION_HELP, _db
 from .progress import _run_cli_job_with_progress
 
 
@@ -47,7 +47,7 @@ def _parse_analysis_models(value: str) -> list[str]:
 
 
 def analyze(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     limit: Optional[int] = typer.Option(None, "--limit"),
     models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated ML models, or SONARA alone: maest,mert_v2,muq,mulan,clap | sonara."),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Embedding device: auto, cpu, or cuda."),
@@ -173,7 +173,7 @@ def analyze(
 
 def analyze_classifier(
     classifier: str = typer.Argument(..., help="Classifier key, for example live_instrumentation."),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     model_path: Optional[Path] = typer.Option(None, "--model"),
     limit: Optional[int] = typer.Option(None, "--limit"),
 ) -> None:
@@ -198,7 +198,7 @@ def register_commands(app: typer.Typer) -> None:
 
 def export_maest_mel(
     track_id: int = typer.Argument(..., min=1),
-    db_path: Path = typer.Option(..., "--db", exists=True, dir_okay=False),
+    db_path: Path = typer.Option(..., "--db", exists=True, dir_okay=False, help=DATABASE_OPTION_HELP),
     output: Path = typer.Option(..., "--output", help="New .npz file containing mel, embedding and metadata_json."),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device"),
     top_k: int = typer.Option(DEFAULT_ANALYSIS_TOP_K, "--top-k", min=MIN_ANALYSIS_TOP_K, max=MAX_ANALYSIS_TOP_K),

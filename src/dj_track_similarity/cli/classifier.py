@@ -11,7 +11,7 @@ from ..classifier.production import (
     normalize_label_suggestion_mode,
     suggest_classifier_labels,
 )
-from .common import _db, _emit_json_report
+from .common import DATABASE_OPTION_HELP, _db, _emit_json_report
 
 
 classifier_app = typer.Typer(help="Inspect promoted classifier production reports and label suggestions.")
@@ -20,7 +20,7 @@ classifier_app = typer.Typer(help="Inspect promoted classifier production report
 @classifier_app.command("calibration-report")
 def classifier_calibration_report(
     classifier: str = typer.Option(..., "--classifier", help="Promoted classifier key."),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True),
     min_feedback: int = typer.Option(
         30,
@@ -45,7 +45,7 @@ def classifier_calibration_report(
 def classifier_suggest_labels(
     classifier: str = typer.Option(..., "--classifier", help="Promoted classifier key."),
     mode: str = typer.Option("uncertainty", "--mode", help="Suggestion mode: uncertainty, hard_negative, diversity, disagreement, or high_impact_unlabeled."),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     limit: int = typer.Option(25, "--limit", min=1, max=500),
     random_seed: int = typer.Option(123, "--random-seed", help="Deterministic tie-ordering seed."),
     output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True),

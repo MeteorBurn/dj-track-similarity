@@ -45,6 +45,10 @@ def _run_isolated_launcher(
                 '        "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE",',
                 '        "",',
                 "    ),",
+                '    "create": os.environ.get(',
+                '        "DJ_TRACK_SIMILARITY_LAUNCHER_CREATE",',
+                '        "",',
+                "    ),",
                 "}",
                 'Path(os.environ["DJ_SIM_CAPTURE"]).write_text(',
                 "    json.dumps(payload),",
@@ -113,13 +117,35 @@ def test_no_argument_launcher_requires_an_explicit_database_before_mode(
         "host": "127.0.0.1",
         "port": "8765",
         "database_path": str(case_dir / "database" / "library.sqlite"),
+        "create": "",
     }
 
-    typed_path = str(tmp_path / "elsewhere" / "typed.sqlite")
+    typed_path = tmp_path / "elsewhere" / "typed.sqlite"
+    typed_path.parent.mkdir()
+    typed_path.write_bytes(b"")
     _, completed, captured_launch = run("typed", f"{typed_path}\n\n")
     assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "Database not found" not in completed.stdout
     assert captured_launch is not None
-    assert captured_launch["database_path"] == typed_path
+    assert captured_launch["database_path"] == str(typed_path)
+    assert captured_launch["create"] == ""
+
+    # A typed path that does not exist is created only after an explicit "y".
+    new_path = str(tmp_path / "elsewhere" / "New!DJ & Techno.sqlite")
+    prompt = f'Database not found: "{new_path}". Create a new library there? [y/N]: '
+    _, completed, captured_launch = run("declined", f"{new_path}\nn\n\n")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert prompt in completed.stdout
+    assert "No database selected" in completed.stdout
+    assert "Choose server mode" not in completed.stdout
+    assert captured_launch is None
+
+    _, completed, captured_launch = run("confirmed", f"{new_path}\ny\n\n")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert prompt in completed.stdout
+    assert captured_launch is not None
+    assert captured_launch["database_path"] == new_path
+    assert captured_launch["create"] == "1"
 
     _, completed, captured_launch = run("empty", "\n\n")
     assert completed.returncode == 1, completed.stdout + completed.stderr
@@ -144,6 +170,7 @@ def test_explicit_local_mode_does_not_inject_a_database(tmp_path: Path) -> None:
         "host": "127.0.0.1",
         "port": "8765",
         "database_path": "",
+        "create": "",
     }
 
 
@@ -229,6 +256,7 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
     monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_HOST", "0.0.0.0")
     monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_PORT", "8765")
     monkeypatch.delenv("DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE", raising=False)
+    monkeypatch.delenv("DJ_TRACK_SIMILARITY_LAUNCHER_CREATE", raising=False)
     monkeypatch.setattr(module.subprocess, "run", fake_run)
 
     assert module.main(("lan", "--db", explicit_path)) == 23
@@ -246,3 +274,21 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         "check": False,
         "shell": False,
     }
+
+    # The interactive launcher confirmed a new library at a typed path.
+    new_path = r"D:\New!DJ & Techno\library.sqlite"
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE", new_path)
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_CREATE", "1")
+
+    assert module.main(()) == 23
+    assert captured_run["command"] == [
+        "dj-sim",
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8765",
+        "--db",
+        new_path,
+        "--create",
+    ]

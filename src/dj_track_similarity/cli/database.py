@@ -10,10 +10,10 @@ import typer
 from ..db.validation import DatabaseValidator, format_validation_finding
 from ..db.optimize import OptimizationError, inspect_database, optimize_database
 from ..scanner import scan_library
-from .common import _db, _write_json_report
+from .common import DATABASE_OPTION_HELP, _db, _write_json_report
 
 
-def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db")) -> None:
+def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP)) -> None:
     try:
         stats = scan_library(_db(db_path), music_root)
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError) as error:
@@ -22,7 +22,7 @@ def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db"))
     typer.echo(f"added={stats.added} updated={stats.updated} unchanged={stats.unchanged} skipped={stats.skipped}")
 
 
-def validate_database(db_path: Path = typer.Option(..., "--db"), report: Path | None = typer.Option(None, "--report")) -> None:
+def validate_database(db_path: Path = typer.Option(..., "--db", help=DATABASE_OPTION_HELP), report: Path | None = typer.Option(None, "--report")) -> None:
     def echo_finding(item) -> None:
         typer.echo(format_validation_finding(item))
 
@@ -50,7 +50,7 @@ def validate_database(db_path: Path = typer.Option(..., "--db"), report: Path | 
 
 
 def optimize_database_command(
-    db_path: Path = typer.Option(..., "--db"),
+    db_path: Path = typer.Option(..., "--db", help=DATABASE_OPTION_HELP),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -96,7 +96,7 @@ def relocate_library(
     old_root: Path,
     new_root: Path,
     apply: bool = typer.Option(False, "--apply", help="Update stored track paths after preview checks pass."),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
 ) -> None:
     try:
         result = _db(db_path).relocate_library(old_root, new_root, apply=apply)

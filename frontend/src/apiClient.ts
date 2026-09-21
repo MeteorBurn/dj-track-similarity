@@ -13,6 +13,7 @@ import type {
   AudioDedupScanRequest,
   ClassifierResetResult,
   DatabaseClearResult,
+  DatabaseDialogResult,
   DatabaseOptimizationJobStatus,
   DatabaseSelection,
   DatabaseValidationJobStatus,
@@ -179,10 +180,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 const databaseApi = {
   currentDatabase: () => request<DatabaseSelection>("/api/database/current"),
-  chooseDatabase: () =>
-    request<DatabaseSelection>("/api/database/dialog", {
+  databaseDialog: () =>
+    request<DatabaseDialogResult>("/api/database/dialog", {
       method: "POST",
       body: JSON.stringify({})
+    }),
+  switchDatabase: (path: string, { create }: { create: boolean }) =>
+    request<DatabaseSelection>("/api/database/switch", {
+      method: "POST",
+      body: JSON.stringify({ path, create })
     }),
   clearDatabase: () =>
     request<DatabaseClearResult>("/api/database/clear", {

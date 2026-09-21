@@ -472,6 +472,12 @@ export type DatabaseSelection = {
   selected: boolean;
 };
 
+/** The file picked in the native dialog; `path` is null when it was cancelled. */
+export type DatabaseDialogResult = {
+  path: string | null;
+  exists: boolean;
+};
+
 export type DatabaseValidationJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";

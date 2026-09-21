@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 
 from .schemas import (
     ClearLibraryResponse,
+    DatabaseDialogResponse,
     DatabaseStateResponse,
     DatabaseSwitchRequest,
 )
@@ -26,26 +27,24 @@ def register_database_routes(
     @app.post("/api/database/switch", response_model=DatabaseStateResponse)
     def switch_database(request: DatabaseSwitchRequest):
         try:
-            return state.switch(request.path)
+            return state.switch(request.path, create=request.create)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/database/dialog", response_model=DatabaseStateResponse)
+    @app.post("/api/database/dialog", response_model=DatabaseDialogResponse)
     def database_dialog():
+        # Only reports the choice; the client switches, confirming creation first.
         try:
             selected = open_database_file_dialog()
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
         if selected is None:
-            return state.current()
-        try:
-            return state.switch(selected)
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
+            return {"path": None, "exists": False}
+        return {"path": str(selected), "exists": selected.is_file()}
 
     @app.post("/api/database/clear", response_model=ClearLibraryResponse)
     def clear_database():

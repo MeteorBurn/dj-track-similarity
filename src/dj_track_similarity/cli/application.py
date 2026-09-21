@@ -13,7 +13,7 @@ from ..logging_config import configure_logging, uvicorn_log_config
 from ..runtime import get_torch_runtime_info, recommended_torch_index
 from ..search.engine import SearchFilters, SimilaritySearch
 from ..search.vector_index import VectorIndexUnavailable
-from .common import _db, _parse_analysis_device
+from .common import DATABASE_OPTION_HELP, _db, _parse_analysis_device
 from .common import LOGGER
 from .evaluation import eval_app
 from .classifier import classifier_app
@@ -77,7 +77,7 @@ def doctor() -> None:
 @app.command("text-search")
 def text_search(
     query: str,
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     model: str = typer.Option("clap", "--model", help="Text embedding model: clap or mulan."),
     limit: int = typer.Option(50, "--limit", min=1, max=500),
     min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
@@ -137,9 +137,14 @@ def serve(
         None,
         "--db",
         help=(
-            "Open an existing library database or create a new one at this "
-            "path. Omit to start with no database selected."
+            "Existing library database to open. Omit to start with no "
+            "database selected."
         ),
+    ),
+    create: bool = typer.Option(
+        False,
+        "--create",
+        help="Create a new empty library at --db if the file does not exist.",
     ),
     log_level: str = typer.Option("info", "--log-level", help="File log level: debug, info, warning, error, critical."),
     log_track_events: bool = typer.Option(
@@ -152,6 +157,8 @@ def serve(
 
     from ..api.application import create_app
 
+    if create and db_path is None:
+        raise typer.BadParameter("--create needs --db", param_hint="--create")
     try:
         log_path = configure_logging(level=log_level, log_track_events=log_track_events)
         ffmpeg_runtime_dir = configure_shared_ffmpeg_runtime()
@@ -162,6 +169,7 @@ def serve(
     if db_path is not None:
         selected_database_path = _db(
             db_path,
+            create=create,
             configure_file_logging=False,
         ).path
     LOGGER.info(

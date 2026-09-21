@@ -121,24 +121,29 @@ def test_database_switch_reads_existing_current_bundle_and_identity(
     assert tracks["items"][0]["title"] == "Stored Track"
 
 
-def test_database_file_dialog_switches_to_selected_current_bundle(
+def test_database_file_dialog_returns_the_choice_without_switching(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    selected = tmp_path / "picked.sqlite"
+    existing = LibraryDatabase(tmp_path / "existing.sqlite").path
+    missing = tmp_path / "picked.sqlite"
+    choices = iter([missing, existing])
     monkeypatch.setattr(
         api_module,
         "open_database_file_dialog",
-        lambda: selected,
+        lambda: next(choices),
     )
     client = TestClient(api_module.create_app())
 
-    response = client.post("/api/database/dialog")
+    picked_missing = client.post("/api/database/dialog")
+    picked_existing = client.post("/api/database/dialog")
 
-    assert response.status_code == 200
-    database = LibraryDatabase(selected)
-    assert response.json() == _selected_state(database)
-    assert database.path.is_file()
+    assert picked_missing.status_code == 200
+    assert picked_missing.json() == {"path": str(missing), "exists": False}
+    assert not missing.exists()
+    assert picked_existing.status_code == 200
+    assert picked_existing.json() == {"path": str(existing), "exists": True}
+    assert client.get("/api/database/current").json()["selected"] is False
 
 
 def test_database_file_dialog_cancel_preserves_unselected_state(
@@ -154,8 +159,8 @@ def test_database_file_dialog_cancel_preserves_unselected_state(
     response = client.post("/api/database/dialog")
 
     assert response.status_code == 200
-    assert response.json()["selected"] is False
-    assert response.json()["catalog_uuid"] is None
+    assert response.json() == {"path": None, "exists": False}
+    assert client.get("/api/database/current").json()["selected"] is False
 
 
 def test_scan_accepts_existing_directory_without_persisting_request_state(
@@ -285,7 +290,7 @@ def test_database_switch_is_rejected_while_scan_job_is_queued(
     )
     switch_response = client.post(
         "/api/database/switch",
-        json={"path": str(next_db_path)},
+        json={"path": str(next_db_path), "create": True},
     )
 
     assert scan_response.status_code == 200
@@ -330,7 +335,7 @@ def test_idle_switch_releases_previous_owners_and_failed_switch_keeps_state(
     del first_queue
     with monkeypatch.context() as close_observer:
         close_observer.setattr(api_state.AnalysisJobManager, "close", close_old_manager)
-        state.switch(tmp_path / "second.sqlite")
+        state.switch(tmp_path / "second.sqlite", create=True)
     assert rejected_self_close.is_set()
     assert not first_worker.is_alive()
     assert first_queue_ref() is None
@@ -361,7 +366,7 @@ def test_idle_switch_releases_previous_owners_and_failed_switch_keeps_state(
     monkeypatch.setattr(api_state, "GenreTagJobManager", fail_later_owner)
     try:
         with pytest.raises(RuntimeError, match="replacement construction failed"):
-            state.switch(tmp_path / "failed.sqlite")
+            state.switch(tmp_path / "failed.sqlite", create=True)
         assert state.current() == before
         assert state.require_analysis_jobs() is current_manager
         assert all(not worker.is_alive() for worker in partial_workers)
@@ -373,7 +378,7 @@ def test_idle_switch_releases_previous_owners_and_failed_switch_keeps_state(
         state.close()
     state.close()
     with pytest.raises(api_state.DatabaseBusy, match="closed"):
-        state.switch(tmp_path / "late.sqlite")
+        state.switch(tmp_path / "late.sqlite", create=True)
 
 
 @pytest.mark.parametrize("fail_close", [False, True])

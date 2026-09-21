@@ -133,7 +133,7 @@ def test_tag_refresh_job_rejects_stale_file_snapshot(
     assert row["title"] == "New metadata"
 
 
-def test_database_switch_bootstraps_clean_selected_current_bundle(
+def test_database_switch_creates_a_missing_bundle_only_on_request(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -153,9 +153,21 @@ def test_database_switch_bootstraps_clean_selected_current_bundle(
     }
     assert not (tmp_path / "dj-track-similarity.sqlite").exists()
 
-    response = client.post(
+    refused = client.post(
         "/api/database/switch",
         json={"path": str(core_path)},
+    )
+
+    assert refused.status_code == 404
+    assert refused.json() == {
+        "detail": f"Library database not found: {core_path.resolve()}"
+    }
+    assert not core_path.exists()
+    assert client.get("/api/database/current").json()["selected"] is False
+
+    response = client.post(
+        "/api/database/switch",
+        json={"path": str(core_path), "create": True},
     )
 
     assert response.status_code == 200

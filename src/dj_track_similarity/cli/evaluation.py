@@ -35,7 +35,7 @@ from ..evaluation.weighted_candidates import (
     build_weighted_candidate_pool,
     write_weighted_candidate_pool_csv,
 )
-from .common import _db, _load_json_object, _write_json_report
+from .common import DATABASE_OPTION_HELP, _db, _load_json_object, _write_json_report
 
 
 eval_app = typer.Typer(help="Build local evaluation diagnostics and optional manual-feedback reports.")
@@ -67,7 +67,7 @@ def _weighted_candidate_seed_track_ids(
 
 @eval_app.command("export-candidates")
 def export_evaluation_candidates(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     seed_track_ids: Optional[list[int]] = typer.Option(None, "--seed-track-id", help="Seed track ID. Repeat for multiple seeds."),
     sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert_v2, maest, muq, mulan, sonara, or clap. Repeat for multiple sources."),
@@ -103,7 +103,7 @@ def export_evaluation_candidates(
 
 @eval_app.command("export-weighted-candidates")
 def export_evaluation_weighted_candidates(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     profile_path: Path = typer.Option(..., "--profile", exists=True, dir_okay=False, readable=True),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     seed_sample_path: Optional[Path] = typer.Option(None, "--seed-sample", exists=True, dir_okay=False, readable=True),
@@ -157,7 +157,7 @@ def export_evaluation_weighted_candidates(
 
 @eval_app.command("export-seed-sample")
 def export_evaluation_seed_sample(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     count: int = typer.Option(50, "--count", min=1, help="Maximum seed tracks to export."),
     random_seed: int = typer.Option(123, "--random-seed", help="Deterministic sample seed."),
@@ -190,7 +190,7 @@ def export_evaluation_seed_sample(
 
 @eval_app.command("import-pair-feedback")
 def import_pair_feedback(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     input_path: Path = typer.Option(..., "--input", exists=True, dir_okay=False, readable=True),
 ) -> None:
     try:
@@ -213,7 +213,7 @@ def import_pair_feedback(
 
 @eval_app.command("import-transition-feedback")
 def import_transition_feedback(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     input_path: Path = typer.Option(..., "--input", exists=True, dir_okay=False, readable=True),
 ) -> None:
     try:
@@ -236,7 +236,7 @@ def import_transition_feedback(
 
 @eval_app.command("report")
 def evaluation_report(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
     judged_only: bool = typer.Option(False, "--judged-only", help="Evaluate only matched judged result labels and apply PR-23 label gates."),
@@ -257,7 +257,7 @@ def evaluation_report(
 
 @eval_app.command("run-ablation")
 def evaluation_run_ablation(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
     rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for source-rank fusion."),
@@ -302,7 +302,7 @@ def evaluation_build_score_profile(
 
 @eval_app.command("run-calibration")
 def evaluation_run_calibration(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     score_mode: str = typer.Option("rrf", "--score-mode", help="Calibration score mode: rrf, rank-percentile, or event-total-score."),
     bins: int = typer.Option(10, "--bins", min=1, help="Number of reliability bins."),
@@ -347,7 +347,7 @@ def evaluation_run_calibration(
 
 @eval_app.command("optimize-score-profile")
 def evaluation_optimize_score_profile(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True),
     profile_name: str = typer.Option("weighted_candidates_judged_v1", "--profile-name", help="Proposal profile name stored in the JSON report."),
     objective: str = typer.Option("balanced", "--objective", help="Optimization objective. MVP supports: balanced."),
@@ -423,7 +423,7 @@ def evaluation_optimize_score_profile(
 
 @eval_app.command("profile-sources")
 def evaluation_profile_sources(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     profile_output_path: Optional[Path] = typer.Option(None, "--profile-output", dir_okay=False, writable=True, help="Optional score profile JSON artifact to create from this report."),
     profile_name: str = typer.Option("auto-source-profile", "--profile-name", help="Score profile name when --profile-output is used."),
@@ -469,7 +469,7 @@ def evaluation_profile_sources(
 
 @eval_app.command("apply-score-profile")
 def evaluation_apply_score_profile(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     profile_path: Path = typer.Option(..., "--profile", exists=True, dir_okay=False, readable=True),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
@@ -493,7 +493,7 @@ def evaluation_apply_score_profile(
 
 @eval_app.command("sweep-risk-penalty")
 def evaluation_sweep_risk_penalty(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     profile_path: Path = typer.Option(..., "--profile", exists=True, dir_okay=False, readable=True),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     weights: Optional[list[float]] = typer.Option(None, "--weight", help="Transition-risk penalty weight from 0.0 to 1.0. Repeat for a sweep."),

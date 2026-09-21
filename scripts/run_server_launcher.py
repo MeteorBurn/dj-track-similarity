@@ -23,6 +23,7 @@ _MODE_ALIASES = frozenset(
 _HOST_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_HOST"
 _PORT_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_PORT"
 _DATABASE_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE"
+_CREATE_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_CREATE"
 _FRONTEND_DEV_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV"
 _FRONTEND_HOST_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_HOST"
 
@@ -33,6 +34,7 @@ def build_server_command(
     host: str,
     port: str,
     database_path: str | None,
+    create: bool = False,
 ) -> list[str]:
     forwarded_arguments = list(arguments)
     if forwarded_arguments and forwarded_arguments[0].casefold() in _MODE_ALIASES:
@@ -43,6 +45,8 @@ def build_server_command(
     command.extend(("--host", host, "--port", port))
     if database_path:
         command.extend(("--db", database_path))
+        if create:
+            command.append("--create")
     return command
 
 
@@ -99,6 +103,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         host=host,
         port=port,
         database_path=os.environ.get(_DATABASE_ENV),
+        create=os.environ.get(_CREATE_ENV) == "1",
     )
     frontend_process: subprocess.Popen[object] | None = None
     if os.environ.get(_FRONTEND_DEV_ENV) == "1":

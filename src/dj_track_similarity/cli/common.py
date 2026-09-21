@@ -14,20 +14,35 @@ from ..logging_config import configure_logging
 
 LOGGER = logging.getLogger("dj_track_similarity.cli")
 
+DATABASE_OPTION_HELP = "Existing library database."
+
 
 def _db(
     path: Optional[Path],
     *,
+    create: bool = False,
     configure_file_logging: bool = True,
 ) -> LibraryDatabase:
+    """Open an existing library; only ``serve --create`` may create a new one."""
+
+    if path is None:
+        typer.secho("Choose a library database with --db", err=True, fg=typer.colors.RED)
+        raise typer.Exit(1)
+    if not create and not path.expanduser().exists():
+        typer.secho(
+            f"Library database not found: {path}. "
+            f'Use `dj-sim serve --db "{path}" --create` to create a new library.',
+            err=True,
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
     log_path = configure_logging() if configure_file_logging else None
-    db_path = path or Path("dj-track-similarity.sqlite")
-    LOGGER.info("CLI database opened db_path=%s log_path=%s", db_path, log_path)
+    LOGGER.info("CLI database opened db_path=%s log_path=%s", path, log_path)
     try:
-        return LibraryDatabase(db_path)
+        return LibraryDatabase(path)
     except (OSError, RuntimeError, ValueError) as error:
         typer.secho(
-            f"Cannot open library database bundle at {db_path}: {error}",
+            f"Cannot open library database bundle at {path}: {error}",
             err=True,
             fg=typer.colors.RED,
         )

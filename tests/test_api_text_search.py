@@ -522,7 +522,9 @@ def test_feedback_rejects_unissued_expired_and_other_database_runs(monkeypatch, 
     assert _judge(client, run, uuid).status_code == 409
     app.state.text_search_runs._clock = lambda: 0.0
     new_run = _search(client)
-    selected = client.post("/api/database/switch", json={"path": str(tmp_path / "other.sqlite")})
+    selected = client.post(
+        "/api/database/switch", json={"path": str(tmp_path / "other.sqlite"), "create": True}
+    )
     assert selected.status_code == 200, selected.text
     assert _judge(client, new_run, uuid).status_code == 409
     with db.connect() as connection:

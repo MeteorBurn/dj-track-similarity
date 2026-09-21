@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  AudioLines,
   Check,
   CopyX,
   Download,
@@ -9,7 +10,6 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
-  WavesArrowDown,
   X
 } from "lucide-react";
 import { api } from "./api";
@@ -289,8 +289,8 @@ export function AudioDedupDialog({
                 <span className="dedup-toggle-checkbox" aria-hidden="true">
                   {detectFakeBitrate ? <Check size={11} strokeWidth={2.6} /> : null}
                 </span>
-                <WavesArrowDown size={15} />
-                Фейк-битрейт
+                <AudioLines size={15} />
+                Анализ спектрограммы
               </button>
               {jobRunning ? (
                 <button
@@ -324,9 +324,11 @@ export function AudioDedupDialog({
               <p className="dedup-mode-description">
                 <b>{audioDedupModeLabel[searchMode]}.</b> {audioDedupModeDescription[searchMode]}
               </p>
-              <p className="dedup-mode-description">
-                <b>Фейк-битрейт.</b> {audioDedupFakeBitrateDescription}
-              </p>
+              {detectFakeBitrate ? (
+                <p className="dedup-mode-description">
+                  <b>Анализ спектрограммы:</b> {audioDedupFakeBitrateDescription}
+                </p>
+              ) : null}
             </div>
             {/* The status belongs at the bar it describes: the stage the run is
                 on, how far into that stage, and what it has counted. */}

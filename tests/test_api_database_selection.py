@@ -407,6 +407,7 @@ def test_app_lifespan_closes_state_and_text_cache_even_on_cleanup_error(
 
     monkeypatch.setattr(api_module, "AppDatabaseState", ObservedState)
     monkeypatch.setattr(api_module.TextEmbeddingAdapterCache, "close", close_cache)
+    monkeypatch.setattr(api_module, "stop_launched_rhythm_lab", lambda: events.append("rhythm-lab"))
     app = api_module.create_app(tmp_path / "lifespan.sqlite")
     queue_worker = states[0].analysis_queue._thread
 
@@ -420,7 +421,7 @@ def test_app_lifespan_closes_state_and_text_cache_even_on_cleanup_error(
             use_app()
     else:
         use_app()
-    assert sorted(events) == ["state", "text-cache"]
+    assert sorted(events) == ["rhythm-lab", "state", "text-cache"]
     assert not queue_worker.is_alive()
     with pytest.raises(api_state.DatabaseBusy, match="closed"):
         with states[0].job_start(states[0].require_scan_jobs, "start a scan"):

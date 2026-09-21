@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import base64
 from contextlib import closing
+import os
 from pathlib import Path
+import signal
+import subprocess
+import sys
+import textwrap
 
+import pytest
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api.application as api
@@ -225,6 +231,7 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
     commands: list[list[str]] = []
     popen_kwargs: list[dict[str, object]] = []
     mirrors: list[tuple[Path, int, object | None]] = []
+    bound: list[object] = []
     log_path = tmp_path / "logs" / "rhythm-lab.log"
     pid_path = tmp_path / "rhythm_lab.pid"
 
@@ -234,6 +241,7 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
         def poll(self) -> None:
             return None
 
+    monkeypatch.setattr(rhythm_lab_launcher, "_bind_to_server_lifetime", bound.append)
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: log_path)
@@ -277,6 +285,7 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
     assert mirrors[0][0] == log_path
     assert mirrors[0][1] == 0
     assert mirrors[0][2].pid == 12345
+    assert bound == [mirrors[0][2]]
     if rhythm_lab_launcher.sys.platform == "win32":
         creationflags = int(popen_kwargs[0]["creationflags"])
         assert creationflags & rhythm_lab_launcher.subprocess.CREATE_NEW_PROCESS_GROUP
@@ -295,6 +304,12 @@ def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, t
         def poll(self) -> None:
             return None
 
+    monkeypatch.setattr(rhythm_lab_launcher, "_launched_pid", None)
+    monkeypatch.setattr(
+        rhythm_lab_launcher,
+        "_bind_to_server_lifetime",
+        lambda process: monkeypatch.setattr(rhythm_lab_launcher, "_launched_pid", process.pid),
+    )
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: tmp_path / "logs" / "rhythm-lab.log")
@@ -304,12 +319,20 @@ def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, t
     monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 12345)
     monkeypatch.setattr(rhythm_lab_launcher, "_terminate_process", lambda pid: terminated.append(pid))
 
+    # The shutdown hook leaves a Rhythm Lab this process did not launch alone.
+    pid_path.write_text("12345", encoding="utf-8")
+    assert rhythm_lab_launcher.stop_launched_rhythm_lab() is None
+    assert terminated == []
+
     rhythm_lab_launcher.launch_rhythm_lab()
-    result = rhythm_lab_launcher.stop_rhythm_lab()
+    result = rhythm_lab_launcher.stop_launched_rhythm_lab()
 
     assert pid_path.exists() is False
     assert terminated == [12345]
     assert result == {"running": False, "stopped": True, "managed": True, "url": "http://127.0.0.1:8777/"}
+    # Already stopped (Power button, then the shutdown hook): nothing to do.
+    assert rhythm_lab_launcher.stop_launched_rhythm_lab() is None
+    assert terminated == [12345]
 
 
 def test_rhythm_lab_launcher_stops_valid_listener_when_pid_file_is_stale(monkeypatch, tmp_path: Path) -> None:
@@ -334,6 +357,56 @@ def test_rhythm_lab_launcher_stops_valid_listener_when_pid_file_is_stale(monkeyp
     assert result == {"running": False, "stopped": True, "managed": True, "url": "http://127.0.0.1:8777/"}
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows job objects")
+def test_rhythm_lab_process_tree_ends_with_the_server_process() -> None:
+    import _winapi
+
+    # The owner stands in for the server: it binds a sleeping child as
+    # launch_rhythm_lab binds Rhythm Lab, and is then killed like a crash or a
+    # closed window. It binds only after the venv launcher has started its
+    # interpreter, the latest point the post-Popen race allows.
+    owner_script = textwrap.dedent("""
+        import os
+        import subprocess
+        import sys
+        import time
+
+        from dj_track_similarity import rhythm_lab_launcher
+
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import os, time; print(os.getpid(), flush=True); time.sleep(60)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        interpreter_pid = int(child.stdout.readline())
+        rhythm_lab_launcher._bind_to_server_lifetime(child)
+        print(os.getpid(), child.pid, interpreter_pid, flush=True)
+        time.sleep(60)
+    """)
+    with subprocess.Popen(
+        [sys.executable, "-c", owner_script],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as owner:
+        tree: list[int] = []
+        try:
+            owner_pid, *tree_pids = (int(pid) for pid in owner.stdout.readline().split())
+            tree = [_winapi.OpenProcess(_winapi.PROCESS_ALL_ACCESS, False, pid) for pid in tree_pids]
+            os.kill(owner_pid, signal.SIGTERM)  # TerminateProcess on Windows
+
+            waits = [_winapi.WaitForSingleObject(handle, 5000) for handle in tree]
+            assert waits == [_winapi.WAIT_OBJECT_0] * len(tree_pids)
+        finally:
+            for handle in tree:
+                if _winapi.WaitForSingleObject(handle, 0) != _winapi.WAIT_OBJECT_0:
+                    _winapi.TerminateProcess(handle, 1)
+                _winapi.CloseHandle(handle)
+            owner.kill()
+
+
 def test_rhythm_lab_launcher_clears_pid_when_launch_process_exits(monkeypatch, tmp_path: Path) -> None:
     pid_path = tmp_path / "rhythm_lab.pid"
 
@@ -343,6 +416,7 @@ def test_rhythm_lab_launcher_clears_pid_when_launch_process_exits(monkeypatch, t
         def poll(self) -> int:
             return 1
 
+    monkeypatch.setattr(rhythm_lab_launcher, "_bind_to_server_lifetime", lambda _process: None)
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: tmp_path / "logs" / "rhythm-lab.log")
@@ -370,6 +444,7 @@ def test_rhythm_lab_launcher_restores_existing_pid_when_launch_process_exits(mon
         def poll(self) -> int:
             return 1
 
+    monkeypatch.setattr(rhythm_lab_launcher, "_bind_to_server_lifetime", lambda _process: None)
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 11111)

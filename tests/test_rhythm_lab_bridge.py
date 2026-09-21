@@ -351,6 +351,7 @@ def test_launcher_passes_verified_catalog_binding_without_opening_database(
         def poll(self) -> None:
             return None
 
+    monkeypatch.setattr(launcher, "_bind_to_server_lifetime", lambda _process: None)
     monkeypatch.setattr(launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(launcher, "_log_path", lambda: log_path)
     monkeypatch.setattr(

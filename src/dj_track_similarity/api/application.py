@@ -28,7 +28,12 @@ from ..embedding.contracts import TextEmbeddingAdapter
 from ..embedding.registry import create_embedding_adapter
 from ..audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from ..logging_config import configure_logging, install_asyncio_exception_logging, install_standard_stream_logging
-from ..rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
+from ..rhythm_lab_launcher import (
+    launch_rhythm_lab,
+    rhythm_lab_status,
+    stop_launched_rhythm_lab,
+    stop_rhythm_lab,
+)
 from ..embedding.text_cache import TextEmbeddingAdapterCache
 
 
@@ -148,6 +153,10 @@ def create_app(
     text_adapters = TextEmbeddingAdapterCache(_text_embedding_adapter)
 
     async def close_runtime_owners() -> None:
+        try:
+            await run_in_threadpool(stop_launched_rhythm_lab)
+        except Exception:
+            LOGGER.exception("Managed Rhythm Lab cleanup failed during application shutdown")
         try:
             await run_in_threadpool(state.close)
         finally:

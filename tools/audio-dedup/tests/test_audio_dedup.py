@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
+from dataclasses import replace
 import json
 import sqlite3
 import sys
@@ -239,12 +240,42 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     ] == [2]
 
 
-def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
-    low_bitrate_flac = _record(1, "M:/Volumes/Abstracted/a.flac", size=10_000_000, mtime=100.0)
-    high_bitrate_flac = _record(2, "M:/Volumes/Abstracted/b.flac", size=20_000_000, mtime=50.0)
-    mp3 = _record(3, "M:/Volumes/Abstracted/c.mp3", size=30_000_000, mtime=300.0)
-
-    assert keeper_module.choose_keeper([low_bitrate_flac, high_bitrate_flac, mp3]).track_id == 2
+def test_keeper_selection_ignores_lossless_packing_and_file_size() -> None:
+    tagged = replace(
+        _record(1, "M:/Volumes/Abstracted/tagged.flac", size=10_000_000),
+        metadata={"bit_rate_bps": 700_000, "bit_depth": 16, "sample_rate_hz": 44_100},
+    )
+    larger = replace(
+        tagged, track_id=2, path="M:/Volumes/Abstracted/larger.flac",
+        size=20_000_000, mtime=200.0, artist=None, title=None, album=None,
+        bpm=None, musical_key=None,
+    )
+    higher_bitrate = replace(
+        larger, size=tagged.size,
+        metadata={**tagged.metadata, "bit_rate_bps": 1_200_000},
+    )
+    higher_resolution = replace(
+        tagged, track_id=3, path="M:/Volumes/Abstracted/resolution.flac",
+        metadata={**tagged.metadata, "bit_depth": 24},
+    )
+    mp3 = replace(
+        larger, track_id=4, path="M:/Volumes/Abstracted/copy.mp3",
+        metadata={"bit_rate_bps": 320_000, "bit_depth": 24, "sample_rate_hz": 96_000},
+    )
+    cases = (
+        ([tagged, higher_bitrate], tagged),
+        ([tagged, larger], tagged),
+        ([higher_resolution, higher_bitrate], higher_resolution),
+        ([tagged, mp3], tagged),
+    )
+    # Packing and padding cannot buy a recommendation; input order cannot
+    # change it either. Lossless resolution and compression class still count.
+    actual = [
+        keeper_module.choose_keeper(order).track_id
+        for tracks, _ in cases
+        for order in (tracks, list(reversed(tracks)))
+    ]
+    assert actual == [expected.track_id for _, expected in cases for _ in range(2)]
 
 
 def test_cancellation_during_processing_does_not_publish_report(

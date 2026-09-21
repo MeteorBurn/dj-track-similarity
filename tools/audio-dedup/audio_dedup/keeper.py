@@ -110,8 +110,9 @@ def keeper_keys(
     spectrum caught as a transcode loses first, then the wider measured band
     wins. Only where nothing contradicts the files do their own facts decide, in
     the owner order: lossless before lossy, lossy bitrate, bit depth, sample
-    rate, true peak, dynamic range, loudness range, format, file size, tags, DJ
-    tags. Modification time and id follow to make a complete tie deterministic.
+    rate, true peak, dynamic range, loudness range, format, tags, DJ tags.
+    Lossless bitrate and file size describe packing, not audio quality.
+    Modification time and id follow to make a complete tie deterministic.
 
     A key sits out where its meaning does not hold for this group: the two range
     keys across two masters, resolution across a mixed DSD group, and everything
@@ -122,7 +123,6 @@ def keeper_keys(
     same_master = is_same_master(tracks)
     mixed_dsd_family = _has_mixed_dsd_family(tracks)
     ambiguous_codec = any(has_ambiguous_codec_container(track) for track in tracks)
-    same_container = len({Path(track.path).suffix.casefold() for track in tracks}) == 1
 
     def full_band(track: models_module.TrackRecord) -> int:
         result = verdicts.get(track.track_id)
@@ -156,19 +156,7 @@ def keeper_keys(
         return 0 if ambiguous_codec else int(is_lossless(track))
 
     def bitrate(track: models_module.TrackRecord) -> int:
-        """The stated bitrate, wherever it compares like with like.
-
-        One container across the group is what makes the rate a fact about the
-        audio: every copy states it the same way, so the higher one carries more
-        of the recording. Across containers it measures packing instead — a FLAC
-        and the WAV of one master state very different rates while holding
-        identical samples — so only lossy copies compare there.
-        """
-        if ambiguous_codec:
-            return 0
-        if same_container:
-            return declared_bit_rate_bps(track)
-        return lossy_bit_rate_bps(track)
+        return 0 if ambiguous_codec else lossy_bit_rate_bps(track)
 
     def bit_depth(track: models_module.TrackRecord) -> int:
         return 0 if mixed_dsd_family else declared_bit_depth(track)
@@ -260,11 +248,6 @@ def keeper_keys(
             "format",
             format_preference,
             _statement("format", show_format),
-        ),
-        KeeperKey(
-            "file size",
-            lambda track: float(track.size),
-            _statement("file size", lambda track: f"{track.size / 1024 / 1024:.1f} MB"),
         ),
         KeeperKey(
             "tag completeness",

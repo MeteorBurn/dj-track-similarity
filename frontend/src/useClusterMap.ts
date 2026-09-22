@@ -41,11 +41,11 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
   const [open, setOpen] = useState(false);
   const current = entry?.key === key ? entry : null;
   const reason = !databaseIdentity
-    ? "Open a library first."
+    ? "Сначала откройте библиотеку."
     : model === "sonara"
-      ? "Cluster map needs an embedding model: MAEST, MERT-v2, MuQ, MuQ-MuLan or CLAP."
+      ? "Карте нужна модель с эмбеддингами: MAEST, MERT-v2, MuQ, MuQ-MuLan или CLAP."
       : !seedTracks.length
-        ? "Add a reference track to map its search."
+        ? "Добавьте референс, чтобы построить карту его выдачи."
         : "";
   // The body `handleEmbeddingSearch` posts to /api/search, so the map shows that exact search.
   const request: EmbeddingSearchPayload | null = reason
@@ -120,13 +120,13 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
 
 function responseMismatch(response: ClusterMapResponse, payload: EmbeddingSearchPayload, seedCatalogs: string[]) {
   if (!seedCatalogs.every((catalog) => catalog === response.catalog_uuid)) {
-    return "The cluster map belongs to another library. Refresh the library and build the map again.";
+    return "Карта пришла для другой библиотеки. Обновите библиотеку и постройте карту заново.";
   }
   if (response.analysis_family !== payload.analysis_family) {
-    return "The cluster map came back for another model. Build the map again.";
+    return "Карта пришла для другой модели. Постройте карту заново.";
   }
   if (payload.layer != null && response.layer !== payload.layer) {
-    return `The cluster map came back for another layer than L${payload.layer}. Build the map again.`;
+    return `Карта пришла не для слоя L${payload.layer}. Постройте карту заново.`;
   }
   return "";
 }

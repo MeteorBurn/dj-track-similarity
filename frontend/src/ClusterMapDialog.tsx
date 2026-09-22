@@ -7,6 +7,7 @@ import type {
   EmbeddingLayersResponse,
   Track,
 } from "./api";
+import { pluralRu } from "./audioDedupView";
 import { ClusterMapPlot, OrbitSkeleton } from "./ClusterMapPlot";
 import { seedSearchModelPresentation, tabAfterKey } from "./searchSurfaceState";
 import { formatSonaraCoreValue, sonaraCoreFeatureGroups } from "./TrackMetadataDialog";
@@ -25,11 +26,23 @@ type MapView = {
   swarm: Candidate[];
   medianSimilarity: number;
 };
+/** What the map measures, in the two cases its sentences need. */
+type Subject = { nominative: string; genitive: string };
 
 const railTabs: readonly RailTab[] = ["tracks", "layer"];
 const DRIFT_SHOWN = 5;
-// SONARA labels that name a component rather than a feature read under their group title.
-const groupScopedLabels = new Set(["Score", "Rhythm", "Level"]);
+const layerSubject: Subject = { nominative: "слой", genitive: "слоя" };
+const modelSubject: Subject = { nominative: "модель", genitive: "модели" };
+// The map's SONARA groups, as the server names them.
+const groupNames: Record<string, string> = {
+  tempo: "Темп",
+  tonal: "Тональность",
+  loudness: "Громкость",
+  spectral: "Спектр",
+  perceptual: "Восприятие",
+  mood: "Настроение",
+  timbral: "Тембр",
+};
 const FOCUSABLE = [
   "button:not([disabled]):not([tabindex='-1'])",
   "summary",
@@ -40,7 +53,7 @@ const FOCUSABLE = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(", ");
 
-/** The cluster map of one REFERENCE search. It stays mounted while its build is
+/** The map of one REFERENCE search. It stays mounted while its build is
  * cached, so a closed map keeps its zoom and tab. */
 export function ClusterMapDialog({
   entry,
@@ -67,16 +80,17 @@ export function ClusterMapDialog({
   const { payload, response } = entry;
   const view = useMemo(() => (response ? mapView(response) : null), [response]);
   const layer = payload.layer ?? null;
-  const subject = layer !== null ? "layer" : "model";
+  const subject = layer !== null ? layerSubject : modelSubject;
   const layerRow = layer === null ? null : layerState.layers?.find((row) => row.layer === layer) ?? null;
   const seedCount = payload.seed_track_ids.length;
+  const seedText = `${seedCount} ${pluralRu(seedCount, "референс", "референса", "референсов")}`;
   const summary = view
     ? [
-      plural(seedCount, "reference track"),
-      plural(view.candidates.length, "candidate"),
-      `median similarity ${view.medianSimilarity.toFixed(3)}`,
+      seedText,
+      `${view.candidates.length} ${pluralRu(view.candidates.length, "кандидат", "кандидата", "кандидатов")}`,
+      `медиана сходства ${view.medianSimilarity.toFixed(3)}`,
     ].join(" · ")
-    : `${plural(seedCount, "reference track")} · up to ${plural(payload.limit, "candidate")}`;
+    : `${seedText} · до ${payload.limit} ${pluralRu(payload.limit, "кандидата", "кандидатов", "кандидатов")}`;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -155,7 +169,7 @@ export function ClusterMapDialog({
       >
         <header className="cluster-map-header">
           <div className="cluster-map-heading">
-            <h2 id="cluster-map-title">Cluster map</h2>
+            <h2 id="cluster-map-title">Карта {subject.genitive}</h2>
             <span className="cluster-map-chip">{seedSearchModelPresentation[payload.analysis_family].label}</span>
             {layer !== null ? (
               <span className="cluster-map-chip" title={[layerRow?.source, layerState.note].filter(Boolean).join("\n") || undefined}>
@@ -171,7 +185,9 @@ export function ClusterMapDialog({
         </header>
         {entry.status === "loading" ? (
           <div className="cluster-map-body">
-            <p className="cluster-map-status" role="status">Building the cluster map…</p>
+            <p className="cluster-map-status" role="status">
+              {`Строим карту ${subject.genitive}${layer !== null ? ` L${layer}` : ""}: раскладываем выдачу вокруг ядра и ищем исключения…`}
+            </p>
             <div className="cluster-map-kpis" aria-hidden="true">
               {[0, 1].map((tile) => (
                 <div key={tile} className="cluster-map-kpi">
@@ -200,10 +216,10 @@ export function ClusterMapDialog({
             <div className="cluster-map-error" role="alert">
               <CircleAlert size={18} aria-hidden="true" />
               <div>
-                <strong>Could not build the cluster map</strong>
+                <strong>Не удалось построить карту</strong>
                 <p>{entry.error}</p>
               </div>
-              <button type="button" title="Build the cluster map again" onClick={onRetry}>Retry</button>
+              <button type="button" title="Построить карту заново" onClick={onRetry}>Повторить</button>
             </div>
           </div>
         ) : response && view ? (
@@ -212,9 +228,9 @@ export function ClusterMapDialog({
             <div className="cluster-map-main">
               <figure className="cluster-map-figure">
                 <figcaption>
-                  Candidates orbit the reference core: the closer a point, the more similar the {subject} finds the track.
-                  Tracks that differ from the reference the same way form one swarm; an exception is a track the {subject} pulls
-                  in for another reason. Click a point to preview it.
+                  {`Кандидаты расположены вокруг ядра референсов: чем ближе точка, тем больше трек похож на референс по мнению ${subject.genitive}. `}
+                  {`Треки, которые отличаются от референса одинаково, образуют рой; исключение — трек, который ${subject.nominative} притягивает по другой причине. `}
+                  Нажмите на точку, чтобы прослушать трек.
                 </figcaption>
                 <ClusterMapPlot
                   mapKey={entry.key}
@@ -227,24 +243,30 @@ export function ClusterMapDialog({
                 <div className="cluster-map-legend">
                   <span className="cluster-map-key">
                     <span className="cluster-map-swatch is-swarm" aria-hidden="true" />
-                    Swarm · {view.swarm.length}
+                    Рой · {view.swarm.length}
                   </span>
-                  <span className="cluster-map-key" title={`Candidates that do not fit in with the rest in the ${subject}'s space (LocalOutlierFactor)`}>
+                  <span
+                    className="cluster-map-key"
+                    title={`Кандидаты, которые не вписываются в остальные в пространстве ${subject.genitive} (LocalOutlierFactor)`}
+                  >
                     <span className="cluster-map-key-exception" aria-hidden="true" />
-                    Exceptions · {view.exceptions.length}
+                    Исключения · {view.exceptions.length}
                   </span>
                   <span className="cluster-map-key">
                     <span className="cluster-map-key-core" aria-hidden="true" />
-                    Core · {view.seeds.length}
+                    Ядро · {view.seeds.length}
                   </span>
-                  <span className="cluster-map-key" title="The candidates' centre of mass; its distance from the core shows how far the search drifts">
+                  <span
+                    className="cluster-map-key"
+                    title="Центр масс кандидатов: по его расстоянию от ядра видно, насколько поиск уходит от референсов"
+                  >
                     <Star className="cluster-map-key-center" size={12} aria-hidden="true" />
-                    Candidates center · {response.candidates_center.similarity.toFixed(3)}
+                    Центр кандидатов · {response.candidates_center.similarity.toFixed(3)}
                   </span>
                 </div>
               </figure>
-              <aside className="cluster-map-rail" aria-label="Map details">
-                <div className="search-tabs cluster-map-tabs" role="tablist" aria-label="Detail views">
+              <aside className="cluster-map-rail" aria-label="Подробности карты">
+                <div className="search-tabs cluster-map-tabs" role="tablist" aria-label="Разделы карты">
                   {railTabs.map((name) => (
                     <button
                       key={name}
@@ -259,7 +281,7 @@ export function ClusterMapDialog({
                       onClick={() => setTab(name)}
                       onKeyDown={selectTabByKey}
                     >
-                      {name === "tracks" ? "Tracks" : layer !== null ? "Layer" : "Model"}
+                      {name === "tracks" ? "Треки" : layer !== null ? "Слой" : "Модель"}
                     </button>
                   ))}
                 </div>
@@ -272,35 +294,36 @@ export function ClusterMapDialog({
                   {tab === "tracks" ? (
                     <TracksPanel view={view} subject={subject} playingTrackId={playingTrackId} onPreview={onPreview} />
                   ) : (
-                    <LayerPanel response={response} layer={layer} layerRow={layerRow} note={layerState.note} />
+                    <LayerPanel response={response} subject={subject} layer={layer} layerRow={layerRow} note={layerState.note} />
                   )}
                 </div>
               </aside>
             </div>
           </div>
         ) : null}
-        <footer className="cluster-map-footer">Scores rank candidates; the final pick is made by ear.</footer>
+        <footer className="cluster-map-footer">Оценки только ранжируют кандидатов; окончательный выбор — на слух.</footer>
       </section>
     </div>
   );
 }
 
-function KpiRow({ view, subject }: { view: MapView; subject: string }) {
+function KpiRow({ view, subject }: { view: MapView; subject: Subject }) {
   const nearest = view.exceptions[0];
+  const total = view.candidates.length;
   return (
     <dl className="cluster-map-kpis">
       <div className="cluster-map-kpi">
-        <dt>Exceptions</dt>
+        <dt>Исключения</dt>
         <dd className="cluster-map-kpi-value">{view.exceptions.length}</dd>
         <dd className="cluster-map-kpi-note">
-          of {plural(view.candidates.length, "candidate")}, apart from the swarm in the {subject}'s space
+          {`из ${total} ${pluralRu(total, "кандидата", "кандидатов", "кандидатов")}, в стороне от роя в пространстве ${subject.genitive}`}
         </dd>
       </div>
       <div className="cluster-map-kpi">
-        <dt>Nearest exception</dt>
+        <dt>Ближайшее исключение</dt>
         <dd className="cluster-map-kpi-value">{nearest ? `#${nearest.rank}` : "—"}</dd>
         <dd className="cluster-map-kpi-note">
-          {nearest ? "its place in the search: the lower, the nearer the core" : "every candidate fits the swarm"}
+          {nearest ? "место в выдаче: чем меньше номер, тем ближе к ядру" : "все кандидаты в рое"}
         </dd>
       </div>
     </dl>
@@ -309,7 +332,7 @@ function KpiRow({ view, subject }: { view: MapView; subject: string }) {
 
 function TracksPanel({ view, subject, playingTrackId, onPreview }: {
   view: MapView;
-  subject: string;
+  subject: Subject;
   playingTrackId: number | null;
   onPreview: (track: Track) => void;
 }) {
@@ -318,28 +341,30 @@ function TracksPanel({ view, subject, playingTrackId, onPreview }: {
       <article className="cluster-map-card cluster-map-core-card">
         <header className="cluster-map-card-head">
           <span className="cluster-map-key-core" aria-hidden="true" />
-          <h3>Core</h3>
-          <span className="cluster-map-card-meta">{plural(view.seeds.length, "reference track")}</span>
+          <h3>Ядро</h3>
+          <span className="cluster-map-card-meta">
+            {`${view.seeds.length} ${pluralRu(view.seeds.length, "референс", "референса", "референсов")}`}
+          </span>
         </header>
         <TrackList
-          items={view.seeds.map((point) => ({ point, meta: `${point.similarity.toFixed(3)} to core` }))}
+          items={view.seeds.map((point) => ({ point, meta: `${point.similarity.toFixed(3)} к ядру` }))}
           playingTrackId={playingTrackId}
           onPreview={onPreview}
         />
       </article>
       <section className="cluster-map-list">
-        <h3>Exceptions · {view.exceptions.length}</h3>
+        <h3>Исключения · {view.exceptions.length}</h3>
         <p className="cluster-map-prose">
           {view.exceptions.length
-            ? `Tracks the ${subject} pulls toward the references for another reason than the swarm. Listen to them first: if they are wrong, the ${subject} misses what you are after.`
-            : "Every candidate fits the swarm."}
+            ? `Треки, которые ${subject.nominative} притягивает к референсам иначе, чем остальные кандидаты. Послушайте их первыми: если они чужие, ${subject.nominative} ловит не то, что вы ищете.`
+            : "Все кандидаты в рое."}
         </p>
         {view.exceptions.length ? (
           <CandidateList items={view.exceptions} playingTrackId={playingTrackId} onPreview={onPreview} />
         ) : null}
       </section>
       <section className="cluster-map-list">
-        <h3>Swarm · {view.swarm.length}</h3>
+        <h3>Рой · {view.swarm.length}</h3>
         <CandidateList items={view.swarm} playingTrackId={playingTrackId} onPreview={onPreview} />
       </section>
     </>
@@ -367,7 +392,7 @@ function CandidateList({ items, playingTrackId, onPreview }: {
                 <span
                   key={item.group}
                   className="cluster-map-reason"
-                  title="SONARA: this group's widest gap from the references' mean, in library σ"
+                  title="SONARA: самое большое отклонение группы от среднего референсов, в σ библиотеки"
                 >
                   {reasonText(item)}
                 </span>
@@ -380,13 +405,13 @@ function CandidateList({ items, playingTrackId, onPreview }: {
   );
 }
 
-function LayerPanel({ response, layer, layerRow, note }: {
+function LayerPanel({ response, subject, layer, layerRow, note }: {
   response: ClusterMapResponse;
+  subject: Subject;
   layer: number | null;
   layerRow: LayerRow | null;
   note: string | null;
 }) {
-  const subject = layer !== null ? "layer" : "model";
   const widest = Math.max(...response.profile.map((spread) => spread.std), 1e-9);
   // The drift runs from the largest shift down, so a group's first entry is its largest.
   const drift = response.drift.filter((item, index, all) => all.findIndex((other) => other.group === item.group) === index);
@@ -400,19 +425,18 @@ function LayerPanel({ response, layer, layerRow, note }: {
         </div>
       ) : null}
       <div className="cluster-map-focus">
-        <h3>What the {subject} holds</h3>
+        <h3>Что держит {subject.nominative}</h3>
         <p className="cluster-map-prose">
-          The spread of each SONARA group across the candidates, in library σ. The {subject} holds the group with the
-          smallest spread and lets the one with the largest vary.
+          {`Разброс каждой группы SONARA среди кандидатов, в σ библиотеки. Группу с самым малым разбросом ${subject.nominative} держит, с самым большим — отпускает.`}
         </p>
         {response.profile.map((spread, position) => (
           <div
             key={spread.group}
             className="cluster-map-focus-row"
             data-holds={position === 0 || undefined}
-            title={`${groupLabel(spread.group)}: std ${spread.std.toFixed(2)}`}
+            title={`${groupNames[spread.group]}: разброс ${spread.std.toFixed(2)}`}
           >
-            <span className="cluster-map-focus-label">{groupLabel(spread.group)}</span>
+            <span className="cluster-map-focus-label">{groupNames[spread.group]}</span>
             <span className="cluster-map-focus-track">
               <span className="cluster-map-focus-bar" style={{ left: 0, width: `${(spread.std / widest) * 100}%` }} />
             </span>
@@ -421,10 +445,9 @@ function LayerPanel({ response, layer, layerRow, note }: {
         ))}
       </div>
       <div className="cluster-map-focus">
-        <h3>Drift from the references</h3>
+        <h3>Дрейф от референсов</h3>
         <p className="cluster-map-prose">
-          The candidates' mean minus the references' mean, in library σ: where this {subject} pulls the search.
-          Each SONARA group shows its largest shift.
+          {`Среднее кандидатов минус среднее референсов, в σ библиотеки: куда ${subject.nominative} уводит поиск. По каждой группе SONARA — её самый большой сдвиг.`}
         </p>
         <div className="cluster-map-reasons">
           {drift.slice(0, DRIFT_SHOWN).map((item) => (
@@ -435,11 +458,10 @@ function LayerPanel({ response, layer, layerRow, note }: {
         </div>
       </div>
       <p className="cluster-map-prose">
-        Distance from the centre is exact (1 − similarity to the core); the angle only approximates the direction of
-        difference and keeps {Math.round(response.angle_variance_kept * 100)}% of it.
+        {`Расстояние от центра точное (1 − сходство с ядром); угол лишь приближённо показывает, чем трек отличается, и передаёт ${Math.round(response.angle_variance_kept * 100)} % этих отличий.`}
       </p>
       <p className="cluster-map-prose">
-        Each map covers one model and layer; switch Model or Layer in the panel and open the map again to compare.
+        Карта строится для одной модели и одного слоя. Чтобы сравнить, переключите модель или слой в панели и откройте карту снова.
       </p>
     </div>
   );
@@ -474,13 +496,13 @@ function PlayButton({ track, playingTrackId, onPreview }: {
   onPreview: (track: Track) => void;
 }) {
   const playing = playingTrackId === track.track_id;
-  const name = displayTrack(track);
+  const action = playing ? "Пауза" : "Прослушать";
   return (
     <button
       className="icon-button cluster-map-play-button"
       data-playing={playing || undefined}
-      title={playing ? "Pause preview" : "Preview"}
-      aria-label={`${playing ? "Pause" : "Preview"} ${name}`}
+      title={action}
+      aria-label={`${action}: ${displayTrack(track)}`}
       type="button"
       onClick={() => onPreview(track)}
     >
@@ -511,23 +533,20 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function plural(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
 function signed(value: number, digits: number) {
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
-function railTabTitle(tab: RailTab, subject: string) {
+function railTabTitle(tab: RailTab, subject: Subject) {
   return tab === "tracks"
-    ? "The core, the exceptions and the swarm, each in search order"
-    : `What this ${subject} holds, and where it pulls the search`;
+    ? "Ядро, исключения и рой в порядке выдачи"
+    : `Что держит ${subject.nominative} и куда уводит поиск`;
 }
 
-/** Timbre reads as one group, since a single MFCC means nothing on its own. */
+/** The group, then its SONARA feature under the track card's own label; timbre reads as
+ * the group alone, since a single MFCC means nothing on its own. */
 function featureName(item: { feature: string; group: string }) {
-  return item.group === "timbral" ? "Timbre" : featureLabel(item.feature);
+  return item.group === "timbral" ? groupNames.timbral : `${groupNames[item.group]}: ${featureLabel(item.feature)}`;
 }
 
 /** A SONARA reason: the feature, its value where it reads, and its gap from the references. */
@@ -538,25 +557,17 @@ function reasonText(item: ClusterMapFeatureValue) {
     : `${featureName(item)} ${formatFeatureValue(item.feature, item.value)} (${gap})`;
 }
 
-function groupLabel(group: string) {
-  return group.charAt(0).toUpperCase() + group.slice(1);
-}
-
 function sonaraFeature(feature: string) {
   for (const group of sonaraCoreFeatureGroups) {
     const descriptor = group.features.find((candidate) => candidate.key === feature);
-    if (descriptor) return { key: descriptor.key, label: descriptor.label, group: group.title };
+    if (descriptor) return descriptor;
   }
   return null;
 }
 
-/** SONARA labels and units come from the track metadata dialog. */
+/** SONARA labels and units come from the track card, the one place that names them. */
 function featureLabel(feature: string) {
-  const descriptor = sonaraFeature(feature);
-  if (!descriptor) return feature.replaceAll("_", " ");
-  return groupScopedLabels.has(descriptor.label)
-    ? `${descriptor.group} ${descriptor.label.toLowerCase()}`
-    : descriptor.label;
+  return sonaraFeature(feature)?.label ?? feature;
 }
 
 function formatFeatureValue(feature: string, value: number) {

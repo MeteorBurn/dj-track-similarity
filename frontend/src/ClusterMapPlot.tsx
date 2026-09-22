@@ -12,6 +12,7 @@ import type {
   Shape,
 } from "plotly.js-basic-dist-min";
 import type { ClusterMapFeatureValue, ClusterMapPoint, ClusterMapResponse, Track } from "./api";
+import { pluralRu } from "./audioDedupView";
 import { errorText } from "./errors";
 import { placeTooltip, type TooltipPosition } from "./tooltip";
 import { displayTrack } from "./trackDisplay";
@@ -258,28 +259,28 @@ export function ClusterMapPlot({
         ref={hostRef}
         className="cluster-map-plot"
         role="img"
-        aria-label={`Orbit of ${candidateCount} candidates around the reference core, ${exceptionCount} of them outside the swarm`}
+        aria-label={`Орбита: ${candidateCount} ${pluralRu(candidateCount, "кандидат", "кандидата", "кандидатов")} вокруг ядра референсов, вне роя — ${exceptionCount}`}
       />
       {!drawn && !failure ? <OrbitSkeleton /> : null}
       {failure ? (
         <div className="cluster-map-plot-error" role="alert">
           <CircleAlert size={16} aria-hidden="true" />
-          <span>Could not draw the map: {failure}</span>
-          <button type="button" title="Load the map view again" onClick={() => setAttempt((value) => value + 1)}>Retry</button>
+          <span>Не удалось нарисовать карту: {failure}</span>
+          <button type="button" title="Загрузить вид карты заново" onClick={() => setAttempt((value) => value + 1)}>Повторить</button>
         </div>
       ) : null}
-      <div className="cluster-map-toolbar" role="toolbar" aria-label="Map view" aria-orientation="vertical" onKeyDown={moveToolbarFocus}>
-        <button className="icon-button" type="button" title="Zoom in" aria-label="Zoom in" disabled={!drawn} onClick={() => zoom(0.8)}>
+      <div className="cluster-map-toolbar" role="toolbar" aria-label="Вид карты" aria-orientation="vertical" onKeyDown={moveToolbarFocus}>
+        <button className="icon-button" type="button" title="Приблизить" aria-label="Приблизить" disabled={!drawn} onClick={() => zoom(0.8)}>
           <ZoomIn size={15} />
         </button>
-        <button className="icon-button" type="button" title="Zoom out" aria-label="Zoom out" disabled={!drawn} onClick={() => zoom(1.25)}>
+        <button className="icon-button" type="button" title="Отдалить" aria-label="Отдалить" disabled={!drawn} onClick={() => zoom(1.25)}>
           <ZoomOut size={15} />
         </button>
         <button
           className="icon-button"
           type="button"
-          title="Reset view"
-          aria-label="Reset view"
+          title="Сбросить вид"
+          aria-label="Сбросить вид"
           disabled={!drawn}
           onClick={() => showView({ x: [-reach, reach], y: [-reach, reach] })}
         >
@@ -295,14 +296,14 @@ export function ClusterMapPlot({
         >
           <strong className="cluster-map-tooltip-values">
             {hovered.seed
-              ? `Reference · ${hovered.similarity.toFixed(3)} to core`
-              : `${hovered.similarity.toFixed(3)} similarity · #${hoveredRank}`}
+              ? `Референс · ${hovered.similarity.toFixed(3)} к ядру`
+              : `Сходство ${hovered.similarity.toFixed(3)} · #${hoveredRank}`}
           </strong>
           <span className="cluster-map-tooltip-name">{displayTrack(hovered.track)}</span>
           {hovered.exception ? (
             <span className="cluster-map-tooltip-line">
               <i className="cluster-map-swatch is-exception" />
-              Exception: outside the swarm
+              Исключение: вне роя
             </span>
           ) : null}
           {hovered.seed ? null : (

@@ -63,7 +63,7 @@ export function SimilaritySearchTab({
   const clusterMapBlocked = clusterMap.reason
     || missingReason
     || ((clusterMap.status === "idle" || clusterMap.status === "error") && (busy || pending)
-      ? "Wait for the current search to finish."
+      ? "Дождитесь окончания текущего поиска."
       : "");
   const clusterMapTitle = clusterMapBlocked || clusterMapButtonTitle(clusterMap, label, layerState.layer);
   const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
@@ -261,10 +261,10 @@ export function SimilaritySearchTab({
 }
 
 function clusterMapButtonTitle({ status, entry }: ClusterMapState, label: string, layer: number | null) {
-  if (status === "loading") return "Building the cluster map. Open it to follow progress.";
-  if (status === "ready") return "Open the cluster map (ready for these seeds, model, layer and limit).";
-  if (status === "error") return `Last build failed: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Click to try again.`;
-  return `Map this ${label}${layer !== null ? ` L${layer}` : ""} search: candidates orbit the reference tracks by similarity.`;
+  if (status === "loading") return "Строим карту: раскладываем выдачу вокруг ядра и ищем исключения. Откройте, чтобы следить за ходом.";
+  if (status === "ready") return "Открыть карту (готова для этих референсов, модели, слоя и лимита).";
+  if (status === "error") return `Карта не построилась: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Нажмите, чтобы попробовать снова.`;
+  return `Построить карту ${label}${layer !== null ? ` L${layer}` : ""}: рой выдачи вокруг референсов и исключения.`;
 }
 
 function formatSigned(value: number) {

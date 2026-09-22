@@ -6296,8 +6296,6 @@ button.dedup-play-button {
 .cluster-map-dialog [data-slot="4"] { --cluster-color: var(--cluster-4); }
 .cluster-map-dialog [data-slot="5"] { --cluster-color: var(--cluster-5); }
 .cluster-map-dialog [data-slot="6"] { --cluster-color: var(--cluster-6); }
-/* The same neutral the plot draws for points outside every cluster. */
-.cluster-map-dialog [data-slot="other"] { --cluster-color: var(--text-muted); }
 
 /* The map button shares the Search row at its 38px height. */
 .embedding-search-row {
@@ -6462,8 +6460,7 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
-.cluster-map-status,
-.cluster-map-note {
+.cluster-map-status {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
@@ -6724,8 +6721,10 @@ button.cluster-map-legend-chip[aria-pressed="true"] {
 }
 .cluster-map-key-center {
   flex: none;
-  color: var(--accent);
-  fill: var(--accent);
+  width: 11px;
+  height: 11px;
+  border: 1.5px dashed var(--accent);
+  border-radius: 50%;
 }
 
 .cluster-map-rail {

@@ -1,4 +1,4 @@
-import { CircleAlert, Pause, Play, Star, TriangleAlert, X } from "lucide-react";
+import { CircleAlert, Pause, Play, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
   ClusterMapCluster,
@@ -23,7 +23,6 @@ type MapView = {
   seeds: ClusterMapPoint[];
   candidates: Candidate[];
   members: Candidate[][];
-  outside: Candidate[];
   flagged: Candidate[];
   medianSimilarity: number | null;
 };
@@ -218,16 +217,13 @@ export function ClusterMapDialog({
                 <ClusterMapPlot
                   mapKey={entry.key}
                   points={response.points}
-                  center={response.candidates_center}
+                  centerSimilarity={response.center_similarity}
                   clusterCount={response.clusters.length}
                   isolated={isolated}
                   playingTrackId={playingTrackId}
                   featureLabel={featureLabel}
                   onPreview={onPreview}
                 />
-                {response.clusters.length === 0 ? (
-                  <p className="cluster-map-note">HDBSCAN found no clusters among these candidates.</p>
-                ) : null}
                 <div className="cluster-map-legend">
                   {response.clusters.map((_, cluster) => (
                     <button
@@ -245,19 +241,13 @@ export function ClusterMapDialog({
                       <span className="cluster-map-legend-count">{view.members[cluster].length}</span>
                     </button>
                   ))}
-                  {view.outside.length ? (
-                    <span className="cluster-map-key" data-slot="other">
-                      <span className="cluster-map-dot" aria-hidden="true" />
-                      Outside clusters · {view.outside.length}
-                    </span>
-                  ) : null}
                   <span className="cluster-map-key">
                     <span className="cluster-map-key-core" aria-hidden="true" />
                     Core · {view.seeds.length}
                   </span>
-                  <span className="cluster-map-key" title="The candidates' centre of mass; its distance from the core shows how far the search drifts">
-                    <Star className="cluster-map-key-center" size={12} aria-hidden="true" />
-                    Candidates center
+                  <span className="cluster-map-key" title="The candidates' centre of mass lies on this ring: its distance from the core shows how far the search drifts">
+                    <span className="cluster-map-key-center" aria-hidden="true" />
+                    Candidates center · {response.center_similarity.toFixed(3)}
                   </span>
                   <span className="cluster-map-key">
                     <span className="cluster-map-key-ring" aria-hidden="true" />
@@ -323,23 +313,22 @@ export function ClusterMapDialog({
 
 function KpiRow({ response, view }: { response: ClusterMapResponse; view: MapView }) {
   const total = view.candidates.length;
-  const clusterCount = response.clusters.length;
   const percent = (count: number) => `${Math.round((count / total) * 100)}%`;
   return (
     <dl className="cluster-map-kpis">
       <div className="cluster-map-kpi">
         <dt>Separation</dt>
-        <dd className="cluster-map-kpi-value">{response.silhouette === null ? "—" : response.silhouette.toFixed(2)}</dd>
+        <dd className="cluster-map-kpi-value">{response.silhouette.toFixed(2)}</dd>
         <dd className="cluster-map-kpi-note">silhouette, from −1 to 1</dd>
       </div>
       <div className="cluster-map-kpi">
         <dt>Clusters</dt>
-        <dd className="cluster-map-kpi-value">{clusterCount}</dd>
-        <dd className="cluster-map-kpi-note">{view.outside.length ? `${plural(view.outside.length, "candidate")} outside` : "every candidate in one"}</dd>
+        <dd className="cluster-map-kpi-value">{response.clusters.length}</dd>
+        <dd className="cluster-map-kpi-note">KMeans, fixed count</dd>
       </div>
       <div className="cluster-map-kpi">
         <dt>In cluster A</dt>
-        <dd className="cluster-map-kpi-value">{clusterCount ? percent(view.members[0].length) : "—"}</dd>
+        <dd className="cluster-map-kpi-value">{percent(view.members[0].length)}</dd>
         <dd className="cluster-map-kpi-note">nearest to the references</dd>
       </div>
       <div className="cluster-map-kpi">
@@ -421,16 +410,6 @@ function ClustersPanel({ response, view, isolated, playingTrackId, onPreview }: 
           </article>
         );
       })}
-      {view.outside.length ? (
-        <article className="cluster-map-card" data-slot="other">
-          <header className="cluster-map-card-head">
-            <span className="cluster-map-dot" aria-hidden="true" />
-            <h3>Outside clusters</h3>
-            <span className="cluster-map-card-meta">{plural(view.outside.length, "candidate")}</span>
-          </header>
-          <MemberList members={view.outside} playingTrackId={playingTrackId} onPreview={onPreview} />
-        </article>
-      ) : null}
     </div>
   );
 }
@@ -488,7 +467,7 @@ function LayerPanel({ response, isolated, layer, layerRow, note }: {
   const subject = layer !== null ? "layer" : "model";
   const clusterIndex = isolated ?? 0;
   const cluster = response.clusters[clusterIndex];
-  const widest = cluster ? Math.max(...cluster.profile.map((spread) => spread.std), 1e-9) : 1;
+  const widest = Math.max(...cluster.profile.map((spread) => spread.std), 1e-9);
   return (
     <div className="cluster-map-layer">
       {layer !== null ? (
@@ -499,12 +478,12 @@ function LayerPanel({ response, isolated, layer, layerRow, note }: {
         </div>
       ) : null}
       <div className="cluster-map-focus" data-slot={clusterSlot(clusterIndex)}>
-        <h3>{cluster ? `Glue of cluster ${clusterLetter(clusterIndex)}` : "Glue"}</h3>
+        <h3>Glue of cluster {clusterLetter(clusterIndex)}</h3>
         <p className="cluster-map-prose">
           The spread of each SONARA group inside the cluster, in library σ. The {subject} holds the group with the smallest
           spread and ignores the one with the largest. Pick a cluster in the legend to see its glue.
         </p>
-        {cluster ? cluster.profile.map((spread, position) => (
+        {cluster.profile.map((spread, position) => (
           <div
             key={spread.group}
             className="cluster-map-focus-row"
@@ -517,7 +496,7 @@ function LayerPanel({ response, isolated, layer, layerRow, note }: {
             </span>
             <span className="cluster-map-focus-value">{spread.std.toFixed(2)}</span>
           </div>
-        )) : <div className="empty-state">No cluster to profile: HDBSCAN found none in this search.</div>}
+        ))}
       </div>
       <div className="cluster-map-focus">
         <h3>Drift from the references</h3>
@@ -535,13 +514,15 @@ function LayerPanel({ response, isolated, layer, layerRow, note }: {
       <div className="cluster-map-focus">
         <h3>Separation</h3>
         <p className="cluster-map-prose">
-          The silhouette of the HDBSCAN clusters, measured on the directions in which the candidates differ from the
-          core: near 1 the clusters are distinct, near 0 they overlap.
+          The silhouette of the KMeans clusters, measured on the directions in which the candidates differ from the
+          core: near 1 the clusters are distinct, near 0 they overlap. KMeans always splits the candidates into the
+          same number of clusters, so a low silhouette means the split is forced rather than found.
         </p>
       </div>
       <p className="cluster-map-prose">
-        Distance from the centre is exact (1 − similarity to the core); the angle only approximates the direction of
-        difference and keeps {Math.round(response.angle_variance_kept * 100)}% of it.
+        Distance from the centre is exact (1 − similarity to the core); the angle shows the two main directions in
+        which the candidates differ from each other and keeps {Math.round(response.angle_variance_kept * 100)}% of that
+        difference.
       </p>
       <p className="cluster-map-prose">
         Each map covers one model and layer; switch Model or Layer in the panel and open the map again to compare.
@@ -624,7 +605,6 @@ function mapView(response: ClusterMapResponse): MapView {
     seeds,
     candidates,
     members: response.clusters.map((_, cluster) => candidates.filter(({ point }) => point.cluster === cluster)),
-    outside: candidates.filter(({ point }) => point.cluster === -1),
     flagged: candidates.filter(({ point }) => point.outlier),
     medianSimilarity: median(candidates.map(({ point }) => point.similarity)),
   };

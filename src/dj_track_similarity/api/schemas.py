@@ -1014,15 +1014,10 @@ class ClusterMapPointResponse(_ResponseModel):
     # Unbounded: float error can push a cosine past 1 by about 1e-10.
     similarity: float
     angle: float
-    cluster: int | None = Field(ge=-1)
+    cluster: int | None = Field(ge=0)
     outlier: bool
     outlier_score: float
     outlier_features: list[ClusterMapFeatureValueResponse]
-
-
-class ClusterMapCenterResponse(_ResponseModel):
-    similarity: float
-    angle: float
 
 
 class ClusterMapDriftResponse(_ResponseModel):
@@ -1036,16 +1031,17 @@ class ClusterMapResponse(_ResponseModel):
 
     ``points`` holds the seeds in request order, then the candidates in rank
     order; ``clusters`` runs nearest to the core first and ``point.cluster``
-    indexes it (``None`` for seeds, ``-1`` outside every cluster). ``layer``
-    is the layer read, resolved from the request.
+    indexes it (``None`` for seeds). ``center_similarity`` is the similarity
+    of the candidates' centre of mass to the core. ``layer`` is the layer
+    read, resolved from the request.
     """
 
     catalog_uuid: str
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
     layer: int | None
-    silhouette: float | None
+    silhouette: float
     angle_variance_kept: float
-    candidates_center: ClusterMapCenterResponse
+    center_similarity: float
     points: list[ClusterMapPointResponse]
     clusters: list[ClusterMapClusterResponse]
     drift: list[ClusterMapDriftResponse]

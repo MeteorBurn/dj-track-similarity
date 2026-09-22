@@ -243,9 +243,9 @@ export type ClusterMapCluster = {
   maest_genres: ClusterMapGenreShare[];
 };
 
-/** Radius `1 - similarity` is exact; `angle` (radians) only approximates the
- * direction of difference. `cluster` is null for seeds and -1 outside every
- * cluster; `outlier` comes from IsolationForest (lower score, more unusual). */
+/** Radius `1 - similarity` is exact; `angle` (radians) comes from the two main
+ * directions in which the candidates differ. `cluster` is null for seeds;
+ * `outlier` comes from IsolationForest (lower score, more unusual). */
 export type ClusterMapPoint = {
   track: Track;
   seed: boolean;
@@ -262,15 +262,16 @@ export type ClusterMapDrift = { feature: string; group: string; delta: number };
 
 /** The map of exactly what `/api/search` returns for the same payload. `points`
  * holds the seeds in request order, then the candidates in rank order;
- * `point.cluster` indexes `clusters`, nearest to the core first; `drift` runs
+ * `point.cluster` indexes `clusters`, nearest to the core first;
+ * `center_similarity` places the candidates' centre of mass; `drift` runs
  * from the largest shift down. */
 export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
   layer: number | null;
-  silhouette: number | null;
+  silhouette: number;
   angle_variance_kept: number;
-  candidates_center: { similarity: number; angle: number };
+  center_similarity: number;
   points: ClusterMapPoint[];
   clusters: ClusterMapCluster[];
   drift: ClusterMapDrift[];

@@ -11,7 +11,7 @@ import type {
   PlotMouseEvent,
   Shape,
 } from "plotly.js-basic-dist-min";
-import type { ClusterMapPoint, ClusterMapResponse, Track } from "./api";
+import type { ClusterMapPoint, Track } from "./api";
 import { errorText } from "./errors";
 import { placeTooltip, type TooltipPosition } from "./tooltip";
 import { displayTrack } from "./trackDisplay";
@@ -65,14 +65,14 @@ export function clusterLetter(cluster: number) {
   return String.fromCharCode(65 + cluster);
 }
 
-/** Candidates HDBSCAN leaves outside every cluster carry -1. */
+/** Seeds form the core and carry no cluster. */
 export function clusterName(cluster: number | null) {
-  return cluster === null || cluster < 0 ? "Outside clusters" : `Cluster ${clusterLetter(cluster)}`;
+  return cluster === null ? "Core" : `Cluster ${clusterLetter(cluster)}`;
 }
 
-/** Colour slot for `data-slot`: six palette colours, then a neutral one. */
+/** Colour slot for `data-slot`; the core has none. */
 export function clusterSlot(cluster: number | null) {
-  return cluster !== null && cluster >= 0 && cluster < 6 ? String(cluster + 1) : "other";
+  return cluster === null ? undefined : String(cluster + 1);
 }
 
 /** Faint rings standing in for the orbit until it is drawn. */
@@ -90,7 +90,7 @@ export function OrbitSkeleton() {
 export function ClusterMapPlot({
   mapKey,
   points,
-  center,
+  centerSimilarity,
   clusterCount,
   isolated,
   playingTrackId,
@@ -99,7 +99,7 @@ export function ClusterMapPlot({
 }: {
   mapKey: string;
   points: ClusterMapPoint[];
-  center: ClusterMapResponse["candidates_center"];
+  centerSimilarity: number;
   clusterCount: number;
   isolated: number | null;
   playingTrackId: number | null;
@@ -153,7 +153,7 @@ export function ClusterMapPlot({
     if (!plotly || !host) return undefined;
     let cancelled = false;
     const { data, layout } = figure(points, orbit, readPalette(host), {
-      center,
+      centerSimilarity,
       clusterCount,
       isolated,
       playingTrackId,
@@ -174,7 +174,7 @@ export function ClusterMapPlot({
     return () => {
       cancelled = true;
     };
-  }, [plotly, points, orbit, center, clusterCount, isolated, playingTrackId, mapKey, themeRevision, attempt]);
+  }, [plotly, points, orbit, centerSimilarity, clusterCount, isolated, playingTrackId, mapKey, themeRevision, attempt]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -381,8 +381,8 @@ function figure(
   points: ClusterMapPoint[],
   orbit: Orbit,
   palette: Palette,
-  { center, clusterCount, isolated, playingTrackId, mapKey, view }: {
-    center: ClusterMapResponse["candidates_center"];
+  { centerSimilarity, clusterCount, isolated, playingTrackId, mapKey, view }: {
+    centerSimilarity: number;
     clusterCount: number;
     isolated: number | null;
     playingTrackId: number | null;
@@ -390,10 +390,8 @@ function figure(
     view: View | null;
   },
 ): { data: Data[]; layout: Partial<Layout> } {
-  // Six palette colours; the seventh cluster on and the points outside every cluster stay neutral.
-  const colour = (cluster: number | null) => (
-    cluster !== null && cluster >= 0 && cluster < palette.clusters.length ? palette.clusters[cluster] : palette.textMuted
-  );
+  // The core wears the seeds' colour.
+  const colour = (cluster: number | null) => (cluster === null ? palette.textStrong : palette.clusters[cluster]);
   const shown = (cluster: number | null) => isolated === null || isolated === cluster;
   const at = (indexes: number[]) => ({
     x: indexes.map((index) => orbit.x[index]),
@@ -417,7 +415,7 @@ function figure(
       },
     });
   }
-  for (let cluster = -1; cluster < clusterCount; cluster += 1) {
+  for (let cluster = 0; cluster < clusterCount; cluster += 1) {
     const members = membersOf(cluster);
     data.push({
       type: "scatter",
@@ -440,16 +438,6 @@ function figure(
     customdata: seeds,
     hoverinfo: "none",
     marker: { symbol: "diamond", size: 13, color: palette.textStrong, line: { width: 2, color: palette.surface } },
-  });
-  // The candidates' centre of mass: its distance from the core shows how far the search drifts.
-  const centerRadius = Math.max(0, 1 - center.similarity);
-  data.push({
-    type: "scatter",
-    mode: "markers",
-    x: [centerRadius * Math.cos(center.angle)],
-    y: [centerRadius * Math.sin(center.angle)],
-    hoverinfo: "skip",
-    marker: { symbol: "star", size: 14, color: palette.accent, line: { width: 2, color: palette.surface } },
   });
   const flagged = candidates.filter((index) => points[index].outlier && shown(points[index].cluster));
   if (flagged.length) {
@@ -477,6 +465,9 @@ function figure(
   const reach = outer * VIEW_MARGIN;
   const decimals = Math.max(2, (String(orbit.step).split(".")[1] ?? "").length);
   const hairline = { color: palette.borderSoft, width: 1 };
+  // The candidates' centre of mass sits on this ring; the angle carries no meaning
+  // there, since the angle axes are centred on the candidates themselves.
+  const centerRadius = Math.max(0, 1 - centerSimilarity);
   const shapes: Partial<Shape>[] = [
     { type: "line", layer: "below", xref: "x", yref: "y", x0: -outer, y0: 0, x1: outer, y1: 0, line: hairline },
     { type: "line", layer: "below", xref: "x", yref: "y", x0: 0, y0: -outer, x1: 0, y1: outer, line: hairline },
@@ -491,6 +482,17 @@ function figure(
       y1: radius,
       line: hairline,
     })),
+    {
+      type: "circle",
+      layer: "below",
+      xref: "x",
+      yref: "y",
+      x0: -centerRadius,
+      y0: -centerRadius,
+      x1: centerRadius,
+      y1: centerRadius,
+      line: { color: palette.accent, width: 1.5, dash: "dash" },
+    },
   ];
   const ringLabels = radii.map((radius): Partial<Annotations> => ({
     x: radius * Math.SQRT1_2,

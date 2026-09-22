@@ -3,12 +3,13 @@
 Pure analysis over vectors and SONARA rows the caller has already loaded:
 nothing is read from or written to a library. Points orbit the seed core:
 the radius is ``1 - similarity`` to the normalised seed mean, the query the
-search ranks by, and the angle comes from the two leading directions of the
-residuals around it. scikit-learn does the analysis: HDBSCAN groups the
-candidates' residuals by cosine, a StandardScaler fitted on the whole library
-puts the SONARA features on one scale, and IsolationForest flags the tracks
-whose SONARA profile stands out. Every returned number is a plain Python
-``int`` or ``float``.
+search ranks by, and the angle comes from a PCA of the residuals around it,
+so candidates spread by how they differ from each other. scikit-learn does
+the analysis: KMeans splits the candidates' residual directions into a fixed
+number of clusters, a StandardScaler fitted on the whole library puts the
+SONARA features on one scale, and IsolationForest flags the tracks whose
+SONARA profile stands out. Every returned number is a plain Python ``int`` or
+``float``.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import numpy as np
 from ..library_models import TrackSummary
 
 
+CLUSTER_COUNT = 4
 TOP_GENRES = 3
 TOP_OUTLIER_FEATURES = 3
 
@@ -85,8 +87,7 @@ class ClusterMapFeatureValue:
 class ClusterMapPoint:
     """One map point, in input order; ``angle`` is in radians.
 
-    ``cluster`` is ``None`` for seeds and ``-1`` for a candidate HDBSCAN left
-    outside every cluster. ``outlier_score`` is IsolationForest's
+    ``cluster`` is ``None`` for seeds. ``outlier_score`` is IsolationForest's
     ``score_samples``: the lower, the more unusual.
     """
 
@@ -128,14 +129,6 @@ class ClusterMapCluster:
 
 
 @dataclass(frozen=True, slots=True)
-class ClusterMapCenter:
-    """The candidates' centre of mass on the orbit."""
-
-    similarity: float
-    angle: float
-
-
-@dataclass(frozen=True, slots=True)
 class ClusterMapDrift:
     """Candidates' mean minus the seeds' mean for one feature, in library sigma."""
 
@@ -148,13 +141,13 @@ class ClusterMapDrift:
 class ClusterMap:
     """Clusters run nearest to the core first and ``point.cluster`` indexes them.
 
-    ``silhouette`` is ``None`` below two clusters; ``drift`` runs from the
-    largest shift to the smallest.
+    ``center_similarity`` is the similarity of the candidates' centre of mass
+    to the core; ``drift`` runs from the largest shift to the smallest.
     """
 
-    silhouette: float | None
+    silhouette: float
     angle_variance_kept: float
-    candidates_center: ClusterMapCenter
+    center_similarity: float
     points: tuple[ClusterMapPoint, ...]
     clusters: tuple[ClusterMapCluster, ...]
     drift: tuple[ClusterMapDrift, ...]
@@ -170,11 +163,11 @@ def build_cluster_map(
     SONARA track in the library; it fits the scale of each feature.
     """
 
-    from sklearn.cluster import HDBSCAN
-    from sklearn.decomposition import TruncatedSVD
+    from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
     from sklearn.ensemble import IsolationForest
     from sklearn.metrics import silhouette_score
-    from sklearn.preprocessing import StandardScaler
+    from sklearn.preprocessing import StandardScaler, normalize
 
     items = tuple(tracks)
     seeds = np.array([item.seed for item in items], dtype=bool)
@@ -186,38 +179,27 @@ def build_cluster_map(
     core = _unit(matrix[seeds].mean(axis=0))
     similarity = matrix @ core
     residuals = matrix - np.outer(similarity, core)
-    # Uncentred on purpose: the core stays the origin of the orbit.
-    svd = TruncatedSVD(n_components=2, random_state=0).fit(residuals)
-    angles = _angles(svd.transform(residuals))
-    angle_variance_kept = float(
-        np.sum(svd.singular_values_**2) / np.sum(residuals * residuals)
-    )
-    center = _unit(matrix[candidates].mean(axis=0))
-    center_similarity = float(center @ core)
-    center_angle = _angles(svd.transform((center - center_similarity * core)[None, :]))[0]
+    # Centred on the candidates, so the angle shows how they differ from each other.
+    pca = PCA(n_components=2, random_state=0).fit(residuals[candidates])
+    plane = pca.transform(residuals)
+    angles = np.arctan2(plane[:, 1], plane[:, 0])
+    center_similarity = float(_unit(matrix[candidates].mean(axis=0)) @ core)
 
+    # Unit residual directions make KMeans a cosine clustering.
+    directions = normalize(residuals)
     candidate_indices = np.flatnonzero(candidates)
-    labels = HDBSCAN(metric="cosine").fit_predict(residuals[candidate_indices])
+    labels = KMeans(n_clusters=CLUSTER_COUNT, n_init=10, random_state=0).fit_predict(
+        directions[candidates]
+    )
     groups = sorted(
-        (candidate_indices[labels == label] for label in np.unique(labels[labels >= 0])),
+        (candidate_indices[labels == label] for label in np.unique(labels)),
         key=lambda members: -float(np.median(similarity[members])),
     )
-    cluster_of: list[int | None] = [None if seed else -1 for seed in seeds]
+    cluster_of: list[int | None] = [None] * len(items)
     for position, members in enumerate(groups):
         for index in members:
             cluster_of[index] = position
-    clustered = labels >= 0
-    silhouette = (
-        float(
-            silhouette_score(
-                residuals[candidate_indices[clustered]],
-                labels[clustered],
-                metric="cosine",
-            )
-        )
-        if len(groups) >= 2
-        else None
-    )
+    silhouette = float(silhouette_score(directions[candidates], labels, metric="cosine"))
 
     scaler = StandardScaler().fit(_feature_matrix(library_sonara))
     raw = _feature_matrix([item.sonara for item in items])
@@ -249,7 +231,7 @@ def build_cluster_map(
             size=int(members.size),
             median_similarity=float(np.median(similarity[members])),
             representative_track_id=items[
-                _representative(members, residuals)
+                _representative(members, directions)
             ].track.track_id,
             profile=_profile(scaled[members]),
             maest_genres=_genre_shares(members, items),
@@ -266,11 +248,8 @@ def build_cluster_map(
     )
     return ClusterMap(
         silhouette=silhouette,
-        angle_variance_kept=angle_variance_kept,
-        candidates_center=ClusterMapCenter(
-            similarity=center_similarity,
-            angle=float(center_angle),
-        ),
+        angle_variance_kept=float(np.sum(pca.explained_variance_ratio_)),
+        center_similarity=center_similarity,
         points=points,
         clusters=clusters,
         drift=drift,
@@ -279,10 +258,6 @@ def build_cluster_map(
 
 def _unit(vector: np.ndarray) -> np.ndarray:
     return vector / np.linalg.norm(vector)
-
-
-def _angles(plane: np.ndarray) -> np.ndarray:
-    return np.arctan2(plane[:, 1], plane[:, 0])
 
 
 def _feature_matrix(rows: Sequence[Mapping[str, object]]) -> np.ndarray:
@@ -331,11 +306,11 @@ def _profile(scaled: np.ndarray) -> tuple[ClusterMapGroupSpread, ...]:
     )
 
 
-def _representative(members: np.ndarray, residuals: np.ndarray) -> int:
+def _representative(members: np.ndarray, directions: np.ndarray) -> int:
     """The member whose residual points closest to the cluster's mean direction."""
 
-    directions = residuals[members] / np.linalg.norm(residuals[members], axis=1, keepdims=True)
-    return int(members[int(np.argmax(directions @ _unit(directions.mean(axis=0))))])
+    member_directions = directions[members]
+    return int(members[int(np.argmax(member_directions @ _unit(member_directions.mean(axis=0))))])
 
 
 def _genre_shares(

@@ -219,7 +219,7 @@ def register_search_routes(
             layer=validate_embedding_layer(request.analysis_family, request.layer),
             silhouette=cluster_map.silhouette,
             angle_variance_kept=cluster_map.angle_variance_kept,
-            candidates_center=cluster_map.candidates_center,
+            center_similarity=cluster_map.center_similarity,
             points=cluster_map.points,
             clusters=cluster_map.clusters,
             drift=cluster_map.drift,

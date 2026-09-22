@@ -238,12 +238,19 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     assert {track_id for track_id, point in points.items() if not point["seed"]} == set(scores)
     for track_id, score in scores.items():
         assert points[track_id]["similarity"] == pytest.approx(score, abs=1e-5)
+    # Every candidate lands in a cluster, and the two directions never share one.
+    assert all(
+        point["cluster"] is None
+        if point["seed"]
+        else 0 <= point["cluster"] < len(payload["clusters"])
+        for point in payload["points"]
+    )
     near_clusters = {points[target.track_id]["cluster"] for target in near}
     far_clusters = {points[target.track_id]["cluster"] for target in far}
-    assert len(near_clusters) == 1 and len(far_clusters) == 1
-    assert near_clusters != far_clusters and -1 not in near_clusters | far_clusters
-    far_cluster = payload["clusters"][far_clusters.pop()]
-    assert [share["genre_name"] for share in far_cluster["maest_genres"]] == [jungle]
+    assert near_clusters.isdisjoint(far_clusters)
+    for cluster in far_clusters:
+        genres = payload["clusters"][cluster]["maest_genres"]
+        assert [share["genre_name"] for share in genres] == [jungle]
     # Tempo counts as detected, never folded to half or double time: the 125
     # and 85 BPM tracks stand out, and tempo is what sets them apart.
     for target in off_tempo:

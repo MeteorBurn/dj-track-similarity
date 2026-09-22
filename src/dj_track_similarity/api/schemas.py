@@ -1001,8 +1001,13 @@ class ClusterMapPointResponse(_ResponseModel):
     # Unbounded: float error can push a cosine past 1 by about 1e-10.
     similarity: float
     angle: float
-    sonara_closeness: float = Field(ge=0, le=1)
+    exception: bool
     sonara_gaps: list[ClusterMapFeatureValueResponse]
+
+
+class ClusterMapCenterResponse(_ResponseModel):
+    similarity: float
+    angle: float
 
 
 class ClusterMapDriftResponse(_ResponseModel):
@@ -1015,17 +1020,17 @@ class ClusterMapResponse(_ResponseModel):
     """The cluster map of one seed search, as ``/api/search`` ranks it.
 
     ``points`` holds the seeds in request order, then the candidates in rank
-    order; ``sonara_closeness`` is the share of the library that SONARA puts
-    farther from the references than the point. ``center_similarity`` is the
-    similarity of the candidates' centre of mass to the core. ``layer`` is the
-    layer read, resolved from the request.
+    order; ``exception`` marks a candidate that does not fit in with the rest
+    in the layer's space. ``candidates_center`` places the candidates' centre
+    of mass on the orbit. ``layer`` is the layer read, resolved from the
+    request.
     """
 
     catalog_uuid: str
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
     layer: int | None
     angle_variance_kept: float
-    center_similarity: float
+    candidates_center: ClusterMapCenterResponse
     points: list[ClusterMapPointResponse]
     profile: list[ClusterMapGroupSpreadResponse]
     drift: list[ClusterMapDriftResponse]

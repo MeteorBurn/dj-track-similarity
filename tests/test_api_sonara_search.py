@@ -173,12 +173,14 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         "mood_sad_score": 0.3,
     }
 
-    def add(name: str, bpm: float, energy: float, genre: str, direction: dict[int, float]) -> AnalysisTarget:
+    def add(
+        name: str, bpm: float, energy: float, direction: dict[int, float], **features: float
+    ) -> AnalysisTarget:
         target = _add_sonara_track(
             db,
             tmp_path,
             name,
-            {**sonara, "detected_bpm": bpm, "energy": energy},
+            {**sonara, "detected_bpm": bpm, "energy": energy, **features},
         )
         vector = np.zeros(dimension, dtype=np.float32)
         vector[0] = 1.0
@@ -187,7 +189,7 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         vector /= np.linalg.norm(vector)
         result = db.save_maest_results((MaestWrite(
             target=target,
-            genres=(MaestGenreScore(label=genre, score=0.9),),
+            genres=(MaestGenreScore(label="Electronic---Drum n Bass", score=0.9),),
             syncopated_rhythm=None,
             analyzed_at=_NOW,
             embedding=EmbeddingOutput(
@@ -200,26 +202,27 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         assert result.ok, result.error
         return target
 
-    # The seeds average to e0 exactly, the core; candidates leave it along e1
-    # (near) or e2 (far), each with a small private axis of its own.
-    dnb, jungle = "Electronic---Drum n Bass", "Electronic---Jungle"
+    def swarm_track(
+        name: str, bpm: float = 170.0, energy: float = 0.3, **features: float
+    ) -> AnalysisTarget:
+        return add(name, bpm, energy, {1: 0.1, next(private_axes): 0.01}, **features)
+
+    # The seeds average to e0 exactly, the core. The swarm leaves it along e1,
+    # each track with a small private axis of its own; the exception leaves it
+    # along e2 at the same similarity, so the layer ranks it among the swarm
+    # while it shares no direction with them.
     seeds = [
-        add("seed-169.wav", 169.0, 0.3, dnb, {20: 0.2}),
-        add("seed-171.wav", 171.0, 0.3, dnb, {20: -0.2}),
+        add("seed-169.wav", 169.0, 0.3, {20: 0.2}),
+        add("seed-171.wav", 171.0, 0.3, {20: -0.2}),
     ]
-    near = [
-        add(f"near-{index}.wav", bpm, 0.3, dnb, {1: 0.1, next(private_axes): 0.01})
-        for index, bpm in enumerate((169.0, 170.0, 171.0, 170.0, 125.0, 85.0))
-    ]
-    off_tempo = near[-2:]
-    far = [
-        add(f"far-{index}.wav", 170.0, 0.9, jungle, {2: 0.6, next(private_axes): 0.01})
+    # Twenty candidates, as the REFERENCE panel asks for by default.
+    swarm = [swarm_track(f"swarm-{index}.wav") for index in range(11)]
+    off_tempo = [swarm_track("off-tempo-125.wav", 125.0), swarm_track("off-tempo-85.wav", 85.0)]
+    energetic = [
+        swarm_track(f"energetic-{index}.wav", energy=0.9, danceability_score=0.9)
         for index in range(6)
     ]
-    # SONARA alone, as on a track ML has not reached: in the library, never on the map.
-    _add_sonara_track(
-        db, tmp_path, "sonara-only.wav", {**sonara, "detected_bpm": 170.0, "energy": 0.3}
-    )
+    exception = add("exception.wav", 170.0, 0.3, {2: 0.1, next(private_axes): 0.01})
     request = {
         "analysis_family": "maest",
         "seed_track_ids": [seed.track_id for seed in seeds],
@@ -242,24 +245,24 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     assert {track_id for track_id, point in points.items() if not point["seed"]} == set(scores)
     for track_id, score in scores.items():
         assert points[track_id]["similarity"] == pytest.approx(score, abs=1e-5)
-    # SONARA gaps count from the references' mean: the two 170 BPM near
-    # tracks match it, as the SONARA-only track does, and 12 of the 15
-    # library tracks lie farther away.
-    for target in (near[1], near[3]):
-        point = points[target.track_id]
-        assert all(abs(gap["delta"]) < 1e-9 for gap in point["sonara_gaps"])
-        assert point["sonara_closeness"] == pytest.approx(12 / 15)
-    # Tempo counts as detected, never folded to half or double time: the 125
-    # and 85 BPM tracks fall behind every in-tempo one, set apart by tempo,
-    # as the energetic far group is by energy.
-    closeness = {track_id: point["sonara_closeness"] for track_id, point in points.items()}
-    assert min(closeness[target.track_id] for target in near[:4]) > max(
-        closeness[target.track_id] for target in (*off_tempo, *far)
-    )
-    for targets, feature in ((off_tempo, "detected_bpm"), (far, "energy_score")):
-        for target in targets:
-            assert points[target.track_id]["sonara_gaps"][0]["feature"] == feature
-    # The energetic far group lifts the candidates above the references.
+    # The layer alone names the exception: the track it ranks among the swarm
+    # while leaving the core another way, and none of the tracks it keeps in
+    # the swarm, however far SONARA puts them.
+    assert {track_id for track_id, point in points.items() if point["exception"]} == {
+        exception.track_id
+    }
+    # SONARA only explains, counting from the references' mean: a swarm track
+    # that matches them shows no gap, and tempo counts as detected, never
+    # folded to half or double time.
+    assert all(abs(gap["delta"]) < 1e-9 for gap in points[swarm[0].track_id]["sonara_gaps"])
+    for target in off_tempo:
+        assert points[target.track_id]["sonara_gaps"][0]["feature"] == "detected_bpm"
+    # Each group explains once: the energetic tracks differ in two perceptual
+    # features, and the next reasons come from other groups.
+    for target in energetic:
+        groups = [gap["group"] for gap in points[target.track_id]["sonara_gaps"]]
+        assert groups[0] == "perceptual" and len(set(groups)) == len(groups)
+    # The energetic tracks lift the candidates above the references.
     drift = {item["feature"]: item["delta"] for item in payload["drift"]}
     assert drift["energy_score"] > 0
     assert payload["catalog_uuid"] == db.catalog_uuid

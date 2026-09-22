@@ -1,5 +1,5 @@
 import { CircleAlert, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
   Annotations,
   Config,
@@ -11,7 +11,7 @@ import type {
   PlotMouseEvent,
   Shape,
 } from "plotly.js-basic-dist-min";
-import type { ClusterMapPoint, Track } from "./api";
+import type { ClusterMapFeatureValue, ClusterMapPoint, ClusterMapResponse, Track } from "./api";
 import { errorText } from "./errors";
 import { placeTooltip, type TooltipPosition } from "./tooltip";
 import { displayTrack } from "./trackDisplay";
@@ -20,10 +20,10 @@ type PlotlyModule = typeof import("plotly.js-basic-dist-min");
 type AxisRange = [number, number];
 type View = { x: AxisRange; y: AxisRange };
 type Orbit = { x: number[]; y: number[]; step: number; rings: number };
+type Center = ClusterMapResponse["candidates_center"];
 type Palette = {
-  agree: string;
-  neutral: string;
-  disagree: string;
+  swarm: string;
+  exception: string;
   glowOpacity: number;
   surface: string;
   textStrong: string;
@@ -63,19 +63,6 @@ function loadPlotly(): Promise<PlotlyModule> {
   return plotlyLoad;
 }
 
-/** SONARA closeness as the share of the library a track beats. */
-export function closenessPercent(closeness: number) {
-  return `${Math.round(closeness * 100)}%`;
-}
-
-/** The colour the map gives a SONARA closeness: the same diverging scale, from
- * --cluster-disagree through --cluster-neutral (a random track) to --cluster-agree. */
-export function closenessSwatch(closeness: number): CSSProperties {
-  const pole = closeness >= 0.5 ? "var(--cluster-agree)" : "var(--cluster-disagree)";
-  const weight = Math.round(Math.abs(closeness - 0.5) * 200);
-  return { background: `color-mix(in srgb, ${pole} ${weight}%, var(--cluster-neutral))` };
-}
-
 /** Faint rings standing in for the orbit until it is drawn. */
 export function OrbitSkeleton() {
   return (
@@ -87,21 +74,21 @@ export function OrbitSkeleton() {
   );
 }
 
-/** The orbit: the reference core in the centre, every point at radius 1 - similarity,
- * coloured by how close SONARA puts it to the references. */
+/** The orbit: the reference core in the centre, every point at radius 1 - similarity;
+ * the layer's exceptions stand out from its swarm. */
 export function ClusterMapPlot({
   mapKey,
   points,
-  centerSimilarity,
+  center,
   playingTrackId,
-  featureLabel,
+  reasonText,
   onPreview,
 }: {
   mapKey: string;
   points: ClusterMapPoint[];
-  centerSimilarity: number;
+  center: Center;
   playingTrackId: number | null;
-  featureLabel: (feature: string) => string;
+  reasonText: (item: ClusterMapFeatureValue) => string;
   onPreview: (track: Track) => void;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +138,7 @@ export function ClusterMapPlot({
     if (!plotly || !host) return undefined;
     let cancelled = false;
     const { data, layout } = figure(points, orbit, readPalette(host), {
-      centerSimilarity,
+      center,
       playingTrackId,
       mapKey,
       view: viewRef.current,
@@ -170,7 +157,7 @@ export function ClusterMapPlot({
     return () => {
       cancelled = true;
     };
-  }, [plotly, points, orbit, centerSimilarity, playingTrackId, mapKey, themeRevision, attempt]);
+  }, [plotly, points, orbit, center, playingTrackId, mapKey, themeRevision, attempt]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -263,6 +250,7 @@ export function ClusterMapPlot({
 
   const reach = orbit.rings * orbit.step * VIEW_MARGIN;
   const candidateCount = ranks.filter((rank) => rank !== null).length;
+  const exceptionCount = points.filter((point) => point.exception).length;
 
   return (
     <div className="cluster-map-plot-frame" ref={frameRef} onPointerLeave={() => setHover(null)}>
@@ -270,7 +258,7 @@ export function ClusterMapPlot({
         ref={hostRef}
         className="cluster-map-plot"
         role="img"
-        aria-label={`Orbit of ${candidateCount} candidates around the reference core, coloured by SONARA closeness to the references`}
+        aria-label={`Orbit of ${candidateCount} candidates around the reference core, ${exceptionCount} of them outside the swarm`}
       />
       {!drawn && !failure ? <OrbitSkeleton /> : null}
       {failure ? (
@@ -311,16 +299,14 @@ export function ClusterMapPlot({
               : `${hovered.similarity.toFixed(3)} similarity · #${hoveredRank}`}
           </strong>
           <span className="cluster-map-tooltip-name">{displayTrack(hovered.track)}</span>
-          <span className="cluster-map-tooltip-line">
-            <i className="cluster-map-swatch" style={closenessSwatch(hovered.sonara_closeness)} />
-            {`SONARA: closer than ${closenessPercent(hovered.sonara_closeness)} of the library`}
-          </span>
-          {hovered.seed ? null : (
+          {hovered.exception ? (
             <span className="cluster-map-tooltip-line">
-              {hovered.sonara_gaps
-                .map((item) => `${featureLabel(item.feature)} ${item.delta > 0 ? "+" : ""}${item.delta.toFixed(1)}σ`)
-                .join(" · ")}
+              <i className="cluster-map-swatch is-exception" />
+              Exception: outside the swarm
             </span>
+          ) : null}
+          {hovered.seed ? null : (
+            <span className="cluster-map-tooltip-line">{hovered.sonara_gaps.map(reasonText).join(" · ")}</span>
           )}
         </div>
       ) : null}
@@ -361,9 +347,8 @@ function readPalette(host: HTMLElement): Palette {
   const style = getComputedStyle(host);
   const token = (name: string) => style.getPropertyValue(name).trim();
   return {
-    agree: token("--cluster-agree"),
-    neutral: token("--cluster-neutral"),
-    disagree: token("--cluster-disagree"),
+    swarm: token("--cluster-swarm"),
+    exception: token("--cluster-exception"),
     glowOpacity: Number.parseFloat(token("--cluster-glow-opacity")) || 0,
     surface: token("--surface"),
     textStrong: token("--text-strong"),
@@ -378,8 +363,8 @@ function figure(
   points: ClusterMapPoint[],
   orbit: Orbit,
   palette: Palette,
-  { centerSimilarity, playingTrackId, mapKey, view }: {
-    centerSimilarity: number;
+  { center, playingTrackId, mapKey, view }: {
+    center: Center;
     playingTrackId: number | null;
     mapKey: string;
     view: View | null;
@@ -389,18 +374,10 @@ function figure(
     x: indexes.map((index) => orbit.x[index]),
     y: indexes.map((index) => orbit.y[index]),
   });
-  // SONARA's opinion on a diverging scale centred on a random library track;
-  // the tracks it disagrees with draw last, over the ones it agrees with.
-  const candidates = points
-    .flatMap((point, index) => (point.seed ? [] : [index]))
-    .sort((left, right) => points[right].sonara_closeness - points[left].sonara_closeness);
+  const candidates = points.flatMap((point, index) => (point.seed ? [] : [index]));
+  const swarm = candidates.filter((index) => !points[index].exception);
+  const exceptions = candidates.filter((index) => points[index].exception);
   const seeds = points.flatMap((point, index) => (point.seed ? [index] : []));
-  const closeness = {
-    color: candidates.map((index) => points[index].sonara_closeness),
-    cmin: 0,
-    cmax: 1,
-    colorscale: [[0, palette.disagree], [0.5, palette.neutral], [1, palette.agree]] as Array<[number, string]>,
-  };
   const data: Data[] = [];
   if (palette.glowOpacity > 0) {
     data.push({
@@ -408,17 +385,40 @@ function figure(
       mode: "markers",
       ...at(candidates),
       hoverinfo: "skip",
-      marker: { ...closeness, size: 22, opacity: palette.glowOpacity, line: { width: 0 } },
+      marker: {
+        size: 22,
+        color: candidates.map((index) => (points[index].exception ? palette.exception : palette.swarm)),
+        opacity: palette.glowOpacity,
+        line: { width: 0 },
+      },
     });
   }
   data.push({
     type: "scatter",
     mode: "markers",
-    ...at(candidates),
-    customdata: candidates,
+    ...at(swarm),
+    customdata: swarm,
     hoverinfo: "none",
-    marker: { ...closeness, size: 10, line: { width: 2, color: palette.surface } },
+    marker: { size: 10, color: palette.swarm, line: { width: 2, color: palette.surface } },
   });
+  // Exceptions draw over the swarm, each ringed so it reads without its colour.
+  data.push({
+    type: "scatter",
+    mode: "markers",
+    ...at(exceptions),
+    customdata: exceptions,
+    hoverinfo: "none",
+    marker: { size: 10, color: palette.exception, line: { width: 2, color: palette.surface } },
+  });
+  if (exceptions.length) {
+    data.push({
+      type: "scatter",
+      mode: "markers",
+      ...at(exceptions),
+      hoverinfo: "skip",
+      marker: { symbol: "circle-open", size: 18, color: palette.textStrong, line: { color: palette.textStrong, width: 1.5 } },
+    });
+  }
   data.push({
     type: "scatter",
     mode: "markers",
@@ -426,6 +426,16 @@ function figure(
     customdata: seeds,
     hoverinfo: "none",
     marker: { symbol: "diamond", size: 13, color: palette.textStrong, line: { width: 2, color: palette.surface } },
+  });
+  // The candidates' centre of mass: its distance from the core shows how far the search drifts.
+  const centerRadius = Math.max(0, 1 - center.similarity);
+  data.push({
+    type: "scatter",
+    mode: "markers",
+    x: [centerRadius * Math.cos(center.angle)],
+    y: [centerRadius * Math.sin(center.angle)],
+    hoverinfo: "skip",
+    marker: { symbol: "star", size: 14, color: palette.accent, line: { width: 2, color: palette.surface } },
   });
   const playing = points.findIndex((point) => point.track.track_id === playingTrackId);
   if (playing >= 0) {
@@ -443,9 +453,6 @@ function figure(
   const reach = outer * VIEW_MARGIN;
   const decimals = Math.max(2, (String(orbit.step).split(".")[1] ?? "").length);
   const hairline = { color: palette.borderSoft, width: 1 };
-  // The candidates' centre of mass sits on this ring; the angle carries no meaning
-  // there, since the angle axes are centred on the candidates themselves.
-  const centerRadius = Math.max(0, 1 - centerSimilarity);
   const shapes: Partial<Shape>[] = [
     { type: "line", layer: "below", xref: "x", yref: "y", x0: -outer, y0: 0, x1: outer, y1: 0, line: hairline },
     { type: "line", layer: "below", xref: "x", yref: "y", x0: 0, y0: -outer, x1: 0, y1: outer, line: hairline },
@@ -460,17 +467,6 @@ function figure(
       y1: radius,
       line: hairline,
     })),
-    {
-      type: "circle",
-      layer: "below",
-      xref: "x",
-      yref: "y",
-      x0: -centerRadius,
-      y0: -centerRadius,
-      x1: centerRadius,
-      y1: centerRadius,
-      line: { color: palette.accent, width: 1.5, dash: "dash" },
-    },
   ];
   const ringLabels = radii.map((radius): Partial<Annotations> => ({
     x: radius * Math.SQRT1_2,

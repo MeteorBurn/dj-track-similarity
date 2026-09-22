@@ -1,4 +1,4 @@
-import { CircleAlert, Pause, Play, X } from "lucide-react";
+import { CircleAlert, Pause, Play, Star, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
   ClusterMapFeatureValue,
@@ -7,7 +7,7 @@ import type {
   EmbeddingLayersResponse,
   Track,
 } from "./api";
-import { ClusterMapPlot, OrbitSkeleton, closenessPercent, closenessSwatch } from "./ClusterMapPlot";
+import { ClusterMapPlot, OrbitSkeleton } from "./ClusterMapPlot";
 import { seedSearchModelPresentation, tabAfterKey } from "./searchSurfaceState";
 import { formatSonaraCoreValue, sonaraCoreFeatureGroups } from "./TrackMetadataDialog";
 import { displayTrack } from "./trackDisplay";
@@ -20,10 +20,10 @@ type Candidate = { point: ClusterMapPoint; rank: number };
 type MapView = {
   seeds: ClusterMapPoint[];
   candidates: Candidate[];
-  /** The candidates SONARA puts farthest from the references first. */
-  bySonara: Candidate[];
+  /** Both in search order, so the first exception is the one nearest the core. */
+  exceptions: Candidate[];
+  swarm: Candidate[];
   medianSimilarity: number;
-  medianCloseness: number;
 };
 
 const railTabs: readonly RailTab[] = ["tracks", "layer"];
@@ -173,7 +173,7 @@ export function ClusterMapDialog({
           <div className="cluster-map-body">
             <p className="cluster-map-status" role="status">Building the cluster map…</p>
             <div className="cluster-map-kpis" aria-hidden="true">
-              {[0, 1, 2].map((tile) => (
+              {[0, 1].map((tile) => (
                 <div key={tile} className="cluster-map-kpi">
                   <span className="cluster-map-skeleton-line" />
                   <span className="cluster-map-skeleton-line is-value" />
@@ -208,38 +208,38 @@ export function ClusterMapDialog({
           </div>
         ) : response && view ? (
           <div className="cluster-map-body">
-            <KpiRow response={response} view={view} />
+            <KpiRow view={view} subject={subject} />
             <div className="cluster-map-main">
               <figure className="cluster-map-figure">
                 <figcaption>
                   Candidates orbit the reference core: the closer a point, the more similar the {subject} finds the track.
-                  Colour is SONARA's opinion; a point near the core that SONARA puts far away is a track the {subject} misjudges.
-                  Click a point to preview it.
+                  Tracks that differ from the reference the same way form one swarm; an exception is a track the {subject} pulls
+                  in for another reason. Click a point to preview it.
                 </figcaption>
                 <ClusterMapPlot
                   mapKey={entry.key}
                   points={response.points}
-                  centerSimilarity={response.center_similarity}
+                  center={response.candidates_center}
                   playingTrackId={playingTrackId}
-                  featureLabel={featureLabel}
+                  reasonText={reasonText}
                   onPreview={onPreview}
                 />
                 <div className="cluster-map-legend">
-                  <span
-                    className="cluster-map-key"
-                    title="The share of the library that SONARA puts farther from the references: 100% is closer than every track, 50% no closer than a random one"
-                  >
-                    SONARA closeness 0%
-                    <span className="cluster-map-key-scale" aria-hidden="true" />
-                    100%
+                  <span className="cluster-map-key">
+                    <span className="cluster-map-swatch is-swarm" aria-hidden="true" />
+                    Swarm · {view.swarm.length}
+                  </span>
+                  <span className="cluster-map-key" title={`Candidates that do not fit in with the rest in the ${subject}'s space (LocalOutlierFactor)`}>
+                    <span className="cluster-map-key-exception" aria-hidden="true" />
+                    Exceptions · {view.exceptions.length}
                   </span>
                   <span className="cluster-map-key">
                     <span className="cluster-map-key-core" aria-hidden="true" />
                     Core · {view.seeds.length}
                   </span>
-                  <span className="cluster-map-key" title="The candidates' centre of mass lies on this ring: its distance from the core shows how far the search drifts">
-                    <span className="cluster-map-key-center" aria-hidden="true" />
-                    Candidates center · {response.center_similarity.toFixed(3)}
+                  <span className="cluster-map-key" title="The candidates' centre of mass; its distance from the core shows how far the search drifts">
+                    <Star className="cluster-map-key-center" size={12} aria-hidden="true" />
+                    Candidates center · {response.candidates_center.similarity.toFixed(3)}
                   </span>
                 </div>
               </figure>
@@ -285,25 +285,23 @@ export function ClusterMapDialog({
   );
 }
 
-function KpiRow({ response, view }: { response: ClusterMapResponse; view: MapView }) {
-  const farthest = view.bySonara[0];
-  const drift = response.drift[0];
+function KpiRow({ view, subject }: { view: MapView; subject: string }) {
+  const nearest = view.exceptions[0];
   return (
     <dl className="cluster-map-kpis">
       <div className="cluster-map-kpi">
-        <dt>SONARA agreement</dt>
-        <dd className="cluster-map-kpi-value">{closenessPercent(view.medianCloseness)}</dd>
-        <dd className="cluster-map-kpi-note">median candidate: closer than this share of the library</dd>
+        <dt>Exceptions</dt>
+        <dd className="cluster-map-kpi-value">{view.exceptions.length}</dd>
+        <dd className="cluster-map-kpi-note">
+          of {plural(view.candidates.length, "candidate")}, apart from the swarm in the {subject}'s space
+        </dd>
       </div>
       <div className="cluster-map-kpi">
-        <dt>Farthest by SONARA</dt>
-        <dd className="cluster-map-kpi-value">{closenessPercent(farthest.point.sonara_closeness)}</dd>
-        <dd className="cluster-map-kpi-note">#{farthest.rank} in the search</dd>
-      </div>
-      <div className="cluster-map-kpi">
-        <dt>Largest drift</dt>
-        <dd className="cluster-map-kpi-value">{signed(drift.delta, 2)}σ</dd>
-        <dd className="cluster-map-kpi-note">{featureLabel(drift.feature)}, from the references</dd>
+        <dt>Nearest exception</dt>
+        <dd className="cluster-map-kpi-value">{nearest ? `#${nearest.rank}` : "—"}</dd>
+        <dd className="cluster-map-kpi-note">
+          {nearest ? "its place in the search: the lower, the nearer the core" : "every candidate fits the swarm"}
+        </dd>
       </div>
     </dl>
   );
@@ -329,39 +327,56 @@ function TracksPanel({ view, subject, playingTrackId, onPreview }: {
           onPreview={onPreview}
         />
       </article>
-      <p className="cluster-map-prose">
-        Every candidate, the ones SONARA puts farthest from the references first. Where such a track also ranks high in
-        the search, the {subject} misjudges it; the ear decides.
-      </p>
-      <ul className="cluster-map-anomalies">
-        {view.bySonara.map(({ point, rank }) => {
-          const name = displayTrack(point.track);
-          return (
-            <li key={point.track.track_id} className="cluster-map-anomaly">
-              <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
-              <div className="cluster-map-anomaly-title">
-                <strong title={name}>{name}</strong>
-                <span className="cluster-map-anomaly-meta">#{rank} · {point.similarity.toFixed(3)}</span>
-              </div>
-              <span
-                className="cluster-map-anomaly-score"
-                title="SONARA closeness: the share of the library farther from the references"
-              >
-                <i className="cluster-map-swatch" style={closenessSwatch(point.sonara_closeness)} aria-hidden="true" />
-                {closenessPercent(point.sonara_closeness)}
-              </span>
-              <div className="cluster-map-reasons">
-                {point.sonara_gaps.map((item) => (
-                  <span key={item.feature} className="cluster-map-reason" title="Gap from the references' mean, in library σ">
-                    {featureValueText(item)}
-                  </span>
-                ))}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      <section className="cluster-map-list">
+        <h3>Exceptions · {view.exceptions.length}</h3>
+        <p className="cluster-map-prose">
+          {view.exceptions.length
+            ? `Tracks the ${subject} pulls toward the references for another reason than the swarm. Listen to them first: if they are wrong, the ${subject} misses what you are after.`
+            : "Every candidate fits the swarm."}
+        </p>
+        {view.exceptions.length ? (
+          <CandidateList items={view.exceptions} playingTrackId={playingTrackId} onPreview={onPreview} />
+        ) : null}
+      </section>
+      <section className="cluster-map-list">
+        <h3>Swarm · {view.swarm.length}</h3>
+        <CandidateList items={view.swarm} playingTrackId={playingTrackId} onPreview={onPreview} />
+      </section>
     </>
+  );
+}
+
+function CandidateList({ items, playingTrackId, onPreview }: {
+  items: Candidate[];
+  playingTrackId: number | null;
+  onPreview: (track: Track) => void;
+}) {
+  return (
+    <ul className="cluster-map-anomalies">
+      {items.map(({ point, rank }) => {
+        const name = displayTrack(point.track);
+        return (
+          <li key={point.track.track_id} className="cluster-map-anomaly">
+            <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
+            <div className="cluster-map-anomaly-title">
+              <strong title={name}>{name}</strong>
+              <span className="cluster-map-anomaly-meta">#{rank} · {point.similarity.toFixed(3)}</span>
+            </div>
+            <div className="cluster-map-reasons">
+              {point.sonara_gaps.map((item) => (
+                <span
+                  key={item.group}
+                  className="cluster-map-reason"
+                  title="SONARA: this group's widest gap from the references' mean, in library σ"
+                >
+                  {reasonText(item)}
+                </span>
+              ))}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -373,6 +388,8 @@ function LayerPanel({ response, layer, layerRow, note }: {
 }) {
   const subject = layer !== null ? "layer" : "model";
   const widest = Math.max(...response.profile.map((spread) => spread.std), 1e-9);
+  // The drift runs from the largest shift down, so a group's first entry is its largest.
+  const drift = response.drift.filter((item, index, all) => all.findIndex((other) => other.group === item.group) === index);
   return (
     <div className="cluster-map-layer">
       {layer !== null ? (
@@ -407,19 +424,19 @@ function LayerPanel({ response, layer, layerRow, note }: {
         <h3>Drift from the references</h3>
         <p className="cluster-map-prose">
           The candidates' mean minus the references' mean, in library σ: where this {subject} pulls the search.
+          Each SONARA group shows its largest shift.
         </p>
         <div className="cluster-map-reasons">
-          {response.drift.slice(0, DRIFT_SHOWN).map((item) => (
-            <span key={item.feature} className="cluster-map-reason">
-              {`${featureLabel(item.feature)} ${signed(item.delta, 2)}σ`}
+          {drift.slice(0, DRIFT_SHOWN).map((item) => (
+            <span key={item.group} className="cluster-map-reason">
+              {`${featureName(item)} ${signed(item.delta, 2)}σ`}
             </span>
           ))}
         </div>
       </div>
       <p className="cluster-map-prose">
-        Distance from the centre is exact (1 − similarity to the core); the angle shows the two main directions in
-        which the candidates differ from each other and keeps {Math.round(response.angle_variance_kept * 100)}% of that
-        difference.
+        Distance from the centre is exact (1 − similarity to the core); the angle only approximates the direction of
+        difference and keeps {Math.round(response.angle_variance_kept * 100)}% of it.
       </p>
       <p className="cluster-map-prose">
         Each map covers one model and layer; switch Model or Layer in the panel and open the map again to compare.
@@ -482,11 +499,9 @@ function mapView(response: ClusterMapResponse): MapView {
   return {
     seeds,
     candidates,
-    bySonara: [...candidates].sort(
-      (left, right) => left.point.sonara_closeness - right.point.sonara_closeness || left.rank - right.rank,
-    ),
+    exceptions: candidates.filter(({ point }) => point.exception),
+    swarm: candidates.filter(({ point }) => !point.exception),
     medianSimilarity: median(candidates.map(({ point }) => point.similarity)),
-    medianCloseness: median(candidates.map(({ point }) => point.sonara_closeness)),
   };
 }
 
@@ -506,12 +521,21 @@ function signed(value: number, digits: number) {
 
 function railTabTitle(tab: RailTab, subject: string) {
   return tab === "tracks"
-    ? "The core and every candidate, the ones SONARA puts farthest from the references first"
+    ? "The core, the exceptions and the swarm, each in search order"
     : `What this ${subject} holds, and where it pulls the search`;
 }
 
-function featureValueText(item: ClusterMapFeatureValue) {
-  return `${featureLabel(item.feature)} ${formatFeatureValue(item.feature, item.value)} (${signed(item.delta, 1)}σ)`;
+/** Timbre reads as one group, since a single MFCC means nothing on its own. */
+function featureName(item: { feature: string; group: string }) {
+  return item.group === "timbral" ? "Timbre" : featureLabel(item.feature);
+}
+
+/** A SONARA reason: the feature, its value where it reads, and its gap from the references. */
+function reasonText(item: ClusterMapFeatureValue) {
+  const gap = `${signed(item.delta, 1)}σ`;
+  return item.group === "timbral"
+    ? `${featureName(item)} ${gap}`
+    : `${featureName(item)} ${formatFeatureValue(item.feature, item.value)} (${gap})`;
 }
 
 function groupLabel(group: string) {
@@ -526,10 +550,8 @@ function sonaraFeature(feature: string) {
   return null;
 }
 
-/** SONARA labels and units come from the track metadata dialog; `mfcc_N` is an MFCC coefficient. */
+/** SONARA labels and units come from the track metadata dialog. */
 function featureLabel(feature: string) {
-  const mfcc = /^mfcc_(\d+)$/.exec(feature);
-  if (mfcc) return `MFCC ${mfcc[1]}`;
   const descriptor = sonaraFeature(feature);
   if (!descriptor) return feature.replaceAll("_", " ");
   return groupScopedLabels.has(descriptor.label)

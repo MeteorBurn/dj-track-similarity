@@ -232,16 +232,16 @@ export type ClusterMapFeatureValue = { feature: string; group: string; value: nu
 /** Mean standard deviation of a group's features across the candidates, in library σ. */
 export type ClusterMapGroupSpread = { group: string; std: number };
 
-/** Radius `1 - similarity` is exact; `angle` (radians) comes from the two main
- * directions in which the candidates differ. `sonara_closeness` is the share of
- * the library that SONARA puts farther from the references (0.5 is a random
- * track); `sonara_gaps` are the features that set the track farthest from them. */
+/** Radius `1 - similarity` is exact; `angle` (radians) only approximates the
+ * direction of difference. `exception` marks a candidate that does not fit in
+ * with the rest in the layer's space (never a seed); `sonara_gaps` explain the
+ * track in SONARA terms: each group's widest gap from the references, widest first. */
 export type ClusterMapPoint = {
   track: Track;
   seed: boolean;
   similarity: number;
   angle: number;
-  sonara_closeness: number;
+  exception: boolean;
   sonara_gaps: ClusterMapFeatureValue[];
 };
 
@@ -250,15 +250,15 @@ export type ClusterMapDrift = { feature: string; group: string; delta: number };
 
 /** The map of exactly what `/api/search` returns for the same payload. `points`
  * holds the seeds in request order, then the candidates in rank order;
- * `center_similarity` places the candidates' centre of mass; `profile` runs
- * from the SONARA group the candidates hold tightest to the loosest, `drift`
- * from the largest shift down. */
+ * `candidates_center` places the candidates' centre of mass on the orbit;
+ * `profile` runs from the SONARA group the candidates hold tightest to the
+ * loosest, `drift` from the largest shift down. */
 export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
   layer: number | null;
   angle_variance_kept: number;
-  center_similarity: number;
+  candidates_center: { similarity: number; angle: number };
   points: ClusterMapPoint[];
   profile: ClusterMapGroupSpread[];
   drift: ClusterMapDrift[];

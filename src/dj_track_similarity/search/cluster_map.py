@@ -1,15 +1,17 @@
 """Cluster map of a REFERENCE seed search.
 
 Pure analysis over vectors and SONARA rows the caller has already loaded:
-nothing is read from or written to a library. Points orbit the seed core:
-the radius is ``1 - similarity`` to the normalised seed mean, the query the
-search ranks by, and the angle comes from a PCA of the residuals around it,
-so candidates spread by how they differ from each other. SONARA gives an
-independent second opinion: a StandardScaler fitted on the whole library puts
-its features on one scale, and a point's closeness is the share of the
-library that lies farther from the references' SONARA mean. A candidate near
-the core that SONARA puts far away is a track the layer misjudges. Every
-returned number is a plain Python ``int`` or ``float``.
+nothing is read from or written to a library. The map measures the searched
+layer by its own geometry. Points orbit the seed core: the radius is
+``1 - similarity`` to the normalised seed mean, the query the search ranks by,
+and the angle comes from an uncentred two-component SVD of the residuals
+around it, so candidates that differ from the references the same way gather
+in one swarm. LocalOutlierFactor, on the cosine the search ranks by, marks the
+candidates that do not fit in with the rest in the layer's full space: tracks
+the layer pulls in for another reason. SONARA only explains: a StandardScaler
+fitted on the whole library puts its features on one scale, and every track
+shows where it differs from the references' mean. Every returned number is a
+plain Python ``int`` or ``float``.
 """
 
 from __future__ import annotations
@@ -85,16 +87,17 @@ class ClusterMapFeatureValue:
 class ClusterMapPoint:
     """One map point, in input order; ``angle`` is in radians.
 
-    ``sonara_closeness`` is the share of the library whose SONARA profile lies
-    strictly farther from the references' mean than this track's;
-    ``sonara_gaps`` are the features that set the track farthest from them.
+    ``exception`` marks a candidate that LocalOutlierFactor finds apart from
+    the other candidates in the layer's space, and is never set on a seed.
+    ``sonara_gaps`` explain the track in SONARA terms: each group's widest gap
+    from the references, the widest groups first.
     """
 
     track: TrackSummary
     seed: bool
     similarity: float
     angle: float
-    sonara_closeness: float
+    exception: bool
     sonara_gaps: tuple[ClusterMapFeatureValue, ...]
 
 
@@ -104,6 +107,14 @@ class ClusterMapGroupSpread:
 
     group: str
     std: float
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterMapCenter:
+    """The candidates' centre of mass on the orbit."""
+
+    similarity: float
+    angle: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,13 +128,12 @@ class ClusterMapDrift:
 
 @dataclass(frozen=True, slots=True)
 class ClusterMap:
-    """``center_similarity`` is the similarity of the candidates' centre of mass
-    to the core; ``profile`` runs from the SONARA group the candidates hold
-    tightest to the loosest, ``drift`` from the largest shift to the smallest.
+    """``profile`` runs from the SONARA group the candidates hold tightest to
+    the loosest, ``drift`` from the largest shift to the smallest.
     """
 
     angle_variance_kept: float
-    center_similarity: float
+    candidates_center: ClusterMapCenter
     points: tuple[ClusterMapPoint, ...]
     profile: tuple[ClusterMapGroupSpread, ...]
     drift: tuple[ClusterMapDrift, ...]
@@ -136,11 +146,11 @@ def build_cluster_map(
     """Build the cluster map of one seed search.
 
     ``library_sonara`` holds the ``SonaraFeatureRow.values`` of every current
-    SONARA track in the library: it fits the scale of each feature and is what
-    closeness is counted against.
+    SONARA track in the library; it fits the scale of each feature.
     """
 
-    from sklearn.decomposition import PCA
+    from sklearn.decomposition import TruncatedSVD
+    from sklearn.neighbors import LocalOutlierFactor
     from sklearn.preprocessing import StandardScaler
 
     items = tuple(tracks)
@@ -153,26 +163,29 @@ def build_cluster_map(
     core = _unit(matrix[seeds].mean(axis=0))
     similarity = matrix @ core
     residuals = matrix - np.outer(similarity, core)
-    # Centred on the candidates, so the angle shows how they differ from each other.
-    pca = PCA(n_components=2, random_state=0).fit(residuals[candidates])
-    plane = pca.transform(residuals)
-    angles = np.arctan2(plane[:, 1], plane[:, 0])
-    center_similarity = float(_unit(matrix[candidates].mean(axis=0)) @ core)
+    # Uncentred on purpose: the core stays the origin of the orbit.
+    svd = TruncatedSVD(n_components=2, random_state=0).fit(residuals)
+    angles = _angles(svd.transform(residuals))
+    center = _unit(matrix[candidates].mean(axis=0))
+    center_similarity = float(center @ core)
+    center_angle = _angles(svd.transform((center - center_similarity * core)[None, :]))[0]
 
-    library = _feature_matrix(library_sonara)
-    scaler = StandardScaler().fit(library)
+    # Each candidate is weighed against its neighbours. With the default 20 of
+    # them and 20 candidates, every neighbourhood is the whole set and nothing
+    # can stand apart, so the neighbourhood is half the candidates at most.
+    exceptions = np.zeros(len(items), dtype=bool)
+    exceptions[candidates] = (
+        LocalOutlierFactor(
+            n_neighbors=min(20, int(candidates.sum()) // 2),
+            metric="cosine",
+        ).fit_predict(matrix[candidates])
+        == -1
+    )
+
+    scaler = StandardScaler().fit(_feature_matrix(library_sonara))
     raw = _feature_matrix([item.sonara for item in items])
     scaled = scaler.transform(raw)
-    reference = scaled[seeds].mean(axis=0)
-    gaps = scaled - reference
-    library_distances = np.sort(
-        np.linalg.norm(scaler.transform(library) - reference, axis=1)
-    )
-    # Library tracks no farther from the references than each point, itself included.
-    within = np.searchsorted(
-        library_distances, np.linalg.norm(gaps, axis=1), side="right"
-    )
-    closeness = 1.0 - within / library_distances.size
+    gaps = scaled - scaled[seeds].mean(axis=0)
 
     points = tuple(
         ClusterMapPoint(
@@ -180,7 +193,7 @@ def build_cluster_map(
             seed=bool(seeds[index]),
             similarity=float(similarity[index]),
             angle=float(angles[index]),
-            sonara_closeness=float(closeness[index]),
+            exception=bool(exceptions[index]),
             sonara_gaps=_top_gaps(raw[index], gaps[index]),
         )
         for index, item in enumerate(items)
@@ -194,8 +207,13 @@ def build_cluster_map(
         )
     )
     return ClusterMap(
-        angle_variance_kept=float(np.sum(pca.explained_variance_ratio_)),
-        center_similarity=center_similarity,
+        angle_variance_kept=float(
+            np.sum(svd.singular_values_**2) / np.sum(residuals * residuals)
+        ),
+        candidates_center=ClusterMapCenter(
+            similarity=center_similarity,
+            angle=float(center_angle),
+        ),
         points=points,
         profile=_profile(scaled[candidates]),
         drift=drift,
@@ -204,6 +222,10 @@ def build_cluster_map(
 
 def _unit(vector: np.ndarray) -> np.ndarray:
     return vector / np.linalg.norm(vector)
+
+
+def _angles(plane: np.ndarray) -> np.ndarray:
+    return np.arctan2(plane[:, 1], plane[:, 0])
 
 
 def _feature_matrix(rows: Sequence[Mapping[str, object]]) -> np.ndarray:
@@ -223,9 +245,14 @@ def _top_gaps(
     values: np.ndarray,
     gaps: np.ndarray,
 ) -> tuple[ClusterMapFeatureValue, ...]:
-    """The features that lie farthest from the references, farthest first."""
+    """Each group's widest gap from the references, the widest groups first."""
 
     names = tuple(FEATURE_GROUPS.items())
+    widest: dict[str, int] = {}
+    for position, (_, group) in enumerate(names):
+        if group not in widest or abs(gaps[position]) > abs(gaps[widest[group]]):
+            widest[group] = position
+    ranked = sorted(widest.values(), key=lambda position: -abs(gaps[position]))
     return tuple(
         ClusterMapFeatureValue(
             feature=names[position][0],
@@ -233,7 +260,7 @@ def _top_gaps(
             value=float(values[position]),
             delta=float(gaps[position]),
         )
-        for position in np.argsort(-np.abs(gaps))[:TOP_GAPS]
+        for position in ranked[:TOP_GAPS]
     )
 
 

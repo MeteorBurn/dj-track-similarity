@@ -6266,25 +6266,22 @@ button.dedup-play-button {
 .embedding-layer-select .error { color: var(--danger-text); }
 
 /* Cluster map: a REFERENCE search drawn as an orbit around its reference core.
-   Points wear SONARA's closeness to the references on a diverging scale:
-   --cluster-agree at the closest end, --cluster-neutral for a random library track,
-   --cluster-disagree at the farthest. The colours mark points, keys and swatches, never
-   text. Plotly parses the colours it draws with itself, so those tokens stay plain hex.
-   Each theme's three pass the dataviz validator all-pairs on --surface: normal-vision
-   Delta E >= 19 and contrast >= 3:1. --cluster-glow-opacity drives the dark theme's neon
+   --cluster-swarm marks the candidates that fit in with the rest in the layer's space,
+   --cluster-exception the ones that do not; the colours mark points, keys and swatches,
+   never text. Plotly parses the colours it draws with itself, so those tokens stay plain
+   hex. Each theme's pair passes the dataviz validator on --surface: normal-vision
+   Delta E >= 15 and contrast >= 3:1. --cluster-glow-opacity drives the dark theme's neon
    glow; 0 turns it off. --font-mono is for small numeric captions only: ring values,
    bars, ranks, scores. */
 :root {
-  --cluster-agree: #05841c;
-  --cluster-neutral: #7d8590;
-  --cluster-disagree: #d3407b;
+  --cluster-swarm: #05841c;
+  --cluster-exception: #d3407b;
   --cluster-glow-opacity: 0;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 :root[data-theme="dark"] {
-  --cluster-agree: #26d484;
-  --cluster-neutral: #8c9fad;
-  --cluster-disagree: #f973b3;
+  --cluster-swarm: #26d484;
+  --cluster-exception: #f973b3;
   --cluster-glow-opacity: .22;
 }
 
@@ -6349,12 +6346,12 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   height: min(900px, calc(100dvh - 32px));
   min-width: 0;
   overflow: hidden;
-  /* Two soft glows from the scale's poles light opposite corners; the colour and
-     the image are separate so an unsupported mix leaves the surface. */
+  /* Two soft glows from the swarm and exception colours light opposite corners;
+     the colour and the image are separate so an unsupported mix leaves the surface. */
   background-color: var(--surface);
   background-image:
-    radial-gradient(60% 50% at 0 0, color-mix(in srgb, var(--cluster-agree) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent),
-    radial-gradient(60% 50% at 100% 100%, color-mix(in srgb, var(--cluster-disagree) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent);
+    radial-gradient(60% 50% at 0 0, color-mix(in srgb, var(--cluster-swarm) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent),
+    radial-gradient(60% 50% at 100% 100%, color-mix(in srgb, var(--cluster-exception) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent);
   border: 1px solid var(--border-strong);
   border-radius: var(--workbench-dialog-radius);
   box-shadow: var(--workbench-dialog-shadow);
@@ -6466,12 +6463,12 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   font-style: italic;
 }
 
-/* One ruled strip rather than three cards: the 1px gaps show the strip's
-   background as hairlines between the cells. */
+/* One ruled strip rather than two cards: the 1px gap shows the strip's
+   background as a hairline between the cells. */
 .cluster-map-kpis {
   display: grid;
   flex: none;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
   margin: 0;
   overflow: hidden;
@@ -6642,13 +6639,15 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   align-items: center;
   gap: 6px 14px;
 }
-/* A point's colour beside its numbers; the background comes from closenessSwatch. */
+/* A point's colour beside its words. */
 .cluster-map-swatch {
   flex: none;
   width: 9px;
   height: 9px;
   border-radius: 50%;
 }
+.cluster-map-swatch.is-swarm { background: var(--cluster-swarm); }
+.cluster-map-swatch.is-exception { background: var(--cluster-exception); }
 .cluster-map-key {
   display: inline-flex;
   align-items: center;
@@ -6665,19 +6664,20 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   background: var(--text-strong);
   rotate: 45deg;
 }
-.cluster-map-key-scale {
+/* The exception key repeats the plot's mark: the colour inside a ring. */
+.cluster-map-key-exception {
   flex: none;
-  width: 64px;
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(to right, var(--cluster-disagree), var(--cluster-neutral), var(--cluster-agree));
+  width: 9px;
+  height: 9px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--cluster-exception);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--text-strong);
 }
 .cluster-map-key-center {
   flex: none;
-  width: 11px;
-  height: 11px;
-  border: 1.5px dashed var(--accent);
-  border-radius: 50%;
+  color: var(--accent);
+  fill: var(--accent);
 }
 
 .cluster-map-rail {
@@ -6780,6 +6780,17 @@ button.icon-button.cluster-map-play-button[data-playing] {
   font-size: 11px;
   white-space: nowrap;
 }
+.cluster-map-list {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.cluster-map-list h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
 .cluster-map-anomalies {
   display: grid;
   min-width: 0;
@@ -6817,15 +6828,6 @@ button.icon-button.cluster-map-play-button[data-playing] {
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-}
-.cluster-map-anomaly-score {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  white-space: nowrap;
 }
 .cluster-map-reasons {
   display: flex;
@@ -6946,7 +6948,6 @@ button.icon-button.cluster-map-play-button[data-playing] {
   .cluster-map-tab-panel { overflow: visible; }
 }
 @container cluster-map (max-width: 640px) {
-  .cluster-map-kpi { padding: 10px; }
   .cluster-map-header { padding: 12px 10px 10px 14px; }
   .cluster-map-body { padding: 12px 14px; }
 }

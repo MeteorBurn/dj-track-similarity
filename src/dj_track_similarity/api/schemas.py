@@ -983,6 +983,77 @@ class SimilaritySearchResultResponse(_ResponseModel):
     score_breakdown: dict[str, float] | None = None
 
 
+class ClusterMapReasonResponse(_ResponseModel):
+    feature: str
+    group: str
+    value: float | None
+    reference_low: float | None
+    reference_high: float | None
+    delta: float
+    z: float = Field(ge=0)
+    severity: Literal["mild", "strong"]
+
+
+class ClusterMapTraitResponse(_ResponseModel):
+    feature: str
+    group: str
+    cluster_median: float
+    rest_median: float
+    delta: float
+
+
+class ClusterMapGenreShareResponse(_ResponseModel):
+    genre_name: str
+    share: float = Field(ge=0, le=1)
+
+
+class ClusterMapClusterResponse(_ResponseModel):
+    size: int = Field(ge=1)
+    median_similarity: float
+    representative_track_id: int
+    traits: list[ClusterMapTraitResponse]
+    maest_genres: list[ClusterMapGenreShareResponse]
+
+
+class ClusterMapPointResponse(_ResponseModel):
+    track: TrackSummaryResponse
+    seed: bool
+    # Unbounded: float error can push a cosine past 1 by about 1e-10.
+    similarity: float
+    angle: float
+    cluster: int = Field(ge=0)
+    has_sonara: bool
+    anomalies: list[ClusterMapReasonResponse]
+
+
+class ClusterMapFeatureResponse(_ResponseModel):
+    feature: str
+    group: str
+    library_scale: float | None
+    core_low: float | None
+    core_high: float | None
+    results_gap: float | None
+    library_gap: float | None
+
+
+class ClusterMapResponse(_ResponseModel):
+    """The cluster map of one seed search, as ``/api/search`` ranks it.
+
+    ``points`` holds the seeds in request order, then the candidates in rank
+    order; ``clusters`` runs nearest to the core first and ``point.cluster``
+    indexes it. ``layer`` is the layer read, resolved from the request.
+    """
+
+    catalog_uuid: str
+    analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
+    layer: int | None
+    silhouette: float | None
+    angle_variance_kept: float | None
+    points: list[ClusterMapPointResponse]
+    clusters: list[ClusterMapClusterResponse]
+    features: list[ClusterMapFeatureResponse]
+
+
 class EmbeddingLayerCountResponse(_ResponseModel):
     layer: int = Field(ge=1, le=max(layers.count for layers in EMBEDDING_LAYERS.values()))
     track_count: int = Field(ge=0)

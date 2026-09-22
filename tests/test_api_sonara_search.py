@@ -15,6 +15,8 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     EmbeddingOutput,
     EmbeddingWrite,
+    MaestGenreScore,
+    MaestWrite,
     current_embedding_spec,
 )
 from dj_track_similarity.analysis.model_runners import (
@@ -140,6 +142,99 @@ def test_generic_search_endpoint_returns_muq_result_shape(
         assert client.post(
             "/api/search", json={"analysis_family": "clap", "seed_track_ids": [1], "layer": 1}
         ).status_code == 422
+
+
+def test_cluster_map_places_the_current_search_and_explains_it(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
+    db_path = tmp_path / "library.sqlite"
+    db = _sonara_library(db_path)
+    dimension = current_embedding_spec("maest").dimension
+    private_axes = iter(range(30, 60))
+
+    def add(name: str, bpm: float, energy: float, genre: str, direction: dict[int, float]) -> AnalysisTarget:
+        target = _add_sonara_track(
+            db,
+            tmp_path,
+            name,
+            {"detected_bpm": bpm, "bpm_confidence": 0.9, "beat_grid_stability": 0.9, "energy": energy},
+        )
+        vector = np.zeros(dimension, dtype=np.float32)
+        vector[0] = 1.0
+        for axis, value in direction.items():
+            vector[axis] = value
+        vector /= np.linalg.norm(vector)
+        result = db.save_maest_results((MaestWrite(
+            target=target,
+            genres=(MaestGenreScore(label=genre, score=0.9),),
+            syncopated_rhythm=None,
+            analyzed_at=_NOW,
+            embedding=EmbeddingOutput(
+                family="maest",
+                vector=vector,
+                analyzed_at=_NOW,
+                layer_vectors=same_vector_layers("maest", vector),
+            ),
+        ),))[0]
+        assert result.ok, result.error
+        return target
+
+    # The seeds average to e0 exactly, the core; candidates leave it along e1
+    # (near) or e2 (far), each with a small private axis of its own.
+    dnb, jungle = "Electronic---Drum n Bass", "Electronic---Jungle"
+    seeds = [
+        add("seed-169.wav", 169.0, 0.3, dnb, {20: 0.2}),
+        add("seed-171.wav", 171.0, 0.3, dnb, {20: -0.2}),
+    ]
+    near = {
+        bpm: add(f"near-{bpm:g}.wav", bpm, 0.3, dnb, {1: 0.1, next(private_axes): 0.01})
+        for bpm in (169.0, 170.0, 171.0, 125.0, 85.0)
+    }
+    far = [
+        add(f"far-{index}.wav", 170.0, 0.9, jungle, {2: 0.6, next(private_axes): 0.01})
+        for index in range(5)
+    ]
+    request = {
+        "analysis_family": "maest",
+        "seed_track_ids": [seed.track_id for seed in seeds],
+        "limit": 20,
+        "noise": 0,
+    }
+
+    with TestClient(create_app(db_path)) as client:
+        search = client.post("/api/search", json=request)
+        response = client.post("/api/search/cluster-map", json=request)
+
+    assert search.status_code == 200
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    scores = {item["track"]["track_id"]: item["score"] for item in search.json()}
+    points = {point["track"]["track_id"]: point for point in payload["points"]}
+    assert {track_id for track_id, point in points.items() if point["seed"]} == {
+        seed.track_id for seed in seeds
+    }
+    assert {track_id for track_id, point in points.items() if not point["seed"]} == set(scores)
+    for track_id, score in scores.items():
+        assert points[track_id]["similarity"] == pytest.approx(score, abs=1e-5)
+    near_clusters = {points[target.track_id]["cluster"] for target in near.values()}
+    far_clusters = {points[target.track_id]["cluster"] for target in far}
+    assert len(near_clusters) == 1 and len(far_clusters) == 1
+    assert near_clusters != far_clusters
+    far_cluster = payload["clusters"][far_clusters.pop()]
+    assert [share["genre_name"] for share in far_cluster["maest_genres"]] == [jungle]
+    assert any(
+        trait["feature"] == "energy_score" and trait["delta"] > 0
+        for trait in far_cluster["traits"]
+    )
+    # 85 BPM is half of the seeds' range, so only the 125 BPM track is off tempo.
+    assert {
+        track_id
+        for track_id, point in points.items()
+        if any(reason["feature"] == "detected_bpm" for reason in point["anomalies"])
+    } == {near[125.0].track_id}
+    assert payload["catalog_uuid"] == db.catalog_uuid
+    assert payload["layer"] == 13
 
 
 def test_sonara_search_endpoint_accepts_mixer_and_modifiers(
@@ -367,6 +462,9 @@ def _add_sonara_track(
     values.update(
         {
             "track_id": target.track_id,
+            "detected_bpm": _float(features.get("detected_bpm")),
+            "bpm_confidence": _float(features.get("bpm_confidence")),
+            "beat_grid_stability": _float(features.get("beat_grid_stability")),
             "energy_score": energy,
             "danceability_score": _float(features.get("danceability")),
             "valence_score": _float(features.get("valence")),

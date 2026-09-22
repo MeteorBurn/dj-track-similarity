@@ -16,6 +16,7 @@ from ..analysis.model_runners import (
     _adapter_identity,
 )
 from .schemas import (
+    ClusterMapResponse,
     EmbeddingRandomTrackRequest,
     SearchRequest,
     SimilaritySearchResultResponse,
@@ -36,9 +37,11 @@ from .schemas import (
 from .state import AppDatabaseState, DatabaseBusy
 from .text_search_context import TextSearchRunCache
 from ..text_search_models import QueryContext, TextSearchRun, canonical_json, content_hash, query_context_key
+from ..db.embedding_layers import validate_embedding_layer
 from ..db.text_feedback import TextFeedbackSchemaError, TextFeedbackConflict
 from ..database import LibraryDatabase
 from ..embedding.contracts import TextEmbeddingAdapter
+from ..search.cluster_map import ClusterMapTrack, build_cluster_map
 from ..search.engine import (
     CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
     SearchFilters,
@@ -54,6 +57,7 @@ from ..search.vector_index import VectorIndexUnavailable
 # One short prompt is enough to force the deserialization and the first forward
 # pass; nothing is kept, so the wording carries no meaning of its own.
 _WARMUP_PROMPT = "warmup"
+_CLUSTER_MAP_CHANGED = "Embeddings changed while the cluster map was built"
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,109 @@ def register_search_routes(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/search/cluster-map",
+        response_model=ClusterMapResponse,
+    )
+    def search_cluster_map(request: SearchRequest):
+        """Map exactly what ``/api/search`` returns for the request; nothing is written."""
+
+        filters = SearchFilters(
+            min_similarity=request.min_similarity,
+            epsilon=request.epsilon,
+            noise=request.noise,
+        )
+        database, generation = state.capture_db()
+        try:
+            analysis_output = current_embedding_analysis_output(
+                request.analysis_family,
+                device="auto",
+            )
+            searcher = SimilaritySearch(
+                database,
+                request.analysis_family,
+                analysis_output=analysis_output,
+                layer=request.layer,
+            )
+            seeds = searcher.resolve_targets(request.seed_track_ids)
+            results = searcher.search(seeds, filters=filters, limit=request.limit)
+            targets = (*seeds, *(result.target for result in results))
+            vectors = {
+                row.target: row.vector
+                for row in database.load_analysis_vectors(
+                    analysis_output,
+                    targets=targets,
+                    layer=request.layer,
+                )
+            }
+            if vectors.keys() != set(targets):
+                raise RuntimeError(_CLUSTER_MAP_CHANGED)
+            sonara_output = database.active_analysis_output("sonara", "core")
+            library_sonara = (
+                ()
+                if sonara_output is None
+                else database.load_sonara_feature_rows(sonara_output)
+            )
+            sonara_by_target = {row.target: row.values for row in library_sonara}
+            with state.captured_db(database, generation):
+                seed_tracks = [
+                    _hydrate_search_target(database, target) for target in seeds
+                ]
+                candidates = _hydrate_similarity_results(database, results)
+            tracks = [
+                ClusterMapTrack(
+                    track=track,
+                    seed=True,
+                    vector=vectors[target],
+                    sonara=sonara_by_target.get(target),
+                )
+                for target, track in zip(seeds, seed_tracks, strict=True)
+            ]
+            tracks.extend(
+                ClusterMapTrack(
+                    track=candidate["track"],
+                    seed=False,
+                    vector=vectors[result.target],
+                    sonara=sonara_by_target.get(result.target),
+                )
+                for result, candidate in zip(results, candidates, strict=True)
+            )
+            cluster_map = build_cluster_map(
+                tracks,
+                [row.values for row in library_sonara],
+            )
+            # The map's float64 cosine repeats the float32 search score far
+            # inside this tolerance unless a vector changed between the reads.
+            if any(
+                abs(point.similarity - result.score) > 1e-4
+                for point, result in zip(
+                    cluster_map.points[len(seeds):], results, strict=True
+                )
+            ):
+                raise RuntimeError(_CLUSTER_MAP_CHANGED)
+        except (DatabaseBusy, KeyError) as error:
+            # The selected library was replaced or busy, or a track vanished.
+            raise HTTPException(
+                status_code=409,
+                detail="The library changed or is busy; build the map again",
+            ) from error
+        except VectorIndexUnavailable as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return ClusterMapResponse(
+            catalog_uuid=database.catalog_uuid,
+            analysis_family=request.analysis_family,
+            layer=validate_embedding_layer(request.analysis_family, request.layer),
+            silhouette=cluster_map.silhouette,
+            angle_variance_kept=cluster_map.angle_variance_kept,
+            points=cluster_map.points,
+            clusters=cluster_map.clusters,
+            features=cluster_map.features,
+        )
 
     @app.post(
         "/api/search/random-track",

@@ -11,12 +11,15 @@ type ActivityAppender = (level: ActivityEvent["level"], message: string, detail?
  */
 export type PreviewTarget = { track_id: number };
 
-export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppender } = {}) {
+/** Seed search averages its seeds, so more than a handful only blurs the query. */
+export const MAX_SEED_TRACKS = 5;
+
+export function useSearchPlaylist({ onActivity, onSeedLimit }: { onActivity?: ActivityAppender; onSeedLimit?: () => void } = {}) {
   const [outputDir, setOutputDir] = useState("");
   const [seedTracks, setSeedTracks] = useState<Track[]>([]);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [playlist, setPlaylist] = useState<Track[]>([]);
-  const [playlistName, setPlaylistName] = useState("seamless-set");
+  const [playlistName, setPlaylistName] = useState("djts-playlist-title");
   const [metadataTrack, setMetadataTrack] = useState<TrackDetail | null>(null);
 
   const seeds = useMemo(() => seedTracks.map((track) => track.track_id), [seedTracks]);
@@ -24,9 +27,13 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   const playlistSet = useMemo(() => new Set(playlist.map((track) => track.track_id)), [playlist]);
 
   function addSeed(track: Track) {
+    if (!seedSet.has(track.track_id) && seedTracks.length >= MAX_SEED_TRACKS) {
+      onSeedLimit?.();
+      return;
+    }
     setSeedTracks((current) => current.some((item) => item.track_id === track.track_id)
       ? current.map((item) => item.track_id === track.track_id ? track : item)
-      : [...current, track]);
+      : current.length < MAX_SEED_TRACKS ? [...current, track] : current);
   }
 
   function removeSeed(trackId: number) {

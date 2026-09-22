@@ -1,7 +1,7 @@
 import { TextExecutionDetails } from "./TextExecutionDetails";
 import type { TextSearchExecution } from "./api";
 import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useState } from "react";
-import { ChevronsLeft, ChevronsRight, Play, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Pause, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import { TextSearchTab } from "./TextSearchTab";
 import {
@@ -13,6 +13,7 @@ import {
 } from "./classifierCompatibility";
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
+import { MAX_SEED_TRACKS } from "./useSearchPlaylist";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
@@ -332,26 +333,6 @@ export function SearchPlaylistPanel({
             <ChevronsLeft size={17} />
           </button>
         </div>
-        {seedTracks.length ? <div className="seed-controls">
-          <span>Seeds · {seedTracks.length}</span>
-          <button type="button" onClick={clearSeeds} title="Убрать все seed-треки; сет останется без изменений">Очистить seed</button>
-        </div> : null}
-        <div className="seed-strip">
-          {seedTracks.map((track) => (
-            <button
-              className="seed-remove-chip"
-              key={track.track_id}
-              title={`Убрать seed: ${displayTrack(track)}`}
-              aria-label={`Убрать seed: ${displayTrack(track)}`}
-              onClick={() => removeSeed(track.track_id)}
-              type="button"
-            >
-              <Search size={12} aria-hidden="true" />
-              <span className="seed-remove-chip-label">{displayTrack(track)}</span>
-              <X size={12} aria-hidden="true" />
-            </button>
-          ))}
-        </div>
         <div className="search-tabs" role="tablist" aria-label="Search model">
           {primarySearchTabs.map((tab) => (
             <button
@@ -370,6 +351,26 @@ export function SearchPlaylistPanel({
               {primaryTabPresentation[tab].label}
             </button>
           ))}
+        </div>
+        {seedTracks.length ? <div className="seed-controls">
+          <span>Seeds · {seedTracks.length}/{MAX_SEED_TRACKS}</span>
+        </div> : null}
+        <div className="seed-strip">
+          {seedTracks.map((track) => {
+            const seedPreviewActive = playingTrackId === track.track_id;
+            return (
+              <div className="seed-chip" key={track.track_id}>
+                <button className="icon-button seed-chip-play-button" title={seedPreviewActive ? "Pause preview" : "Preview"} aria-label={`${seedPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => setPreview(track)} type="button">
+                  {seedPreviewActive ? <Pause size={11} /> : <Play size={11} />}
+                </button>
+                <span className="seed-chip-label" title={displayTrack(track)}>{displayTrack(track)}</span>
+                <button className="icon-button seed-chip-remove-button" title={`Убрать seed: ${displayTrack(track)}`} aria-label={`Убрать seed: ${displayTrack(track)}`} onClick={() => removeSeed(track.track_id)} type="button">
+                  <X size={11} />
+                </button>
+              </div>
+            );
+          })}
+          {seedTracks.length ? <button className="icon-button seed-clear-button" type="button" onClick={clearSeeds} title="Убрать все seed-треки; сет останется без изменений" aria-label="Убрать все seed-треки"><Trash2 size={13} /></button> : null}
         </div>
         {activeSearchTab === "lab" && (
           <div id="search-panel-lab" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-lab">
@@ -396,7 +397,7 @@ export function SearchPlaylistPanel({
               onModelChange={selectSeedSearchModel}
               currentAnalysisCount={seedSearchModel === "sonara" ? sonaraCount : embeddingLayers.layered ? embeddingLayers.trackCount : embeddingCounts[seedSearchModel]}
               busy={busy || !seeds.length}
-              randomTrackBusy={busy}
+              randomTrackBusy={busy || seedTracks.length >= MAX_SEED_TRACKS}
               pending={seedSearchModel !== "sonara" && Boolean(embeddingSearchPending[seedSearchModel])}
               error={seedSearchModel === "sonara" ? "" : embeddingSearchErrors[seedSearchModel] || ""}
               filters={filters}

@@ -81,7 +81,7 @@ import { useActivityLog } from "./useActivityLog";
 import { useAudioPreview } from "./useAudioPreview";
 import { useConfirmation } from "./useConfirmation";
 import { useLibraryState } from "./useLibraryState";
-import { useSearchPlaylist } from "./useSearchPlaylist";
+import { MAX_SEED_TRACKS, useSearchPlaylist } from "./useSearchPlaylist";
 import type { PreviewTarget } from "./useSearchPlaylist";
 import { useWorkspacePanels } from "./useWorkspacePanels";
 
@@ -168,7 +168,10 @@ export function App() {
     forgetTrack,
     forgetTrackIds,
     resetSearchPlaylistState
-  } = useSearchPlaylist({ onActivity: appendActivity });
+  } = useSearchPlaylist({
+    onActivity: appendActivity,
+    onSeedLimit: () => setNotice({ kind: "warn", text: `Не больше ${MAX_SEED_TRACKS} seed-треков: уберите один, чтобы добавить другой` })
+  });
   const [seedSearchModel, setSeedSearchModel] = useState<SeedSearchModel>("sonara");
   const embeddingLayers = useEmbeddingLayers(seedSearchModel, databasePath, databaseCatalogUuid, librarySummary);
   const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("similarity");
@@ -1231,7 +1234,7 @@ export function App() {
       appendActivity("error", "Экспорт не запущен", pathError);
       return;
     }
-    await run(() => api.exportPlaylist(playlistName || "seamless-set", playlist.map((track) => track.track_id), outputDir.trim(), format), (value) => {
+    await run(() => api.exportPlaylist(playlistName || "djts-playlist-title", playlist.map((track) => track.track_id), outputDir.trim(), format), (value) => {
       appendActivity("ok", `Экспорт ${format.toUpperCase()}`, value.path);
       return value.path;
     });
@@ -1376,11 +1379,10 @@ export function App() {
           </h1>
         </div>
         <nav className="workbench-nav" aria-label="Рабочая область">
-          <button type="button" aria-pressed={!exportVisible && !setupCollapsed && !libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("discover")}>DISCOVER</button>
-          <button type="button" aria-pressed={!exportVisible && !setupCollapsed && libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("analyze")}>ANALYZE</button>
-          <button type="button" aria-pressed={!exportVisible && setupCollapsed && !libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("library")}>LIBRARY</button>
-          <button type="button" aria-pressed={!exportVisible && setupCollapsed && libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("search")}>SEARCH</button>
-          <button type="button" aria-pressed={exportVisible} onClick={() => selectWorkspace("export")}>EXPORT</button>
+          <button type="button" aria-pressed={!setupCollapsed && !libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("discover")}>DISCOVER</button>
+          <button type="button" aria-pressed={!setupCollapsed && libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("analyze")}>ANALYZE</button>
+          <button type="button" aria-pressed={setupCollapsed && !libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("library")}>LIBRARY</button>
+          <button type="button" aria-pressed={exportVisible} onClick={() => selectWorkspace("search")}>SEARCH</button>
         </nav>
         <div className="topbar-actions">
           <button
@@ -1438,8 +1440,7 @@ export function App() {
       </header>
 
       <section
-        className={`workspace ${setupCollapsed ? "setup-collapsed" : ""} ${libraryCollapsed ? "library-collapsed" : ""} ${searchCollapsed ? "search-collapsed" : ""}`}
-        hidden={exportVisible}
+        className={`workspace ${setupCollapsed ? "setup-collapsed" : ""} ${libraryCollapsed ? "library-collapsed" : ""} ${searchCollapsed ? "search-collapsed" : ""} ${exportVisible ? "export-open" : ""}`}
       >
         <LibraryPanel
           collapsed={setupCollapsed}
@@ -1619,23 +1620,23 @@ export function App() {
           setPreview={togglePreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
         />
-      </section>
-      <section className="workspace export-workspace" hidden={!exportVisible}>
-        <PlaylistExportPanel
-          playlist={playlist}
-          playlistName={playlistName}
-          onPlaylistNameChange={setPlaylistName}
-          outputDir={outputDir}
-          onOutputDirChange={setOutputDir}
-          onChooseOutputFolder={() => void handleChooseOutputFolder()}
-          busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}
-          playingTrackId={playingTrackId}
-          setPreview={togglePreview}
-          setMetadataTrack={(track) => void handleTrackDetails(track)}
-          removeFromPlaylist={removeFromPlaylist}
-          handleSaveToCollection={() => void handleSavePlaylistToRhythmLabCollection()}
-          handleExport={(format) => void handleExport(format)}
-        />
+        {exportVisible ? (
+          <PlaylistExportPanel
+            playlist={playlist}
+            playlistName={playlistName}
+            onPlaylistNameChange={setPlaylistName}
+            outputDir={outputDir}
+            onOutputDirChange={setOutputDir}
+            onChooseOutputFolder={() => void handleChooseOutputFolder()}
+            busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}
+            playingTrackId={playingTrackId}
+            setPreview={togglePreview}
+            setMetadataTrack={(track) => void handleTrackDetails(track)}
+            removeFromPlaylist={removeFromPlaylist}
+            handleSaveToCollection={() => void handleSavePlaylistToRhythmLabCollection()}
+            handleExport={(format) => void handleExport(format)}
+          />
+        ) : null}
       </section>
       <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} onPrevious={preview && previousLibraryPlaybackTrack(orderedTracks, preview.track_id) ? () => playLibraryNeighbour("previous") : null} onNext={preview && nextLibraryPlaybackTrack(orderedTracks, preview.track_id, libraryPlaybackShuffle, () => 0) ? () => playLibraryNeighbour("next") : null} />
       {sourceUrl ? (

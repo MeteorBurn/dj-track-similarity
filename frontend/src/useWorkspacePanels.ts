@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { resolvePanelCollapsed, storePanelCollapsed, type CollapsiblePanel } from "./libraryView";
 
-type WorkspaceView = "discover" | "analyze" | "library" | "search" | "export";
+type WorkspaceView = "discover" | "analyze" | "library" | "search";
 
 export function useWorkspacePanels() {
   const [setupCollapsed, setSetupCollapsed] = useState(() => resolvePanelCollapsed("setup"));
   const [libraryCollapsed, setLibraryCollapsed] = useState(() => resolvePanelCollapsed("library"));
   const [searchCollapsed, setSearchCollapsed] = useState(() => resolvePanelCollapsed("search"));
-  const [exportVisible, setExportVisible] = useState(false);
+  // The export panel belongs to the SEARCH view, however that panel state was reached.
+  const exportVisible = setupCollapsed && libraryCollapsed && !searchCollapsed;
 
   function togglePanel(panel: CollapsiblePanel) {
     const setters = { setup: setSetupCollapsed, library: setLibraryCollapsed, search: setSearchCollapsed };
@@ -17,8 +18,6 @@ export function useWorkspacePanels() {
   }
 
   function selectWorkspace(view: WorkspaceView) {
-    setExportVisible(view === "export");
-    if (view === "export") return;
     setSetupCollapsed(view !== "discover" && view !== "analyze");
     setLibraryCollapsed(view !== "discover" && view !== "library");
     setSearchCollapsed(view !== "discover" && view !== "search");

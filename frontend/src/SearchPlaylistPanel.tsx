@@ -60,7 +60,7 @@ const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: s
   similarity: { label: "REFERENCE", title: "Reference search: tracks similar to the chosen reference tracks (SONARA, MAEST, MERT-v2, MuQ, MuQ-MuLan, CLAP)" },
   text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
   class: { label: "CLASSIFIER", title: "Classifier controls" },
-  lab: { label: "LAB", title: "Reference Compare model groups" }
+  lab: { label: "LAB", title: "Model Listening Lab: each model's candidates for the first seed track, side by side, with verdicts" }
 };
 
 function searchResultOriginLabel(origin: GenericSearchTab) {

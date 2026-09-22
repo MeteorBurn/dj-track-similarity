@@ -225,73 +225,55 @@ export type EmbeddingSearchPayload = {
   noise?: number;
 };
 
-/** A SONARA feature on which a candidate leaves the seeds' range. `z` is the
- * distance in library σ. `delta` is the signed distance to the range in native
- * units, except tempo (the octave-aware BPM gap, never negative) and timbre
- * (`mfcc_mean_blob`: no value or range, `delta` equals `z`). */
-export type ClusterMapReason = {
-  feature: string;
-  group: string;
-  value: number | null;
-  reference_low: number | null;
-  reference_high: number | null;
-  delta: number;
-  z: number;
-  severity: "mild" | "strong";
-};
+/** A SONARA feature as stored (`mfcc_1`…`mfcc_12` are MFCC coefficients) and
+ * its distance from the map's mean in library σ. */
+export type ClusterMapFeatureValue = { feature: string; group: string; value: number; delta: number };
 
-/** The cluster's candidates against the other candidates; `delta` is in library σ. */
-export type ClusterMapTrait = {
-  feature: string;
-  group: string;
-  cluster_median: number;
-  rest_median: number;
-  delta: number;
-};
+/** Mean standard deviation of a group's features inside a cluster, in library σ. */
+export type ClusterMapGroupSpread = { group: string; std: number };
 
 export type ClusterMapGenreShare = { genre_name: string; share: number };
 
+/** `profile` runs from the group the cluster holds tightest (its glue) to the loosest. */
 export type ClusterMapCluster = {
   size: number;
   median_similarity: number;
   representative_track_id: number;
-  traits: ClusterMapTrait[];
+  profile: ClusterMapGroupSpread[];
   maest_genres: ClusterMapGenreShare[];
 };
 
-/** Radius `1 - similarity` is exact; `angle` (radians) only approximates the direction of difference. */
+/** Radius `1 - similarity` is exact; `angle` (radians) only approximates the
+ * direction of difference. `cluster` is null for seeds and -1 outside every
+ * cluster; `outlier` comes from IsolationForest (lower score, more unusual). */
 export type ClusterMapPoint = {
   track: Track;
   seed: boolean;
   similarity: number;
   angle: number;
-  cluster: number;
-  has_sonara: boolean;
-  anomalies: ClusterMapReason[];
+  cluster: number | null;
+  outlier: boolean;
+  outlier_score: number;
+  outlier_features: ClusterMapFeatureValue[];
 };
 
-export type ClusterMapFeature = {
-  feature: string;
-  group: string;
-  library_scale: number | null;
-  core_low: number | null;
-  core_high: number | null;
-  results_gap: number | null;
-  library_gap: number | null;
-};
+/** The candidates' mean minus the references' mean for one feature, in library σ. */
+export type ClusterMapDrift = { feature: string; group: string; delta: number };
 
 /** The map of exactly what `/api/search` returns for the same payload. `points`
  * holds the seeds in request order, then the candidates in rank order;
- * `point.cluster` indexes `clusters`, nearest to the core first. */
+ * `point.cluster` indexes `clusters`, nearest to the core first; `drift` runs
+ * from the largest shift down. */
 export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
   layer: number | null;
   silhouette: number | null;
-  angle_variance_kept: number | null;
+  angle_variance_kept: number;
+  candidates_center: { similarity: number; angle: number };
   points: ClusterMapPoint[];
   clusters: ClusterMapCluster[];
-  features: ClusterMapFeature[];
+  drift: ClusterMapDrift[];
 };
 
 export type EmbeddingRandomTrackPayload = {

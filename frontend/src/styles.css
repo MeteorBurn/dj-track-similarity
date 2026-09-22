@@ -6293,6 +6293,7 @@ button.dedup-play-button {
 .cluster-map-dialog [data-slot="4"] { --cluster-color: var(--cluster-4); }
 .cluster-map-dialog [data-slot="5"] { --cluster-color: var(--cluster-5); }
 .cluster-map-dialog [data-slot="6"] { --cluster-color: var(--cluster-6); }
+.cluster-map-dialog [data-slot="other"] { --cluster-color: var(--text-faint); }
 
 /* The map button shares the Search row at its 38px height. */
 .embedding-search-row {
@@ -6702,6 +6703,11 @@ button.cluster-map-legend-chip {
   border: 1.5px solid var(--text-strong);
   border-radius: 50%;
 }
+.cluster-map-key-center {
+  flex: none;
+  color: var(--accent);
+  fill: var(--accent);
+}
 
 .cluster-map-rail {
   display: flex;
@@ -6816,28 +6822,12 @@ button.icon-button.cluster-map-play-button[data-playing] {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.cluster-map-traits {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-}
-.cluster-map-trait {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-height: 22px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
+.cluster-map-glue {
+  margin: 0;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-.cluster-map-trait svg {
-  flex: none;
-  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 .cluster-map-genres {
   margin: 0;
@@ -6907,26 +6897,11 @@ button.icon-button.cluster-map-play-button[data-playing] {
   width: 7px;
   height: 7px;
 }
-.cluster-map-severity {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+.cluster-map-anomaly-score {
+  color: var(--text-muted);
   font-size: 11px;
-  font-weight: 650;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-.cluster-map-severity[data-severity="mild"] {
-  border-color: var(--warning-soft-border);
-  background: var(--warning-soft-bg);
-  color: var(--warning-text);
-}
-.cluster-map-severity[data-severity="strong"] {
-  border-color: var(--danger-soft-border);
-  background: var(--danger-soft-bg);
-  color: var(--danger-soft-text);
 }
 .cluster-map-reasons {
   display: flex;
@@ -6970,26 +6945,6 @@ button.icon-button.cluster-map-play-button[data-playing] {
   --focus-label: 104px;
   --focus-value: 44px;
 }
-.cluster-map-focus-scale {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  margin: 0 calc(var(--focus-value) + 8px) 0 calc(var(--focus-label) + 8px);
-  color: var(--text-muted);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-.cluster-map-focus-scale span:last-child { justify-self: end; }
-.cluster-map-focus-group {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-.cluster-map-focus-group h4 {
-  margin: 2px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 650;
-}
 .cluster-map-focus-row {
   display: grid;
   grid-template-columns: var(--focus-label) minmax(0, 1fr) var(--focus-value);
@@ -7010,16 +6965,6 @@ button.icon-button.cluster-map-play-button[data-playing] {
   height: 8px;
   border-radius: 999px;
   background: var(--surface-subtle);
-}
-/* The 1× mark: left of it the layer keeps a feature closer than chance. */
-.cluster-map-focus-track::before {
-  content: "";
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  left: 50%;
-  width: 1px;
-  background: var(--border-strong);
 }
 .cluster-map-focus-bar {
   position: absolute;

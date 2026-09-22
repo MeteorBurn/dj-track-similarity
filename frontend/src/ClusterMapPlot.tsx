@@ -11,7 +11,7 @@ import type {
   PlotMouseEvent,
   Shape,
 } from "plotly.js-basic-dist-min";
-import type { ClusterMapPoint, Track } from "./api";
+import type { ClusterMapPoint, ClusterMapResponse, Track } from "./api";
 import { errorText } from "./errors";
 import { placeTooltip, type TooltipPosition } from "./tooltip";
 import { displayTrack } from "./trackDisplay";
@@ -65,6 +65,16 @@ export function clusterLetter(cluster: number) {
   return String.fromCharCode(65 + cluster);
 }
 
+/** Candidates HDBSCAN leaves outside every cluster carry -1. */
+export function clusterName(cluster: number | null) {
+  return cluster === null || cluster < 0 ? "Outside clusters" : `Cluster ${clusterLetter(cluster)}`;
+}
+
+/** Colour slot for `data-slot`: six palette colours, then a neutral one. */
+export function clusterSlot(cluster: number | null) {
+  return cluster !== null && cluster >= 0 && cluster < 6 ? String(cluster + 1) : "other";
+}
+
 /** Faint rings standing in for the orbit until it is drawn. */
 export function OrbitSkeleton() {
   return (
@@ -80,6 +90,7 @@ export function OrbitSkeleton() {
 export function ClusterMapPlot({
   mapKey,
   points,
+  center,
   clusterCount,
   isolated,
   playingTrackId,
@@ -88,6 +99,7 @@ export function ClusterMapPlot({
 }: {
   mapKey: string;
   points: ClusterMapPoint[];
+  center: ClusterMapResponse["candidates_center"];
   clusterCount: number;
   isolated: number | null;
   playingTrackId: number | null;
@@ -141,6 +153,7 @@ export function ClusterMapPlot({
     if (!plotly || !host) return undefined;
     let cancelled = false;
     const { data, layout } = figure(points, orbit, readPalette(host), {
+      center,
       clusterCount,
       isolated,
       playingTrackId,
@@ -161,7 +174,7 @@ export function ClusterMapPlot({
     return () => {
       cancelled = true;
     };
-  }, [plotly, points, orbit, clusterCount, isolated, playingTrackId, mapKey, themeRevision, attempt]);
+  }, [plotly, points, orbit, center, clusterCount, isolated, playingTrackId, mapKey, themeRevision, attempt]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -303,15 +316,15 @@ export function ClusterMapPlot({
           </strong>
           <span className="cluster-map-tooltip-name">{displayTrack(hovered.track)}</span>
           {hovered.seed ? null : (
-            <span className="cluster-map-tooltip-cluster" data-slot={hovered.cluster + 1}>
+            <span className="cluster-map-tooltip-cluster" data-slot={clusterSlot(hovered.cluster)}>
               <i className="cluster-map-line-key" />
-              {`Cluster ${clusterLetter(hovered.cluster)}${hovered.track.sonara_bpm != null ? ` · ${Math.round(hovered.track.sonara_bpm)} BPM` : ""}`}
+              {`${clusterName(hovered.cluster)}${hovered.track.sonara_bpm != null ? ` · ${Math.round(hovered.track.sonara_bpm)} BPM` : ""}`}
             </span>
           )}
-          {hovered.anomalies.length ? (
+          {hovered.outlier ? (
             <span className="cluster-map-tooltip-flag">
               <TriangleAlert size={12} />
-              {`Stands out: ${hovered.anomalies.map((reason) => featureLabel(reason.feature)).join(", ")}`}
+              {`Stands out: ${hovered.outlier_features.map((item) => featureLabel(item.feature)).join(", ")}`}
             </span>
           ) : null}
         </div>
@@ -368,7 +381,8 @@ function figure(
   points: ClusterMapPoint[],
   orbit: Orbit,
   palette: Palette,
-  { clusterCount, isolated, playingTrackId, mapKey, view }: {
+  { center, clusterCount, isolated, playingTrackId, mapKey, view }: {
+    center: ClusterMapResponse["candidates_center"];
     clusterCount: number;
     isolated: number | null;
     playingTrackId: number | null;
@@ -376,8 +390,11 @@ function figure(
     view: View | null;
   },
 ): { data: Data[]; layout: Partial<Layout> } {
-  const colour = (cluster: number) => palette.clusters[cluster % palette.clusters.length];
-  const shown = (cluster: number) => isolated === null || isolated === cluster;
+  // Six palette colours; the seventh cluster on and the points outside every cluster stay neutral.
+  const colour = (cluster: number | null) => (
+    cluster !== null && cluster >= 0 && cluster < palette.clusters.length ? palette.clusters[cluster] : palette.textMuted
+  );
+  const shown = (cluster: number | null) => isolated === null || isolated === cluster;
   const at = (indexes: number[]) => ({
     x: indexes.map((index) => orbit.x[index]),
     y: indexes.map((index) => orbit.y[index]),
@@ -400,7 +417,7 @@ function figure(
       },
     });
   }
-  for (let cluster = 0; cluster < clusterCount; cluster += 1) {
+  for (let cluster = -1; cluster < clusterCount; cluster += 1) {
     const members = membersOf(cluster);
     data.push({
       type: "scatter",
@@ -424,22 +441,24 @@ function figure(
     hoverinfo: "none",
     marker: { symbol: "diamond", size: 13, color: palette.textStrong, line: { width: 2, color: palette.surface } },
   });
-  const flagged = candidates.filter((index) => points[index].anomalies.length > 0 && shown(points[index].cluster));
+  // The candidates' centre of mass: its distance from the core shows how far the search drifts.
+  const centerRadius = Math.max(0, 1 - center.similarity);
+  data.push({
+    type: "scatter",
+    mode: "markers",
+    x: [centerRadius * Math.cos(center.angle)],
+    y: [centerRadius * Math.sin(center.angle)],
+    hoverinfo: "skip",
+    marker: { symbol: "star", size: 14, color: palette.accent, line: { width: 2, color: palette.surface } },
+  });
+  const flagged = candidates.filter((index) => points[index].outlier && shown(points[index].cluster));
   if (flagged.length) {
     data.push({
       type: "scatter",
       mode: "markers",
       ...at(flagged),
       hoverinfo: "skip",
-      marker: {
-        symbol: "circle-open",
-        size: 18,
-        color: palette.textStrong,
-        line: {
-          color: palette.textStrong,
-          width: flagged.map((index) => (points[index].anomalies.some((reason) => reason.severity === "strong") ? 2 : 1)),
-        },
-      },
+      marker: { symbol: "circle-open", size: 18, color: palette.textStrong, line: { color: palette.textStrong, width: 1.5 } },
     });
   }
   const playing = points.findIndex((point) => point.track.track_id === playingTrackId);

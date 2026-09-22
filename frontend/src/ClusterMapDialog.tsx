@@ -1,15 +1,14 @@
-import { ArrowDown, ArrowUp, CircleAlert, OctagonAlert, Pause, Play, TriangleAlert, X } from "lucide-react";
+import { CircleAlert, Pause, Play, Star, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
-  ClusterMapFeature,
+  ClusterMapCluster,
+  ClusterMapFeatureValue,
   ClusterMapPoint,
-  ClusterMapReason,
   ClusterMapResponse,
-  ClusterMapTrait,
   EmbeddingLayersResponse,
   Track,
 } from "./api";
-import { ClusterMapPlot, OrbitSkeleton, clusterLetter } from "./ClusterMapPlot";
+import { ClusterMapPlot, OrbitSkeleton, clusterLetter, clusterName, clusterSlot } from "./ClusterMapPlot";
 import { formatMaestGenreLabel } from "./maestGenres";
 import { seedSearchModelPresentation, tabAfterKey } from "./searchSurfaceState";
 import { formatSonaraCoreValue, sonaraCoreFeatureGroups } from "./TrackMetadataDialog";
@@ -24,17 +23,14 @@ type MapView = {
   seeds: ClusterMapPoint[];
   candidates: Candidate[];
   members: Candidate[][];
+  outside: Candidate[];
   flagged: Candidate[];
-  withSonara: number;
   medianSimilarity: number | null;
 };
 
 const railTabs: readonly RailTab[] = ["clusters", "anomalies", "layer"];
-const TEMPO_FEATURE = "detected_bpm";
-const TIMBRE_FEATURE = "mfcc_mean_blob";
-// Two clusters need at least eight candidates (four per cluster) before the server tries them.
-const FEW_CANDIDATES = 8;
 const CLOSEST_MEMBERS = 4;
+const DRIFT_SHOWN = 5;
 // SONARA labels that name a component rather than a feature read under their group title.
 const groupScopedLabels = new Set(["Score", "Rhythm", "Level"]);
 const FOCUSABLE = [
@@ -213,10 +209,6 @@ export function ClusterMapDialog({
               <button type="button" title="Build the cluster map again" onClick={onRetry}>Retry</button>
             </div>
           </div>
-        ) : response && view && view.candidates.length === 0 ? (
-          <div className="cluster-map-body">
-            <div className="empty-state">The search returned no candidates, so there is nothing to map.</div>
-          </div>
         ) : response && view ? (
           <div className="cluster-map-body">
             <KpiRow response={response} view={view} />
@@ -226,24 +218,23 @@ export function ClusterMapDialog({
                 <ClusterMapPlot
                   mapKey={entry.key}
                   points={response.points}
+                  center={response.candidates_center}
                   clusterCount={response.clusters.length}
                   isolated={isolated}
                   playingTrackId={playingTrackId}
                   featureLabel={featureLabel}
                   onPreview={onPreview}
                 />
-                {response.clusters.length === 1 && view.candidates.length < FEW_CANDIDATES ? (
-                  <p className="cluster-map-note">
-                    Only {plural(view.candidates.length, "candidate")}. Raise Limit for a denser map.
-                  </p>
+                {response.clusters.length === 0 ? (
+                  <p className="cluster-map-note">HDBSCAN found no clusters among these candidates.</p>
                 ) : null}
                 <div className="cluster-map-legend">
-                  {response.clusters.length > 1 ? response.clusters.map((_, cluster) => (
+                  {response.clusters.map((_, cluster) => (
                     <button
                       key={cluster}
                       type="button"
                       className="cluster-map-legend-chip"
-                      data-slot={cluster + 1}
+                      data-slot={clusterSlot(cluster)}
                       aria-pressed={isolated === cluster}
                       aria-label={`Cluster ${clusterLetter(cluster)}, ${plural(view.members[cluster].length, "candidate")}`}
                       title={isolated === cluster ? "Show every cluster" : `Show only cluster ${clusterLetter(cluster)}`}
@@ -253,10 +244,20 @@ export function ClusterMapDialog({
                       {clusterLetter(cluster)}
                       <span className="cluster-map-legend-count">{view.members[cluster].length}</span>
                     </button>
-                  )) : null}
+                  ))}
+                  {view.outside.length ? (
+                    <span className="cluster-map-key" data-slot="other">
+                      <span className="cluster-map-dot" aria-hidden="true" />
+                      Outside clusters · {view.outside.length}
+                    </span>
+                  ) : null}
                   <span className="cluster-map-key">
                     <span className="cluster-map-key-core" aria-hidden="true" />
                     Core · {view.seeds.length}
+                  </span>
+                  <span className="cluster-map-key" title="The candidates' centre of mass; its distance from the core shows how far the search drifts">
+                    <Star className="cluster-map-key-center" size={12} aria-hidden="true" />
+                    Candidates center
                   </span>
                   <span className="cluster-map-key">
                     <span className="cluster-map-key-ring" aria-hidden="true" />
@@ -301,7 +302,13 @@ export function ClusterMapDialog({
                   ) : tab === "anomalies" ? (
                     <AnomaliesPanel view={view} playingTrackId={playingTrackId} onPreview={onPreview} />
                   ) : (
-                    <LayerPanel response={response} view={view} layer={layer} layerRow={layerRow} note={layerState.note} />
+                    <LayerPanel
+                      response={response}
+                      isolated={isolated}
+                      layer={layer}
+                      layerRow={layerRow}
+                      note={layerState.note}
+                    />
                   )}
                 </div>
               </aside>
@@ -317,30 +324,29 @@ export function ClusterMapDialog({
 function KpiRow({ response, view }: { response: ClusterMapResponse; view: MapView }) {
   const total = view.candidates.length;
   const clusterCount = response.clusters.length;
-  const largest = Math.max(...view.members.map((members) => members.length));
   const percent = (count: number) => `${Math.round((count / total) * 100)}%`;
   return (
     <dl className="cluster-map-kpis">
       <div className="cluster-map-kpi">
         <dt>Separation</dt>
         <dd className="cluster-map-kpi-value">{response.silhouette === null ? "—" : response.silhouette.toFixed(2)}</dd>
-        <dd className="cluster-map-kpi-note">{separationNote(response.silhouette)}</dd>
+        <dd className="cluster-map-kpi-note">silhouette, from −1 to 1</dd>
       </div>
       <div className="cluster-map-kpi">
         <dt>Clusters</dt>
         <dd className="cluster-map-kpi-value">{clusterCount}</dd>
-        <dd className="cluster-map-kpi-note">{clusterCount === 1 ? "all candidates in one" : `${percent(largest)} in the largest`}</dd>
+        <dd className="cluster-map-kpi-note">{view.outside.length ? `${plural(view.outside.length, "candidate")} outside` : "every candidate in one"}</dd>
       </div>
       <div className="cluster-map-kpi">
         <dt>In cluster A</dt>
-        <dd className="cluster-map-kpi-value">{percent(view.members[0]?.length ?? 0)}</dd>
+        <dd className="cluster-map-kpi-value">{clusterCount ? percent(view.members[0].length) : "—"}</dd>
         <dd className="cluster-map-kpi-note">nearest to the references</dd>
       </div>
       <div className="cluster-map-kpi">
         <dt>Anomalies</dt>
-        <dd className="cluster-map-kpi-value">{view.withSonara ? view.flagged.length : "—"}</dd>
+        <dd className="cluster-map-kpi-value">{view.flagged.length}</dd>
         <dd className="cluster-map-kpi-note">
-          {!view.withSonara ? "no SONARA to compare" : view.flagged.length ? (
+          {view.flagged.length ? (
             <>
               <TriangleAlert size={13} aria-hidden="true" />
               stand out
@@ -359,112 +365,73 @@ function ClustersPanel({ response, view, isolated, playingTrackId, onPreview }: 
   playingTrackId: number | null;
   onPreview: (track: Track) => void;
 }) {
-  const several = response.clusters.length > 1;
   return (
-    <>
-      <SonaraCoverageNote
-        view={view}
-        none="None of these tracks has SONARA analysis, so the clusters show no SONARA traits."
-        partial={`Traits use ${view.withSonara} of ${view.candidates.length} tracks with SONARA.`}
-      />
-      <div className="cluster-map-cards">
-        <article className="cluster-map-card cluster-map-core-card">
-          <header className="cluster-map-card-head">
-            <span className="cluster-map-key-core" aria-hidden="true" />
-            <h3>Core</h3>
-            <span className="cluster-map-card-meta">{plural(view.seeds.length, "reference track")}</span>
-          </header>
-          <ul className="cluster-map-track-list">
-            {view.seeds.map((point) => (
-              <li key={point.track.track_id}>
-                <TrackLine
-                  track={point.track}
-                  meta={`${point.similarity.toFixed(3)} to core`}
+    <div className="cluster-map-cards">
+      <article className="cluster-map-card cluster-map-core-card">
+        <header className="cluster-map-card-head">
+          <span className="cluster-map-key-core" aria-hidden="true" />
+          <h3>Core</h3>
+          <span className="cluster-map-card-meta">{plural(view.seeds.length, "reference track")}</span>
+        </header>
+        <TrackList
+          items={view.seeds.map((point) => ({ point, meta: `${point.similarity.toFixed(3)} to core` }))}
+          playingTrackId={playingTrackId}
+          onPreview={onPreview}
+        />
+      </article>
+      {response.clusters.map((cluster, index) => {
+        const members = view.members[index];
+        const representative = view.candidates.find(({ point }) => point.track.track_id === cluster.representative_track_id);
+        return (
+          <article
+            key={index}
+            className="cluster-map-card"
+            data-slot={clusterSlot(index)}
+            data-active={isolated === index || undefined}
+            data-dimmed={(isolated !== null && isolated !== index) || undefined}
+          >
+            <header className="cluster-map-card-head">
+              <span className="cluster-map-dot" aria-hidden="true" />
+              <h3>Cluster {clusterLetter(index)}</h3>
+              <span className="cluster-map-card-meta">
+                {plural(members.length, "candidate")} · median {cluster.median_similarity.toFixed(3)}
+              </span>
+            </header>
+            {representative ? (
+              <div className="cluster-map-field">
+                <span className="cluster-map-field-label">Representative</span>
+                <TrackList
+                  items={[{ point: representative.point, meta: `#${representative.rank} · ${representative.point.similarity.toFixed(3)}` }]}
                   playingTrackId={playingTrackId}
                   onPreview={onPreview}
                 />
-              </li>
-            ))}
-          </ul>
+              </div>
+            ) : null}
+            <p className="cluster-map-glue" title="Standard deviation of the SONARA groups inside this cluster, in library σ">
+              {glueLine(cluster)}
+            </p>
+            {cluster.maest_genres.length ? (
+              <p className="cluster-map-genres" title="MAEST genres: each genre's share of the cluster's summed genre scores">
+                {cluster.maest_genres
+                  .map((genre) => `${formatMaestGenreLabel(genre.genre_name)} ${Math.round(genre.share * 100)}%`)
+                  .join(" · ")}
+              </p>
+            ) : null}
+            <MemberList members={members} playingTrackId={playingTrackId} onPreview={onPreview} />
+          </article>
+        );
+      })}
+      {view.outside.length ? (
+        <article className="cluster-map-card" data-slot="other">
+          <header className="cluster-map-card-head">
+            <span className="cluster-map-dot" aria-hidden="true" />
+            <h3>Outside clusters</h3>
+            <span className="cluster-map-card-meta">{plural(view.outside.length, "candidate")}</span>
+          </header>
+          <MemberList members={view.outside} playingTrackId={playingTrackId} onPreview={onPreview} />
         </article>
-        {response.clusters.map((cluster, index) => {
-          const members = view.members[index];
-          const representative = view.candidates.find(({ point }) => point.track.track_id === cluster.representative_track_id);
-          const letter = clusterLetter(index);
-          return (
-            <article
-              key={index}
-              className="cluster-map-card"
-              data-slot={index + 1}
-              data-active={isolated === index || undefined}
-              data-dimmed={(isolated !== null && isolated !== index) || undefined}
-            >
-              <header className="cluster-map-card-head">
-                <span className="cluster-map-dot" aria-hidden="true" />
-                <h3>Cluster {letter}</h3>
-                <span className="cluster-map-card-meta">
-                  {plural(members.length, "candidate")} · median {cluster.median_similarity.toFixed(3)}
-                </span>
-              </header>
-              {representative ? (
-                <div className="cluster-map-field">
-                  <span className="cluster-map-field-label">Representative</span>
-                  <TrackLine
-                    track={representative.point.track}
-                    meta={`#${representative.rank} · ${representative.point.similarity.toFixed(3)}`}
-                    playingTrackId={playingTrackId}
-                    onPreview={onPreview}
-                  />
-                </div>
-              ) : null}
-              {cluster.traits.length ? (
-                <div className="cluster-map-traits">
-                  {cluster.traits.map((trait) => <TraitChip key={trait.feature} trait={trait} />)}
-                </div>
-              ) : several && view.withSonara ? (
-                <p className="cluster-map-muted">No SONARA trait sets this cluster apart.</p>
-              ) : null}
-              {cluster.maest_genres.length ? (
-                <p className="cluster-map-genres" title="MAEST genres: each genre's share of the cluster's summed genre scores">
-                  {cluster.maest_genres
-                    .map((genre) => `${formatMaestGenreLabel(genre.genre_name)} ${Math.round(genre.share * 100)}%`)
-                    .join(" · ")}
-                </p>
-              ) : null}
-              <ul className="cluster-map-track-list">
-                {members.slice(0, CLOSEST_MEMBERS).map((member) => (
-                  <li key={member.point.track.track_id}>
-                    <TrackLine
-                      track={member.point.track}
-                      meta={`#${member.rank} · ${member.point.similarity.toFixed(3)}`}
-                      playingTrackId={playingTrackId}
-                      onPreview={onPreview}
-                    />
-                  </li>
-                ))}
-              </ul>
-              {members.length > CLOSEST_MEMBERS ? (
-                <details className="cluster-map-more">
-                  <summary>Show all {members.length}</summary>
-                  <ul className="cluster-map-track-list">
-                    {members.slice(CLOSEST_MEMBERS).map((member) => (
-                      <li key={member.point.track.track_id}>
-                        <TrackLine
-                          track={member.point.track}
-                          meta={`#${member.rank} · ${member.point.similarity.toFixed(3)}`}
-                          playingTrackId={playingTrackId}
-                          onPreview={onPreview}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ) : null}
-            </article>
-          );
-        })}
-      </div>
-    </>
+      ) : null}
+    </div>
   );
 }
 
@@ -473,58 +440,33 @@ function AnomaliesPanel({ view, playingTrackId, onPreview }: {
   playingTrackId: number | null;
   onPreview: (track: Track) => void;
 }) {
-  if (!view.withSonara) {
-    return (
-      <div className="empty-state">
-        Anomalies compare SONARA features, and none of these candidates has SONARA analysis. Run SONARA analysis to see which tracks stand out.
-      </div>
-    );
-  }
-  const coverage = (
-    <SonaraCoverageNote
-      view={view}
-      none=""
-      partial={`Checked ${view.withSonara} of ${view.candidates.length} tracks: the rest have no SONARA analysis.`}
-    />
-  );
   if (!view.flagged.length) {
-    return (
-      <>
-        {coverage}
-        <div className="empty-state">No candidate leaves the references' SONARA range far enough to stand out.</div>
-      </>
-    );
+    return <div className="empty-state">IsolationForest finds no candidate whose SONARA profile stands out.</div>;
   }
-  const rows = [...view.flagged].sort((left, right) =>
-    Number(isStrong(right.point)) - Number(isStrong(left.point))
-    || right.point.anomalies.length - left.point.anomalies.length
-    || left.rank - right.rank);
+  const rows = [...view.flagged].sort((left, right) => left.point.outlier_score - right.point.outlier_score);
   return (
     <>
       <p className="cluster-map-anomaly-summary">{anomalySummary(view.flagged)}</p>
-      {coverage}
       <ul className="cluster-map-anomalies">
         {rows.map(({ point, rank }) => {
           const name = displayTrack(point.track);
-          const strong = isStrong(point);
           return (
             <li key={point.track.track_id} className="cluster-map-anomaly">
               <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
               <div className="cluster-map-anomaly-title">
                 <strong title={name}>{name}</strong>
-                <span className="cluster-map-anomaly-meta" data-slot={point.cluster + 1}>
+                <span className="cluster-map-anomaly-meta" data-slot={clusterSlot(point.cluster)}>
                   <span className="cluster-map-dot" aria-hidden="true" />
-                  Cluster {clusterLetter(point.cluster)} · #{rank} · {point.similarity.toFixed(3)}
+                  {clusterName(point.cluster)} · #{rank} · {point.similarity.toFixed(3)}
                 </span>
               </div>
-              <span className="cluster-map-severity" data-severity={strong ? "strong" : "mild"}>
-                {strong ? <OctagonAlert size={12} aria-hidden="true" /> : <TriangleAlert size={12} aria-hidden="true" />}
-                {strong ? "Strong" : "Mild"}
+              <span className="cluster-map-anomaly-score" title="IsolationForest score: the lower, the more unusual">
+                {point.outlier_score.toFixed(2)}
               </span>
               <div className="cluster-map-reasons">
-                {point.anomalies.map((reason) => (
-                  <span key={reason.feature} className="cluster-map-reason" title={reasonTitle(reason)}>
-                    {reasonText(reason)}
+                {point.outlier_features.map((item) => (
+                  <span key={item.feature} className="cluster-map-reason" title="Distance from the map's mean, in library σ">
+                    {featureValueText(item)}
                   </span>
                 ))}
               </div>
@@ -536,15 +478,17 @@ function AnomaliesPanel({ view, playingTrackId, onPreview }: {
   );
 }
 
-function LayerPanel({ response, view, layer, layerRow, note }: {
+function LayerPanel({ response, isolated, layer, layerRow, note }: {
   response: ClusterMapResponse;
-  view: MapView;
+  isolated: number | null;
   layer: number | null;
   layerRow: LayerRow | null;
   note: string | null;
 }) {
   const subject = layer !== null ? "layer" : "model";
-  const kept = response.angle_variance_kept;
+  const clusterIndex = isolated ?? 0;
+  const cluster = response.clusters[clusterIndex];
+  const widest = cluster ? Math.max(...cluster.profile.map((spread) => spread.std), 1e-9) : 1;
   return (
     <div className="cluster-map-layer">
       {layer !== null ? (
@@ -555,40 +499,49 @@ function LayerPanel({ response, view, layer, layerRow, note }: {
         </div>
       ) : null}
       <div className="cluster-map-focus">
-        <h3>What the {subject} holds</h3>
+        <h3>{cluster ? `Glue of cluster ${clusterLetter(clusterIndex)}` : "Glue"}</h3>
         <p className="cluster-map-prose">
-          Each bar divides how far the candidates sit from the references on a SONARA feature by how far a random library
-          track sits. Below 1× the {subject} keeps that feature closer to the references than chance.
+          The spread of each SONARA group inside the cluster, in library σ. The {subject} holds the group with the smallest
+          spread and ignores the one with the largest. Pick a cluster in the legend to see its glue.
         </p>
-        {view.withSonara ? (
-          <>
-            <div className="cluster-map-focus-scale" aria-hidden="true">
-              <span>0.25×</span>
-              <span>1×</span>
-              <span>4×</span>
-            </div>
-            {groupFeatures(response.features).map(([group, features]) => (
-              <div key={group} className="cluster-map-focus-group">
-                <h4>{group.charAt(0).toUpperCase() + group.slice(1)}</h4>
-                {features.map((feature) => <FocusBar key={feature.feature} feature={feature} />)}
-              </div>
-            ))}
-          </>
-        ) : (
-          <div className="empty-state">None of these candidates has SONARA analysis, so there is nothing to compare.</div>
-        )}
+        {cluster ? cluster.profile.map((spread, position) => (
+          <div
+            key={spread.group}
+            className="cluster-map-focus-row"
+            data-holds={position === 0 || undefined}
+            title={`${groupLabel(spread.group)}: std ${spread.std.toFixed(2)}`}
+          >
+            <span className="cluster-map-focus-label">{groupLabel(spread.group)}</span>
+            <span className="cluster-map-focus-track">
+              <span className="cluster-map-focus-bar" style={{ left: 0, width: `${(spread.std / widest) * 100}%` }} />
+            </span>
+            <span className="cluster-map-focus-value">{spread.std.toFixed(2)}</span>
+          </div>
+        )) : <div className="empty-state">No cluster to profile: HDBSCAN found none in this search.</div>}
+      </div>
+      <div className="cluster-map-focus">
+        <h3>Drift from the references</h3>
+        <p className="cluster-map-prose">
+          The candidates' mean minus the references' mean, in library σ: where this {subject} pulls the search.
+        </p>
+        <div className="cluster-map-reasons">
+          {response.drift.slice(0, DRIFT_SHOWN).map((item) => (
+            <span key={item.feature} className="cluster-map-reason">
+              {`${featureLabel(item.feature)} ${item.delta > 0 ? "+" : ""}${item.delta.toFixed(2)}σ`}
+            </span>
+          ))}
+        </div>
       </div>
       <div className="cluster-map-focus">
         <h3>Separation</h3>
         <p className="cluster-map-prose">
-          Separation is the silhouette score of the clusters, measured on the directions in which the candidates differ from
-          the core: near 1 the groups are distinct, near 0 they overlap. Below 0.15 the map keeps one cluster, because no
-          split is clear enough to trust.
+          The silhouette of the HDBSCAN clusters, measured on the directions in which the candidates differ from the
+          core: near 1 the clusters are distinct, near 0 they overlap.
         </p>
       </div>
       <p className="cluster-map-prose">
         Distance from the centre is exact (1 − similarity to the core); the angle only approximates the direction of
-        difference{kept === null ? "" : ` and keeps ${Math.round(kept * 100)}% of it`}.
+        difference and keeps {Math.round(response.angle_variance_kept * 100)}% of it.
       </p>
       <p className="cluster-map-prose">
         Each map covers one model and layer; switch Model or Layer in the panel and open the map again to compare.
@@ -597,25 +550,45 @@ function LayerPanel({ response, view, layer, layerRow, note }: {
   );
 }
 
-function SonaraCoverageNote({ view, none, partial }: { view: MapView; none: string; partial: string }) {
-  if (view.withSonara === view.candidates.length) return null;
-  const text = view.withSonara ? partial : none;
-  return text ? <p className="cluster-map-note empty-state">{text}</p> : null;
-}
-
-function TrackLine({ track, meta, playingTrackId, onPreview }: {
-  track: Track;
-  meta: string;
+function MemberList({ members, playingTrackId, onPreview }: {
+  members: Candidate[];
   playingTrackId: number | null;
   onPreview: (track: Track) => void;
 }) {
-  const name = displayTrack(track);
+  const line = ({ point, rank }: Candidate) => ({ point, meta: `#${rank} · ${point.similarity.toFixed(3)}` });
   return (
-    <div className="cluster-map-track">
-      <PlayButton track={track} playingTrackId={playingTrackId} onPreview={onPreview} />
-      <span className="cluster-map-track-name" title={name}>{name}</span>
-      <span className="cluster-map-track-meta">{meta}</span>
-    </div>
+    <>
+      <TrackList items={members.slice(0, CLOSEST_MEMBERS).map(line)} playingTrackId={playingTrackId} onPreview={onPreview} />
+      {members.length > CLOSEST_MEMBERS ? (
+        <details className="cluster-map-more">
+          <summary>Show all {members.length}</summary>
+          <TrackList items={members.slice(CLOSEST_MEMBERS).map(line)} playingTrackId={playingTrackId} onPreview={onPreview} />
+        </details>
+      ) : null}
+    </>
+  );
+}
+
+function TrackList({ items, playingTrackId, onPreview }: {
+  items: { point: ClusterMapPoint; meta: string }[];
+  playingTrackId: number | null;
+  onPreview: (track: Track) => void;
+}) {
+  return (
+    <ul className="cluster-map-track-list">
+      {items.map(({ point, meta }) => {
+        const name = displayTrack(point.track);
+        return (
+          <li key={point.track.track_id}>
+            <div className="cluster-map-track">
+              <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
+              <span className="cluster-map-track-name" title={name}>{name}</span>
+              <span className="cluster-map-track-meta">{meta}</span>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -640,52 +613,6 @@ function PlayButton({ track, playingTrackId, onPreview }: {
   );
 }
 
-function TraitChip({ trait }: { trait: ClusterMapTrait }) {
-  return (
-    <span
-      className="cluster-map-trait"
-      title={`Cluster median ${formatFeatureValue(trait.feature, trait.cluster_median)} · others ${formatFeatureValue(trait.feature, trait.rest_median)}`}
-    >
-      {trait.delta > 0 ? <ArrowUp size={12} aria-hidden="true" /> : <ArrowDown size={12} aria-hidden="true" />}
-      {`${featureLabel(trait.feature)} ${trait.delta > 0 ? "+" : ""}${trait.delta.toFixed(1)}σ`}
-    </span>
-  );
-}
-
-function FocusBar({ feature }: { feature: ClusterMapFeature }) {
-  const label = featureLabel(feature.feature);
-  const ratio = feature.results_gap !== null && feature.library_gap !== null && feature.library_gap !== 0
-    ? feature.results_gap / feature.library_gap
-    : null;
-  if (ratio === null) {
-    return (
-      <div className="cluster-map-focus-row" title={`${label}: not enough SONARA data to compare.`}>
-        <span className="cluster-map-focus-label">{label}</span>
-        <span className="cluster-map-focus-track" />
-        <span className="cluster-map-focus-value">—</span>
-      </div>
-    );
-  }
-  // A log2 scale centred on 1×, clamped to 0.25×–4×.
-  const position = Math.max(-2, Math.min(2, Math.log2(ratio)));
-  const reference = feature.core_low !== null && feature.core_high !== null
-    ? ` References ${formatRange(feature.feature, feature.core_low, feature.core_high)}.`
-    : "";
-  return (
-    <div
-      className="cluster-map-focus-row"
-      data-holds={ratio < 1 || undefined}
-      title={`${label}: candidates sit a median ${formatFeatureValue(feature.feature, feature.results_gap ?? 0)} from the references' range, a random library track ${formatFeatureValue(feature.feature, feature.library_gap ?? 0)}.${reference}`}
-    >
-      <span className="cluster-map-focus-label">{label}</span>
-      <span className="cluster-map-focus-track">
-        <span className="cluster-map-focus-bar" style={{ left: `${50 + Math.min(0, position) * 25}%`, width: `${Math.abs(position) * 25}%` }} />
-      </span>
-      <span className="cluster-map-focus-value">{formatRatio(ratio)}</span>
-    </div>
-  );
-}
-
 function mapView(response: ClusterMapResponse): MapView {
   const seeds: ClusterMapPoint[] = [];
   const candidates: Candidate[] = [];
@@ -697,8 +624,8 @@ function mapView(response: ClusterMapResponse): MapView {
     seeds,
     candidates,
     members: response.clusters.map((_, cluster) => candidates.filter(({ point }) => point.cluster === cluster)),
-    flagged: candidates.filter(({ point }) => point.anomalies.length > 0),
-    withSonara: candidates.filter(({ point }) => point.has_sonara).length,
+    outside: candidates.filter(({ point }) => point.cluster === -1),
+    flagged: candidates.filter(({ point }) => point.outlier),
     medianSimilarity: median(candidates.map(({ point }) => point.similarity)),
   };
 }
@@ -714,31 +641,26 @@ function plural(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function separationNote(silhouette: number | null) {
-  if (silhouette === null || silhouette < 0.15) return "no clear sub-groups";
-  return silhouette < 0.35 ? "moderate sub-groups" : "clear sub-groups";
-}
-
 function railTabTitle(tab: RailTab, layer: number | null) {
-  if (tab === "clusters") return "The core and each cluster: representative, traits, genres and closest tracks";
-  if (tab === "anomalies") return "Candidates whose SONARA features leave the references' range";
+  if (tab === "clusters") return "The core and each cluster: representative, glue, genres and closest tracks";
+  if (tab === "anomalies") return "Candidates whose SONARA profile IsolationForest finds unusual";
   return layer !== null
-    ? "What this layer keeps close to the references, and how to read the map"
-    : "What this model keeps close to the references, and how to read the map";
+    ? "What holds this layer's clusters together, and where it pulls the search"
+    : "What holds this model's clusters together, and where it pulls the search";
 }
 
-function isStrong(point: ClusterMapPoint) {
-  return point.anomalies.some((reason) => reason.severity === "strong");
+function glueLine(cluster: ClusterMapCluster) {
+  const glue = cluster.profile[0];
+  const ignored = cluster.profile[cluster.profile.length - 1];
+  if (!glue || !ignored) return "";
+  return `Glue: ${groupLabel(glue.group)} (std ${glue.std.toFixed(2)}) · Ignored: ${groupLabel(ignored.group)} (std ${ignored.std.toFixed(2)})`;
 }
 
 function anomalySummary(flagged: Candidate[]) {
   const counts = new Map<string, number>();
   for (const { point } of flagged) {
-    for (const reason of point.anomalies) {
-      const direction = reason.feature === TEMPO_FEATURE || reason.feature === TIMBRE_FEATURE
-        ? ""
-        : reason.delta > 0 ? ", higher" : ", lower";
-      const key = `${featureLabel(reason.feature)}${direction}`;
+    for (const item of point.outlier_features) {
+      const key = featureLabel(item.feature);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
@@ -748,42 +670,12 @@ function anomalySummary(flagged: Candidate[]) {
     .join(" · ");
 }
 
-function reasonText(reason: ClusterMapReason) {
-  const label = featureLabel(reason.feature);
-  if (reason.feature === TIMBRE_FEATURE) return `${label} ${reason.z.toFixed(1)}σ from ref`;
-  if (reason.feature === TEMPO_FEATURE) {
-    const bpm = (value: number | null) => (value === null ? "—" : String(Math.round(value)));
-    const reference = reason.reference_low === null || reason.reference_high === null
-      ? "—"
-      : bpm(reason.reference_low) === bpm(reason.reference_high)
-        ? bpm(reason.reference_low)
-        : `${bpm(reason.reference_low)}–${bpm(reason.reference_high)}`;
-    return `${label} ${bpm(reason.value)} · ${Math.round(reason.delta)} BPM from ref ${reference}`;
-  }
-  const value = reason.value === null ? "—" : formatFeatureValue(reason.feature, reason.value);
-  const reference = reason.reference_low === null || reason.reference_high === null
-    ? "—"
-    : formatRange(reason.feature, reason.reference_low, reason.reference_high);
-  return `${label} ${value} vs ref ${reference}`;
+function featureValueText(item: ClusterMapFeatureValue) {
+  return `${featureLabel(item.feature)} ${formatFeatureValue(item.feature, item.value)} (${item.delta > 0 ? "+" : ""}${item.delta.toFixed(1)}σ)`;
 }
 
-function reasonTitle(reason: ClusterMapReason) {
-  const severity = reason.severity === "strong" ? "Strong" : "Mild";
-  if (reason.feature === TEMPO_FEATURE) {
-    return `${severity}: ${Math.round(reason.delta)} BPM from the references' tempo, counting half and double time.`;
-  }
-  return `${severity}: ${reason.z.toFixed(1)}σ outside the references' range, in library σ.`;
-}
-
-function groupFeatures(features: ClusterMapFeature[]) {
-  const groups = new Map<string, ClusterMapFeature[]>();
-  for (const feature of features) groups.set(feature.group, [...(groups.get(feature.group) ?? []), feature]);
-  return [...groups];
-}
-
-function formatRatio(ratio: number) {
-  if (ratio >= 10) return `${Math.round(ratio)}×`;
-  return `${ratio.toFixed(ratio >= 0.1 ? 1 : 2)}×`;
+function groupLabel(group: string) {
+  return group.charAt(0).toUpperCase() + group.slice(1);
 }
 
 function sonaraFeature(feature: string) {
@@ -794,9 +686,10 @@ function sonaraFeature(feature: string) {
   return null;
 }
 
-/** SONARA labels and units come from the track metadata dialog; timbre is the map's own distance in σ. */
+/** SONARA labels and units come from the track metadata dialog; `mfcc_N` is an MFCC coefficient. */
 function featureLabel(feature: string) {
-  if (feature === TIMBRE_FEATURE) return "Timbre (MFCC)";
+  const mfcc = /^mfcc_(\d+)$/.exec(feature);
+  if (mfcc) return `MFCC ${mfcc[1]}`;
   const descriptor = sonaraFeature(feature);
   if (!descriptor) return feature.replaceAll("_", " ");
   return groupScopedLabels.has(descriptor.label)
@@ -805,18 +698,6 @@ function featureLabel(feature: string) {
 }
 
 function formatFeatureValue(feature: string, value: number) {
-  if (feature === TEMPO_FEATURE) return `${Math.round(value)} BPM`;
-  if (feature === TIMBRE_FEATURE) return `${value.toFixed(1)}σ`;
   const descriptor = sonaraFeature(feature);
-  return descriptor ? formatSonaraCoreValue(descriptor.key, value) : value.toFixed(3);
-}
-
-// "-10.1 LUFS" and "-9.8 LUFS" read as "-10.1…-9.8 LUFS".
-function formatRange(feature: string, low: number, high: number) {
-  const lowText = formatFeatureValue(feature, low);
-  const highText = formatFeatureValue(feature, high);
-  if (lowText === highText) return highText;
-  const unit = /(\s[^\d\s]+|\/s|σ)$/.exec(highText)?.[0] ?? "";
-  const lowNumber = unit && lowText.endsWith(unit) ? lowText.slice(0, -unit.length) : lowText;
-  return `${lowNumber}…${highText}`;
+  return descriptor ? formatSonaraCoreValue(descriptor.key, value) : value.toFixed(2);
 }

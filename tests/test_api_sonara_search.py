@@ -152,13 +152,33 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     db = _sonara_library(db_path)
     dimension = current_embedding_spec("maest").dimension
     private_axes = iter(range(30, 60))
+    # A complete SONARA row, as every ML-analysed track has one.
+    sonara = {
+        "bpm_confidence": 0.9,
+        "beat_grid_stability": 0.9,
+        "onset_density_per_second": 4.0,
+        "dissonance_score": 0.3,
+        "chord_changes_per_second": 0.5,
+        "integrated_loudness_lufs": -9.0,
+        "dynamic_range_db": 8.0,
+        "spectral_centroid_hz": 2000.0,
+        "spectral_flatness": 0.1,
+        "zero_crossing_rate": 0.06,
+        "danceability_score": 0.6,
+        "valence_score": 0.4,
+        "acousticness_score": 0.2,
+        "mood_happy_score": 0.3,
+        "mood_aggressive_score": 0.3,
+        "mood_relaxed_score": 0.4,
+        "mood_sad_score": 0.3,
+    }
 
     def add(name: str, bpm: float, energy: float, genre: str, direction: dict[int, float]) -> AnalysisTarget:
         target = _add_sonara_track(
             db,
             tmp_path,
             name,
-            {"detected_bpm": bpm, "bpm_confidence": 0.9, "beat_grid_stability": 0.9, "energy": energy},
+            {**sonara, "detected_bpm": bpm, "energy": energy},
         )
         vector = np.zeros(dimension, dtype=np.float32)
         vector[0] = 1.0
@@ -187,13 +207,14 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         add("seed-169.wav", 169.0, 0.3, dnb, {20: 0.2}),
         add("seed-171.wav", 171.0, 0.3, dnb, {20: -0.2}),
     ]
-    near = {
-        bpm: add(f"near-{bpm:g}.wav", bpm, 0.3, dnb, {1: 0.1, next(private_axes): 0.01})
-        for bpm in (169.0, 170.0, 171.0, 125.0, 85.0)
-    }
+    near = [
+        add(f"near-{index}.wav", bpm, 0.3, dnb, {1: 0.1, next(private_axes): 0.01})
+        for index, bpm in enumerate((169.0, 170.0, 171.0, 170.0, 125.0, 85.0))
+    ]
+    off_tempo = near[-2:]
     far = [
         add(f"far-{index}.wav", 170.0, 0.9, jungle, {2: 0.6, next(private_axes): 0.01})
-        for index in range(5)
+        for index in range(6)
     ]
     request = {
         "analysis_family": "maest",
@@ -217,22 +238,20 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     assert {track_id for track_id, point in points.items() if not point["seed"]} == set(scores)
     for track_id, score in scores.items():
         assert points[track_id]["similarity"] == pytest.approx(score, abs=1e-5)
-    near_clusters = {points[target.track_id]["cluster"] for target in near.values()}
+    near_clusters = {points[target.track_id]["cluster"] for target in near}
     far_clusters = {points[target.track_id]["cluster"] for target in far}
     assert len(near_clusters) == 1 and len(far_clusters) == 1
-    assert near_clusters != far_clusters
+    assert near_clusters != far_clusters and -1 not in near_clusters | far_clusters
     far_cluster = payload["clusters"][far_clusters.pop()]
     assert [share["genre_name"] for share in far_cluster["maest_genres"]] == [jungle]
-    assert any(
-        trait["feature"] == "energy_score" and trait["delta"] > 0
-        for trait in far_cluster["traits"]
-    )
-    # 85 BPM is half of the seeds' range, so only the 125 BPM track is off tempo.
-    assert {
-        track_id
-        for track_id, point in points.items()
-        if any(reason["feature"] == "detected_bpm" for reason in point["anomalies"])
-    } == {near[125.0].track_id}
+    # Tempo counts as detected, never folded to half or double time: the 125
+    # and 85 BPM tracks stand out, and tempo is what sets them apart.
+    for target in off_tempo:
+        assert points[target.track_id]["outlier"]
+        assert points[target.track_id]["outlier_features"][0]["feature"] == "detected_bpm"
+    # The energetic far group lifts the candidates above the references.
+    drift = {item["feature"]: item["delta"] for item in payload["drift"]}
+    assert drift["energy_score"] > 0
     assert payload["catalog_uuid"] == db.catalog_uuid
     assert payload["layer"] == 13
 
@@ -462,9 +481,6 @@ def _add_sonara_track(
     values.update(
         {
             "track_id": target.track_id,
-            "detected_bpm": _float(features.get("detected_bpm")),
-            "bpm_confidence": _float(features.get("bpm_confidence")),
-            "beat_grid_stability": _float(features.get("beat_grid_stability")),
             "energy_score": energy,
             "danceability_score": _float(features.get("danceability")),
             "valence_score": _float(features.get("valence")),
@@ -476,6 +492,10 @@ def _add_sonara_track(
             "analysis_schema_version": 6,
             "analyzed_at": _NOW,
         }
+    )
+    # Keys named like a SonaraRow column are stored as given.
+    values.update(
+        {name: _float(value) for name, value in features.items() if name in values}
     )
     result = save_sonara_writes(
         db,

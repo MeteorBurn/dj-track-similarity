@@ -161,11 +161,8 @@ def register_search_routes(
             }
             if vectors.keys() != set(targets):
                 raise RuntimeError(_CLUSTER_MAP_CHANGED)
-            sonara_output = database.active_analysis_output("sonara", "core")
-            library_sonara = (
-                ()
-                if sonara_output is None
-                else database.load_sonara_feature_rows(sonara_output)
+            library_sonara = database.load_sonara_feature_rows(
+                database.active_analysis_output("sonara", "core")
             )
             sonara_by_target = {row.target: row.values for row in library_sonara}
             with state.captured_db(database, generation):
@@ -178,7 +175,7 @@ def register_search_routes(
                     track=track,
                     seed=True,
                     vector=vectors[target],
-                    sonara=sonara_by_target.get(target),
+                    sonara=sonara_by_target[target],
                 )
                 for target, track in zip(seeds, seed_tracks, strict=True)
             ]
@@ -187,7 +184,7 @@ def register_search_routes(
                     track=candidate["track"],
                     seed=False,
                     vector=vectors[result.target],
-                    sonara=sonara_by_target.get(result.target),
+                    sonara=sonara_by_target[result.target],
                 )
                 for result, candidate in zip(results, candidates, strict=True)
             )
@@ -222,9 +219,10 @@ def register_search_routes(
             layer=validate_embedding_layer(request.analysis_family, request.layer),
             silhouette=cluster_map.silhouette,
             angle_variance_kept=cluster_map.angle_variance_kept,
+            candidates_center=cluster_map.candidates_center,
             points=cluster_map.points,
             clusters=cluster_map.clusters,
-            features=cluster_map.features,
+            drift=cluster_map.drift,
         )
 
     @app.post(

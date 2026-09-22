@@ -75,11 +75,12 @@ export function OrbitSkeleton() {
   );
 }
 
-/** The orbit: the reference core in the centre, every point at radius 1 - similarity;
- * the layer's exceptions stand out from its swarm. */
+/** The orbit: the reference core in the centre, every point at radius 1 - similarity,
+ * out to where a typical library track sits; the layer's exceptions stand out from its swarm. */
 export function ClusterMapPlot({
   mapKey,
   points,
+  librarySimilarity,
   center,
   playingTrackId,
   reasonText,
@@ -87,6 +88,7 @@ export function ClusterMapPlot({
 }: {
   mapKey: string;
   points: ClusterMapPoint[];
+  librarySimilarity: number;
   center: Center;
   playingTrackId: number | null;
   reasonText: (item: ClusterMapFeatureValue) => string;
@@ -107,7 +109,7 @@ export function ClusterMapPlot({
   const [themeRevision, setThemeRevision] = useState(0);
   const [hover, setHover] = useState<Hover | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition | null>(null);
-  const orbit = useMemo(() => orbitOf(points), [points]);
+  const orbit = useMemo(() => orbitOf(points, librarySimilarity), [points, librarySimilarity]);
   const ranks = useMemo(() => candidateRanks(points), [points]);
   const hovered = hover ? points[hover.index] : undefined;
   const hoveredRank = hover ? ranks[hover.index] : null;
@@ -139,6 +141,7 @@ export function ClusterMapPlot({
     if (!plotly || !host) return undefined;
     let cancelled = false;
     const { data, layout } = figure(points, orbit, readPalette(host), {
+      librarySimilarity,
       center,
       playingTrackId,
       mapKey,
@@ -158,7 +161,7 @@ export function ClusterMapPlot({
     return () => {
       cancelled = true;
     };
-  }, [plotly, points, orbit, center, playingTrackId, mapKey, themeRevision, attempt]);
+  }, [plotly, points, orbit, librarySimilarity, center, playingTrackId, mapKey, themeRevision, attempt]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -315,9 +318,11 @@ export function ClusterMapPlot({
   );
 }
 
-function orbitOf(points: ClusterMapPoint[]): Orbit {
+// The view reaches a typical library track, not the farthest candidate: stretched to the
+// candidates alone, a spread of a few thousandths of similarity filled the whole map.
+function orbitOf(points: ClusterMapPoint[], librarySimilarity: number): Orbit {
   const radii = points.map((point) => Math.max(0, 1 - point.similarity));
-  const reach = Math.max(0, ...radii);
+  const reach = Math.max(1 - librarySimilarity, ...radii);
   const ringsFor = (step: number) => Math.max(1, Math.ceil(reach / step - 1e-9));
   const step = RING_STEPS.find((candidate) => ringsFor(candidate) <= MAX_RINGS) ?? RING_STEPS[RING_STEPS.length - 1];
   return {
@@ -364,7 +369,8 @@ function figure(
   points: ClusterMapPoint[],
   orbit: Orbit,
   palette: Palette,
-  { center, playingTrackId, mapKey, view }: {
+  { librarySimilarity, center, playingTrackId, mapKey, view }: {
+    librarySimilarity: number;
     center: Center;
     playingTrackId: number | null;
     mapKey: string;
@@ -468,6 +474,18 @@ function figure(
       y1: radius,
       line: hairline,
     })),
+    // A typical library track sits on this ring.
+    {
+      type: "circle",
+      layer: "below",
+      xref: "x",
+      yref: "y",
+      x0: -(1 - librarySimilarity),
+      y0: -(1 - librarySimilarity),
+      x1: 1 - librarySimilarity,
+      y1: 1 - librarySimilarity,
+      line: { color: palette.textMuted, width: 1.5, dash: "dash" },
+    },
   ];
   const ringLabels = radii.map((radius): Partial<Annotations> => ({
     x: radius * Math.SQRT1_2,

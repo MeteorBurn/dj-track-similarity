@@ -250,6 +250,7 @@ export type ClusterMapDrift = { feature: string; group: string; delta: number };
 
 /** The map of exactly what `/api/search` returns for the same payload. `points`
  * holds the seeds in request order, then the candidates in rank order;
+ * `library_similarity` is how close a typical library track sits to the core;
  * `candidates_center` places the candidates' centre of mass on the orbit;
  * `profile` runs from the SONARA group the candidates hold tightest to the
  * loosest, `drift` from the largest shift down. */
@@ -258,6 +259,7 @@ export type ClusterMapResponse = {
   analysis_family: EmbeddingSource;
   layer: number | null;
   angle_variance_kept: number;
+  library_similarity: number;
   candidates_center: { similarity: number; angle: number };
   points: ClusterMapPoint[];
   profile: ClusterMapGroupSpread[];

@@ -150,6 +150,7 @@ def register_search_routes(
             )
             seeds = searcher.resolve_targets(request.seed_track_ids)
             results = searcher.search(seeds, filters=filters, limit=request.limit)
+            library_similarity = searcher.typical_similarity(seeds)
             targets = (*seeds, *(result.target for result in results))
             vectors = {
                 row.target: row.vector
@@ -218,6 +219,7 @@ def register_search_routes(
             analysis_family=request.analysis_family,
             layer=validate_embedding_layer(request.analysis_family, request.layer),
             angle_variance_kept=cluster_map.angle_variance_kept,
+            library_similarity=library_similarity,
             candidates_center=cluster_map.candidates_center,
             points=cluster_map.points,
             profile=cluster_map.profile,

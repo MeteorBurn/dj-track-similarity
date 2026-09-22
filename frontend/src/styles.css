@@ -6679,6 +6679,13 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   color: var(--accent);
   fill: var(--accent);
 }
+.cluster-map-key-typical {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px dashed var(--text-muted);
+  border-radius: 50%;
+}
 
 .cluster-map-rail {
   display: flex;

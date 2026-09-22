@@ -1021,15 +1021,17 @@ class ClusterMapResponse(_ResponseModel):
 
     ``points`` holds the seeds in request order, then the candidates in rank
     order; ``exception`` marks a candidate that does not fit in with the rest
-    in the layer's space. ``candidates_center`` places the candidates' centre
-    of mass on the orbit. ``layer`` is the layer read, resolved from the
-    request.
+    in the layer's space. ``library_similarity`` is how close a typical
+    library track sits to the core, the median over the whole library, and
+    ``candidates_center`` places the candidates' centre of mass on the orbit.
+    ``layer`` is the layer read, resolved from the request.
     """
 
     catalog_uuid: str
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
     layer: int | None
     angle_variance_kept: float
+    library_similarity: float
     candidates_center: ClusterMapCenterResponse
     points: list[ClusterMapPointResponse]
     profile: list[ClusterMapGroupSpreadResponse]

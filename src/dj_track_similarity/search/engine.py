@@ -296,21 +296,25 @@ class SimilaritySearch:
             )
         if not rows:
             return []
-        centroid = _normalize(
-            np.mean(
-                prepared.matrix[
-                    [target_to_index[target] for target in seeds]
-                ],
-                axis=0,
-            )
-        )
         return self._rank(
             prepared,
-            centroid,
+            _seed_centroid(prepared, seeds),
             excluded=frozenset(seeds),
             filters=filters or SearchFilters(),
             limit=limit,
         )
+
+    def typical_similarity(self, seed_targets: Sequence[AnalysisTarget]) -> float:
+        """How close a typical current track sits to the seeds: the median
+        cosine of the whole library to the centroid ``search`` ranks by."""
+
+        output = self.active_output()
+        prepared = _PREPARED.prepared(
+            self._load_full_rows(output),
+            output,
+            self.repository.catalog_uuid,
+        )
+        return float(np.median(prepared.matrix @ _seed_centroid(prepared, seed_targets)))
 
     def search_vector(
         self,
@@ -805,6 +809,20 @@ def _stack(
             "Active ML embedding rows are not unit-normalized"
         )
     return np.ascontiguousarray(matrix, dtype=np.float32)
+
+
+def _seed_centroid(
+    prepared: _Prepared,
+    seeds: Sequence[AnalysisTarget],
+) -> FloatArray:
+    """The seeds' normalized mean, the query a seed search ranks by."""
+
+    return _normalize(
+        np.mean(
+            prepared.matrix[[prepared.target_to_index[target] for target in seeds]],
+            axis=0,
+        )
+    )
 
 
 def _normalize(vector: np.ndarray) -> FloatArray:

@@ -229,12 +229,14 @@ export function ClusterMapDialog({
               <figure className="cluster-map-figure">
                 <figcaption>
                   {`Кандидаты расположены вокруг ядра референсов: чем ближе точка, тем больше трек похож на референс по мнению ${subject.genitive}. `}
+                  {"Пунктирное кольцо на краю — обычный трек библиотеки. "}
                   {`Треки, которые отличаются от референса одинаково, образуют рой; исключение — трек, который ${subject.nominative} притягивает по другой причине. `}
                   Нажмите на точку, чтобы прослушать трек.
                 </figcaption>
                 <ClusterMapPlot
                   mapKey={entry.key}
                   points={response.points}
+                  librarySimilarity={response.library_similarity}
                   center={response.candidates_center}
                   playingTrackId={playingTrackId}
                   reasonText={reasonText}
@@ -262,6 +264,13 @@ export function ClusterMapDialog({
                   >
                     <Star className="cluster-map-key-center" size={12} aria-hidden="true" />
                     Центр кандидатов · {response.candidates_center.similarity.toFixed(3)}
+                  </span>
+                  <span
+                    className="cluster-map-key"
+                    title="Так близко к ядру стоит обычный трек библиотеки (медиана по всей библиотеке); по этому кольцу проходит край карты"
+                  >
+                    <span className="cluster-map-key-typical" aria-hidden="true" />
+                    Обычный трек · {response.library_similarity.toFixed(3)}
                   </span>
                 </div>
               </figure>

@@ -69,6 +69,7 @@ import {
 } from "./scanImportSettings";
 import {
   createRequestTokenGuard,
+  genericSearchResultIsCurrent,
   type PrimarySearchTab,
   type SeedSearchModel,
 } from "./searchSurfaceState";
@@ -662,11 +663,15 @@ export function App() {
     setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
-  function addPromptCandidatesToPlaylist(tracks: Track[], modelLabel: string) {
+  function addSearchCandidatesToPlaylist(tracks: Track[], modelLabel: string) {
     if (
       busy || genericSearchPending
-      || genericSearchResultState?.origin !== "text"
-      || genericSearchResultState.requestKey !== genericSearchInputKey
+      || !genericSearchResultIsCurrent(
+        activeSearchTab,
+        genericSearchResultState?.origin ?? null,
+        genericSearchResultState?.requestKey ?? "",
+        genericSearchInputKey,
+      )
     ) return;
     const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
     const added = nextPlaylist.length - playlist.length;
@@ -675,7 +680,8 @@ export function App() {
       return;
     }
     setPlaylist(nextPlaylist);
-    appendActivity("ok", "Кандидаты PROMPT добавлены в сет", `${modelLabel} · ${added} новых · показано ${tracks.length}`);
+    const sourceLabel = genericSearchResultState?.origin === "text" ? "PROMPT" : "REFERENCE";
+    appendActivity("ok", `Кандидаты ${sourceLabel} добавлены в сет`, `${modelLabel} · ${added} новых · показано ${tracks.length}`);
     setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
@@ -1615,7 +1621,7 @@ export function App() {
           addSeed={addSeed}
           toggleLiked={handleToggleTrackLiked}
           togglePlaylist={togglePlaylist}
-          onAddPromptCandidates={addPromptCandidatesToPlaylist}
+          onAddSearchCandidates={addSearchCandidatesToPlaylist}
           playingTrackId={playingTrackId}
           setPreview={togglePreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}

@@ -161,7 +161,16 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         "chord_changes_per_second": 0.5,
         "integrated_loudness_lufs": -9.0,
         "dynamic_range_db": 8.0,
+        "loudness_range_lu": 6.0,
+        "energy_curve_hop_seconds": 0.5,
+        "energy_curve_sample_count": 600,
+        "energy_curve_mean": 0.5,
+        "energy_curve_min": 0.2,
+        "energy_curve_max": 0.7,
+        "energy_curve_stddev": 0.1,
         "spectral_centroid_hz": 2000.0,
+        "spectral_bandwidth_hz": 2500.0,
+        "spectral_rolloff_hz": 6000.0,
         "spectral_flatness": 0.1,
         "zero_crossing_rate": 0.06,
         "danceability_score": 0.6,
@@ -218,8 +227,8 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     # Twenty candidates, as the REFERENCE panel asks for by default.
     swarm = [swarm_track(f"swarm-{index}.wav") for index in range(11)]
     off_tempo = [swarm_track("off-tempo-125.wav", 125.0), swarm_track("off-tempo-85.wav", 85.0)]
-    energetic = [
-        swarm_track(f"energetic-{index}.wav", energy=0.9, danceability_score=0.9)
+    busy = [
+        swarm_track(f"busy-{index}.wav", onset_density_per_second=8.0, dynamic_range_db=16.0)
         for index in range(6)
     ]
     exception = add("exception.wav", 170.0, 0.3, {2: 0.1, next(private_axes): 0.01})
@@ -252,19 +261,20 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         exception.track_id
     }
     # SONARA only explains, counting from the references' mean: a swarm track
-    # that matches them shows no gap, and tempo counts as detected, never
-    # folded to half or double time.
+    # that matches them shows no gap, and tempo counts as stored, never folded
+    # again to half or double time.
     assert all(abs(gap["delta"]) < 1e-9 for gap in points[swarm[0].track_id]["sonara_gaps"])
     for target in off_tempo:
-        assert points[target.track_id]["sonara_gaps"][0]["feature"] == "detected_bpm"
-    # Each group explains once: the energetic tracks differ in two perceptual
-    # features, and the next reasons come from other groups.
-    for target in energetic:
+        gap = points[target.track_id]["sonara_gaps"][0]
+        assert gap["feature"] == "detected_bpm" and gap["delta"] < -1
+    # Each group explains once: the busy tracks differ in two rhythm features,
+    # and the next reasons come from other groups.
+    for target in busy:
         groups = [gap["group"] for gap in points[target.track_id]["sonara_gaps"]]
-        assert groups[0] == "perceptual" and len(set(groups)) == len(groups)
-    # The energetic tracks lift the candidates above the references.
+        assert groups[0] == "rhythm" and len(set(groups)) == len(groups)
+    # The busy tracks lift the candidates' event density above the references.
     drift = {item["feature"]: item["delta"] for item in payload["drift"]}
-    assert drift["energy_score"] > 0
+    assert drift["onset_density_per_second"] > 0
     assert payload["catalog_uuid"] == db.catalog_uuid
     assert payload["layer"] == 13
 
@@ -508,7 +518,11 @@ def _add_sonara_track(
     )
     # Keys named like a SonaraRow column are stored as given.
     values.update(
-        {name: _float(value) for name, value in features.items() if name in values}
+        {
+            name: value if isinstance(value, int) else _float(value)
+            for name, value in features.items()
+            if name in values
+        }
     )
     result = save_sonara_writes(
         db,

@@ -8,10 +8,10 @@ and the angle comes from an uncentred two-component SVD of the residuals
 around it, so candidates that differ from the references the same way gather
 in one swarm. LocalOutlierFactor, on the cosine the search ranks by, marks the
 candidates that do not fit in with the rest in the layer's full space: tracks
-the layer pulls in for another reason. SONARA only explains: a StandardScaler
-fitted on the whole library puts its features on one scale, and every track
-shows where it differs from the references' mean. Every returned number is a
-plain Python ``int`` or ``float``.
+the layer pulls in for another reason. SONARA only explains, through its
+physical measurements: a StandardScaler fitted on the whole library puts them
+on one scale, and every track shows where it differs from the references'
+mean. Every returned number is a plain Python ``int`` or ``float``.
 """
 
 from __future__ import annotations
@@ -26,35 +26,38 @@ from ..library_models import TrackSummary
 
 TOP_GAPS = 3
 
-# Analysed sonara_features columns and their groups, in response order. Left
-# out on purpose: key and chroma (categorical, and key does not matter here),
-# vocal_probability (unreliable), the aggression family (unused) and
-# energy_level (duplicates energy_score).
+# Analysed sonara_features columns and their groups, in response order: the
+# physical signal only, as rhythm and macrodynamics, then spectrum and
+# character. detected_bpm is used as stored, already aligned to the library's
+# BPM range when SONARA analysed it. SONARA's heuristic labels (mood,
+# danceability, valence, acousticness, aggression) follow key mode, onset
+# density and brightness rather than the ear, and the key is categorical, with
+# chroma standing in for it, so they stay out, as does vocal_probability.
 SONARA_FEATURE_GROUPS: dict[str, str] = {
-    "detected_bpm": "tempo",
-    "onset_density_per_second": "tempo",
-    "dissonance_score": "tonal",
-    "chord_changes_per_second": "tonal",
-    "integrated_loudness_lufs": "loudness",
-    "dynamic_range_db": "loudness",
-    "spectral_centroid_hz": "spectral",
-    "spectral_flatness": "spectral",
-    "zero_crossing_rate": "spectral",
-    "energy_score": "perceptual",
-    "danceability_score": "perceptual",
-    "valence_score": "perceptual",
-    "acousticness_score": "perceptual",
-    "mood_happy_score": "mood",
-    "mood_aggressive_score": "mood",
-    "mood_relaxed_score": "mood",
-    "mood_sad_score": "mood",
+    "detected_bpm": "rhythm",
+    "energy_curve_stddev": "rhythm",
+    "dynamic_range_db": "rhythm",
+    "onset_density_per_second": "rhythm",
+    "spectral_centroid_hz": "character",
+    "spectral_flatness": "character",
+    "zero_crossing_rate": "character",
+    "dissonance_score": "character",
 }
-# MFCC 1-12 from mfcc_mean_blob form the timbral group; coefficient 0 follows
-# level rather than timbre.
-_MFCC_FEATURES = tuple(f"mfcc_{index}" for index in range(1, 13))
+# Stored vectors, one group each, named by their index in the blob: the twelve
+# chroma bins, the seven spectral contrast bands and MFCC 1-12 (coefficient 0
+# follows the recording's level rather than timbre).
+_VECTORS: tuple[tuple[str, str, str, range], ...] = (
+    ("chroma_mean_blob", "chroma", "chroma", range(0, 12)),
+    ("spectral_contrast_mean_blob", "contrast", "contrast", range(0, 7)),
+    ("mfcc_mean_blob", "mfcc", "timbral", range(1, 13)),
+)
 FEATURE_GROUPS: dict[str, str] = {
     **SONARA_FEATURE_GROUPS,
-    **{feature: "timbral" for feature in _MFCC_FEATURES},
+    **{
+        f"{prefix}_{index}": group
+        for _, prefix, group, indexes in _VECTORS
+        for index in indexes
+    },
 }
 
 
@@ -229,12 +232,12 @@ def _angles(plane: np.ndarray) -> np.ndarray:
 
 
 def _feature_matrix(rows: Sequence[Mapping[str, object]]) -> np.ndarray:
-    """One row per track: the scalar features as stored, then MFCC 1-12."""
+    """One row per track: the scalar features as stored, then each vector's entries."""
 
     return np.array(
         [
             [row[feature] for feature in SONARA_FEATURE_GROUPS]
-            + list(row["mfcc_mean_blob"][1:13])
+            + [row[column][index] for column, _, _, indexes in _VECTORS for index in indexes]
             for row in rows
         ],
         dtype=np.float64,

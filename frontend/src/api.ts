@@ -225,8 +225,8 @@ export type EmbeddingSearchPayload = {
   noise?: number;
 };
 
-/** A SONARA feature as stored (`mfcc_1`…`mfcc_12` are MFCC coefficients) and
- * its gap from the references' mean in library σ. */
+/** A SONARA feature as stored (`chroma_N`, `contrast_N` and `mfcc_N` are entries
+ * of stored vectors) and its gap from the references' mean in library σ. */
 export type ClusterMapFeatureValue = { feature: string; group: string; value: number; delta: number };
 
 /** Mean standard deviation of a group's features across the candidates, in library σ. */

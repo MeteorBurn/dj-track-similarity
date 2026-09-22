@@ -35,14 +35,14 @@ const layerSubject: Subject = { nominative: "слой", genitive: "слоя" };
 const modelSubject: Subject = { nominative: "модель", genitive: "модели" };
 // The map's SONARA groups, as the server names them.
 const groupNames: Record<string, string> = {
-  tempo: "Темп",
-  tonal: "Тональность",
-  loudness: "Громкость",
-  spectral: "Спектр",
-  perceptual: "Восприятие",
-  mood: "Настроение",
+  rhythm: "Ритм и динамика",
+  character: "Спектр и характер",
+  chroma: "Хрома",
+  contrast: "Контраст",
   timbral: "Тембр",
 };
+// Groups of stored vectors: one bin or coefficient means nothing on its own.
+const vectorGroups = new Set(["chroma", "contrast", "timbral"]);
 const FOCUSABLE = [
   "button:not([disabled]):not([tabindex='-1'])",
   "summary",
@@ -543,16 +543,16 @@ function railTabTitle(tab: RailTab, subject: Subject) {
     : `Что держит ${subject.nominative} и куда уводит поиск`;
 }
 
-/** The group, then its SONARA feature under the track card's own label; timbre reads as
- * the group alone, since a single MFCC means nothing on its own. */
+/** The group, then its SONARA feature under the track card's own label; a stored
+ * vector reads as its group alone. */
 function featureName(item: { feature: string; group: string }) {
-  return item.group === "timbral" ? groupNames.timbral : `${groupNames[item.group]}: ${featureLabel(item.feature)}`;
+  return vectorGroups.has(item.group) ? groupNames[item.group] : `${groupNames[item.group]}: ${featureLabel(item.feature)}`;
 }
 
 /** A SONARA reason: the feature, its value where it reads, and its gap from the references. */
 function reasonText(item: ClusterMapFeatureValue) {
   const gap = `${signed(item.delta, 1)}σ`;
-  return item.group === "timbral"
+  return vectorGroups.has(item.group)
     ? `${featureName(item)} ${gap}`
     : `${featureName(item)} ${formatFeatureValue(item.feature, item.value)} (${gap})`;
 }

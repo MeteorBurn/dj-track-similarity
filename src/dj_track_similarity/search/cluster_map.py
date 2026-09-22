@@ -4,12 +4,12 @@ Pure analysis over vectors and SONARA rows the caller has already loaded:
 nothing is read from or written to a library. Points orbit the seed core:
 the radius is ``1 - similarity`` to the normalised seed mean, the query the
 search ranks by, and the angle comes from a PCA of the residuals around it,
-so candidates spread by how they differ from each other. scikit-learn does
-the analysis: KMeans splits the candidates' residual directions into a fixed
-number of clusters, a StandardScaler fitted on the whole library puts the
-SONARA features on one scale, and IsolationForest flags the tracks whose
-SONARA profile stands out. Every returned number is a plain Python ``int`` or
-``float``.
+so candidates spread by how they differ from each other. SONARA gives an
+independent second opinion: a StandardScaler fitted on the whole library puts
+its features on one scale, and a point's closeness is the share of the
+library that lies farther from the references' SONARA mean. A candidate near
+the core that SONARA puts far away is a track the layer misjudges. Every
+returned number is a plain Python ``int`` or ``float``.
 """
 
 from __future__ import annotations
@@ -22,9 +22,7 @@ import numpy as np
 from ..library_models import TrackSummary
 
 
-CLUSTER_COUNT = 4
-TOP_GENRES = 3
-TOP_OUTLIER_FEATURES = 3
+TOP_GAPS = 3
 
 # Analysed sonara_features columns and their groups, in response order. Left
 # out on purpose: key and chroma (categorical, and key does not matter here),
@@ -75,7 +73,7 @@ class ClusterMapTrack:
 
 @dataclass(frozen=True, slots=True)
 class ClusterMapFeatureValue:
-    """A SONARA feature as stored and its distance from the map's mean in library sigma."""
+    """A SONARA feature as stored and its gap from the references' mean in library sigma."""
 
     feature: str
     group: str
@@ -87,45 +85,25 @@ class ClusterMapFeatureValue:
 class ClusterMapPoint:
     """One map point, in input order; ``angle`` is in radians.
 
-    ``cluster`` is ``None`` for seeds. ``outlier_score`` is IsolationForest's
-    ``score_samples``: the lower, the more unusual.
+    ``sonara_closeness`` is the share of the library whose SONARA profile lies
+    strictly farther from the references' mean than this track's;
+    ``sonara_gaps`` are the features that set the track farthest from them.
     """
 
     track: TrackSummary
     seed: bool
     similarity: float
     angle: float
-    cluster: int | None
-    outlier: bool
-    outlier_score: float
-    outlier_features: tuple[ClusterMapFeatureValue, ...]
+    sonara_closeness: float
+    sonara_gaps: tuple[ClusterMapFeatureValue, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class ClusterMapGroupSpread:
-    """Mean standard deviation of a group's features, in library sigma."""
+    """Mean standard deviation of a group's features across the candidates, in library sigma."""
 
     group: str
     std: float
-
-
-@dataclass(frozen=True, slots=True)
-class ClusterMapGenreShare:
-    """A full MAEST label's share of the cluster's summed genre scores."""
-
-    genre_name: str
-    share: float
-
-
-@dataclass(frozen=True, slots=True)
-class ClusterMapCluster:
-    """``profile`` runs from the group the cluster holds tightest to the loosest."""
-
-    size: int
-    median_similarity: float
-    representative_track_id: int
-    profile: tuple[ClusterMapGroupSpread, ...]
-    maest_genres: tuple[ClusterMapGenreShare, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,17 +117,15 @@ class ClusterMapDrift:
 
 @dataclass(frozen=True, slots=True)
 class ClusterMap:
-    """Clusters run nearest to the core first and ``point.cluster`` indexes them.
-
-    ``center_similarity`` is the similarity of the candidates' centre of mass
-    to the core; ``drift`` runs from the largest shift to the smallest.
+    """``center_similarity`` is the similarity of the candidates' centre of mass
+    to the core; ``profile`` runs from the SONARA group the candidates hold
+    tightest to the loosest, ``drift`` from the largest shift to the smallest.
     """
 
-    silhouette: float
     angle_variance_kept: float
     center_similarity: float
     points: tuple[ClusterMapPoint, ...]
-    clusters: tuple[ClusterMapCluster, ...]
+    profile: tuple[ClusterMapGroupSpread, ...]
     drift: tuple[ClusterMapDrift, ...]
 
 
@@ -160,14 +136,12 @@ def build_cluster_map(
     """Build the cluster map of one seed search.
 
     ``library_sonara`` holds the ``SonaraFeatureRow.values`` of every current
-    SONARA track in the library; it fits the scale of each feature.
+    SONARA track in the library: it fits the scale of each feature and is what
+    closeness is counted against.
     """
 
-    from sklearn.cluster import KMeans
     from sklearn.decomposition import PCA
-    from sklearn.ensemble import IsolationForest
-    from sklearn.metrics import silhouette_score
-    from sklearn.preprocessing import StandardScaler, normalize
+    from sklearn.preprocessing import StandardScaler
 
     items = tuple(tracks)
     seeds = np.array([item.seed for item in items], dtype=bool)
@@ -185,29 +159,20 @@ def build_cluster_map(
     angles = np.arctan2(plane[:, 1], plane[:, 0])
     center_similarity = float(_unit(matrix[candidates].mean(axis=0)) @ core)
 
-    # Unit residual directions make KMeans a cosine clustering.
-    directions = normalize(residuals)
-    candidate_indices = np.flatnonzero(candidates)
-    labels = KMeans(n_clusters=CLUSTER_COUNT, n_init=10, random_state=0).fit_predict(
-        directions[candidates]
-    )
-    groups = sorted(
-        (candidate_indices[labels == label] for label in np.unique(labels)),
-        key=lambda members: -float(np.median(similarity[members])),
-    )
-    cluster_of: list[int | None] = [None] * len(items)
-    for position, members in enumerate(groups):
-        for index in members:
-            cluster_of[index] = position
-    silhouette = float(silhouette_score(directions[candidates], labels, metric="cosine"))
-
-    scaler = StandardScaler().fit(_feature_matrix(library_sonara))
+    library = _feature_matrix(library_sonara)
+    scaler = StandardScaler().fit(library)
     raw = _feature_matrix([item.sonara for item in items])
     scaled = scaler.transform(raw)
-    forest = IsolationForest(random_state=0).fit(scaled)
-    outliers = forest.predict(scaled) == -1
-    outlier_scores = forest.score_samples(scaled)
-    deviation = scaled - scaled.mean(axis=0)
+    reference = scaled[seeds].mean(axis=0)
+    gaps = scaled - reference
+    library_distances = np.sort(
+        np.linalg.norm(scaler.transform(library) - reference, axis=1)
+    )
+    # Library tracks no farther from the references than each point, itself included.
+    within = np.searchsorted(
+        library_distances, np.linalg.norm(gaps, axis=1), side="right"
+    )
+    closeness = 1.0 - within / library_distances.size
 
     points = tuple(
         ClusterMapPoint(
@@ -215,30 +180,12 @@ def build_cluster_map(
             seed=bool(seeds[index]),
             similarity=float(similarity[index]),
             angle=float(angles[index]),
-            cluster=cluster_of[index],
-            outlier=bool(outliers[index]),
-            outlier_score=float(outlier_scores[index]),
-            outlier_features=(
-                _top_features(raw[index], deviation[index])
-                if outliers[index]
-                else ()
-            ),
+            sonara_closeness=float(closeness[index]),
+            sonara_gaps=_top_gaps(raw[index], gaps[index]),
         )
         for index, item in enumerate(items)
     )
-    clusters = tuple(
-        ClusterMapCluster(
-            size=int(members.size),
-            median_similarity=float(np.median(similarity[members])),
-            representative_track_id=items[
-                _representative(members, directions)
-            ].track.track_id,
-            profile=_profile(scaled[members]),
-            maest_genres=_genre_shares(members, items),
-        )
-        for members in groups
-    )
-    shift = scaled[candidates].mean(axis=0) - scaled[seeds].mean(axis=0)
+    shift = gaps[candidates].mean(axis=0)
     drift = tuple(
         ClusterMapDrift(feature=feature, group=group, delta=float(shift[position]))
         for position, (feature, group) in sorted(
@@ -247,11 +194,10 @@ def build_cluster_map(
         )
     )
     return ClusterMap(
-        silhouette=silhouette,
         angle_variance_kept=float(np.sum(pca.explained_variance_ratio_)),
         center_similarity=center_similarity,
         points=points,
-        clusters=clusters,
+        profile=_profile(scaled[candidates]),
         drift=drift,
     )
 
@@ -273,11 +219,11 @@ def _feature_matrix(rows: Sequence[Mapping[str, object]]) -> np.ndarray:
     ).reshape(len(rows), len(FEATURE_GROUPS))
 
 
-def _top_features(
+def _top_gaps(
     values: np.ndarray,
-    deviation: np.ndarray,
+    gaps: np.ndarray,
 ) -> tuple[ClusterMapFeatureValue, ...]:
-    """The features that lie farthest from the map's mean, farthest first."""
+    """The features that lie farthest from the references, farthest first."""
 
     names = tuple(FEATURE_GROUPS.items())
     return tuple(
@@ -285,9 +231,9 @@ def _top_features(
             feature=names[position][0],
             group=names[position][1],
             value=float(values[position]),
-            delta=float(deviation[position]),
+            delta=float(gaps[position]),
         )
-        for position in np.argsort(-np.abs(deviation))[:TOP_OUTLIER_FEATURES]
+        for position in np.argsort(-np.abs(gaps))[:TOP_GAPS]
     )
 
 
@@ -303,31 +249,4 @@ def _profile(scaled: np.ndarray) -> tuple[ClusterMapGroupSpread, ...]:
     return tuple(
         ClusterMapGroupSpread(group=group, std=std)
         for group, std in sorted(by_group.items(), key=lambda entry: entry[1])
-    )
-
-
-def _representative(members: np.ndarray, directions: np.ndarray) -> int:
-    """The member whose residual points closest to the cluster's mean direction."""
-
-    member_directions = directions[members]
-    return int(members[int(np.argmax(member_directions @ _unit(member_directions.mean(axis=0))))])
-
-
-def _genre_shares(
-    members: np.ndarray,
-    items: Sequence[ClusterMapTrack],
-) -> tuple[ClusterMapGenreShare, ...]:
-    totals: dict[str, float] = {}
-    for index in members:
-        for genre in items[int(index)].track.maest_genres:
-            totals[genre.genre_name] = totals.get(genre.genre_name, 0.0) + float(
-                genre.score
-            )
-    total = sum(totals.values())
-    if total <= 0.0:
-        return ()
-    ranked = sorted(totals.items(), key=lambda entry: (-entry[1], entry[0]))
-    return tuple(
-        ClusterMapGenreShare(genre_name=name, share=score / total)
-        for name, score in ranked[:TOP_GENRES]
     )

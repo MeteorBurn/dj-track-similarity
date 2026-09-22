@@ -216,6 +216,10 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         add(f"far-{index}.wav", 170.0, 0.9, jungle, {2: 0.6, next(private_axes): 0.01})
         for index in range(6)
     ]
+    # SONARA alone, as on a track ML has not reached: in the library, never on the map.
+    _add_sonara_track(
+        db, tmp_path, "sonara-only.wav", {**sonara, "detected_bpm": 170.0, "energy": 0.3}
+    )
     request = {
         "analysis_family": "maest",
         "seed_track_ids": [seed.track_id for seed in seeds],
@@ -238,24 +242,23 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     assert {track_id for track_id, point in points.items() if not point["seed"]} == set(scores)
     for track_id, score in scores.items():
         assert points[track_id]["similarity"] == pytest.approx(score, abs=1e-5)
-    # Every candidate lands in a cluster, and the two directions never share one.
-    assert all(
-        point["cluster"] is None
-        if point["seed"]
-        else 0 <= point["cluster"] < len(payload["clusters"])
-        for point in payload["points"]
-    )
-    near_clusters = {points[target.track_id]["cluster"] for target in near}
-    far_clusters = {points[target.track_id]["cluster"] for target in far}
-    assert near_clusters.isdisjoint(far_clusters)
-    for cluster in far_clusters:
-        genres = payload["clusters"][cluster]["maest_genres"]
-        assert [share["genre_name"] for share in genres] == [jungle]
+    # SONARA gaps count from the references' mean: the two 170 BPM near
+    # tracks match it, as the SONARA-only track does, and 12 of the 15
+    # library tracks lie farther away.
+    for target in (near[1], near[3]):
+        point = points[target.track_id]
+        assert all(abs(gap["delta"]) < 1e-9 for gap in point["sonara_gaps"])
+        assert point["sonara_closeness"] == pytest.approx(12 / 15)
     # Tempo counts as detected, never folded to half or double time: the 125
-    # and 85 BPM tracks stand out, and tempo is what sets them apart.
-    for target in off_tempo:
-        assert points[target.track_id]["outlier"]
-        assert points[target.track_id]["outlier_features"][0]["feature"] == "detected_bpm"
+    # and 85 BPM tracks fall behind every in-tempo one, set apart by tempo,
+    # as the energetic far group is by energy.
+    closeness = {track_id: point["sonara_closeness"] for track_id, point in points.items()}
+    assert min(closeness[target.track_id] for target in near[:4]) > max(
+        closeness[target.track_id] for target in (*off_tempo, *far)
+    )
+    for targets, feature in ((off_tempo, "detected_bpm"), (far, "energy_score")):
+        for target in targets:
+            assert points[target.track_id]["sonara_gaps"][0]["feature"] == feature
     # The energetic far group lifts the candidates above the references.
     drift = {item["feature"]: item["delta"] for item in payload["drift"]}
     assert drift["energy_score"] > 0

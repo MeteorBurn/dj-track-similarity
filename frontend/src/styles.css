@@ -6266,36 +6266,27 @@ button.dedup-play-button {
 .embedding-layer-select .error { color: var(--danger-text); }
 
 /* Cluster map: a REFERENCE search drawn as an orbit around its reference core.
-   Cluster colours mark identity only (dots, keys, borders, bars), never text. Plotly
-   parses the colours it draws with itself, so those tokens stay plain hex. Each set
-   passes the dataviz validator all-pairs on --surface: normal-vision Delta E >= 15 and
-   contrast >= 3:1. --cluster-glow-opacity drives the dark theme's neon glow; 0 turns it
-   off. --font-mono is for small numeric captions only: ring values, bars, ranks, scores. */
+   Points wear SONARA's closeness to the references on a diverging scale:
+   --cluster-agree at the closest end, --cluster-neutral for a random library track,
+   --cluster-disagree at the farthest. The colours mark points, keys and swatches, never
+   text. Plotly parses the colours it draws with itself, so those tokens stay plain hex.
+   Each theme's three pass the dataviz validator all-pairs on --surface: normal-vision
+   Delta E >= 19 and contrast >= 3:1. --cluster-glow-opacity drives the dark theme's neon
+   glow; 0 turns it off. --font-mono is for small numeric captions only: ring values,
+   bars, ranks, scores. */
 :root {
-  --cluster-1: #05841c;
-  --cluster-2: #d3407b;
-  --cluster-3: #0661bf;
-  --cluster-4: #a8860c;
-  --cluster-5: #9654d1;
-  --cluster-6: #9e4106;
+  --cluster-agree: #05841c;
+  --cluster-neutral: #7d8590;
+  --cluster-disagree: #d3407b;
   --cluster-glow-opacity: 0;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 :root[data-theme="dark"] {
-  --cluster-1: #26d484;
-  --cluster-2: #f973b3;
-  --cluster-3: #0e9cff;
-  --cluster-4: #fbbf22;
-  --cluster-5: #b175ff;
-  --cluster-6: #fd6d0a;
+  --cluster-agree: #26d484;
+  --cluster-neutral: #8c9fad;
+  --cluster-disagree: #f973b3;
   --cluster-glow-opacity: .22;
 }
-.cluster-map-dialog [data-slot="1"] { --cluster-color: var(--cluster-1); }
-.cluster-map-dialog [data-slot="2"] { --cluster-color: var(--cluster-2); }
-.cluster-map-dialog [data-slot="3"] { --cluster-color: var(--cluster-3); }
-.cluster-map-dialog [data-slot="4"] { --cluster-color: var(--cluster-4); }
-.cluster-map-dialog [data-slot="5"] { --cluster-color: var(--cluster-5); }
-.cluster-map-dialog [data-slot="6"] { --cluster-color: var(--cluster-6); }
 
 /* The map button shares the Search row at its 38px height. */
 .embedding-search-row {
@@ -6358,12 +6349,12 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   height: min(900px, calc(100dvh - 32px));
   min-width: 0;
   overflow: hidden;
-  /* Two soft glows from the palette's first and fifth colours light opposite corners;
-     the colour and the image are separate so an unsupported mix leaves the surface. */
+  /* Two soft glows from the scale's poles light opposite corners; the colour and
+     the image are separate so an unsupported mix leaves the surface. */
   background-color: var(--surface);
   background-image:
-    radial-gradient(60% 50% at 0 0, color-mix(in srgb, var(--cluster-1) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent),
-    radial-gradient(60% 50% at 100% 100%, color-mix(in srgb, var(--cluster-5) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent);
+    radial-gradient(60% 50% at 0 0, color-mix(in srgb, var(--cluster-agree) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent),
+    radial-gradient(60% 50% at 100% 100%, color-mix(in srgb, var(--cluster-disagree) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent);
   border: 1px solid var(--border-strong);
   border-radius: var(--workbench-dialog-radius);
   box-shadow: var(--workbench-dialog-shadow);
@@ -6475,12 +6466,12 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   font-style: italic;
 }
 
-/* One ruled strip rather than four cards: the 1px gaps show the strip's
+/* One ruled strip rather than three cards: the 1px gaps show the strip's
    background as hairlines between the cells. */
 .cluster-map-kpis {
   display: grid;
   flex: none;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   margin: 0;
   overflow: hidden;
@@ -6496,9 +6487,8 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   padding: 10px 14px;
   background: var(--surface-muted);
 }
-/* Micro-labels: the small uppercase captions over values, fields and bars. */
+/* Micro-labels: the small uppercase captions over values and bars. */
 .cluster-map-kpi dt,
-.cluster-map-field-label,
 .cluster-map-focus-label {
   color: var(--text-muted);
   font-size: 10px;
@@ -6518,15 +6508,8 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   line-height: 1.15;
 }
 .cluster-map-kpi-note {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   color: var(--text-muted);
   font-size: 12px;
-}
-.cluster-map-kpi-note svg {
-  flex: none;
-  color: var(--warning-text);
 }
 .cluster-map-skeleton-line {
   display: block;
@@ -6644,22 +6627,12 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   font-weight: 650;
 }
 .cluster-map-tooltip-name { overflow-wrap: anywhere; }
-.cluster-map-tooltip-cluster,
-.cluster-map-tooltip-flag {
+.cluster-map-tooltip-line {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-}
-.cluster-map-tooltip-flag { color: var(--warning-text); }
-.cluster-map-tooltip-flag svg { flex: none; }
-.cluster-map-line-key {
-  flex: none;
-  width: 14px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--cluster-color);
 }
 
 .cluster-map-legend {
@@ -6667,34 +6640,14 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   flex: none;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 6px 14px;
 }
-button.cluster-map-legend-chip {
-  min-height: 28px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-}
-.cluster-map-legend-count {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-/* The element selector ties the global button hover and wins by order, so
-   hovering the isolated chip keeps its cluster ring. */
-button.cluster-map-legend-chip[aria-pressed="true"] {
-  background: var(--surface-raised);
-  border-color: var(--cluster-color);
-  box-shadow: inset 0 0 0 1px var(--cluster-color);
-  color: var(--text-strong);
-}
-.cluster-map-dot {
+/* A point's colour beside its numbers; the background comes from closenessSwatch. */
+.cluster-map-swatch {
   flex: none;
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--cluster-color);
 }
 .cluster-map-key {
   display: inline-flex;
@@ -6712,12 +6665,12 @@ button.cluster-map-legend-chip[aria-pressed="true"] {
   background: var(--text-strong);
   rotate: 45deg;
 }
-.cluster-map-key-ring {
+.cluster-map-key-scale {
   flex: none;
-  width: 11px;
-  height: 11px;
-  border: 1.5px solid var(--text-strong);
-  border-radius: 50%;
+  width: 64px;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--cluster-disagree), var(--cluster-neutral), var(--cluster-agree));
 }
 .cluster-map-key-center {
   flex: none;
@@ -6736,7 +6689,7 @@ button.cluster-map-legend-chip[aria-pressed="true"] {
 }
 .search-tabs.cluster-map-tabs {
   flex: none;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
 }
 .cluster-map-tab-panel {
@@ -6755,11 +6708,6 @@ button.cluster-map-legend-chip[aria-pressed="true"] {
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
-.cluster-map-cards {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
 .cluster-map-card {
   display: grid;
   align-content: start;
@@ -6767,13 +6715,11 @@ button.cluster-map-legend-chip[aria-pressed="true"] {
   min-width: 0;
   padding: 10px 12px;
   border: 1px solid var(--border-soft);
-  border-top: 2px solid var(--cluster-color, var(--border-strong));
+  border-top: 2px solid var(--border-strong);
   border-radius: var(--workbench-radius);
   background: var(--surface-muted);
 }
 .cluster-map-core-card { border-top-color: var(--text-strong); }
-.cluster-map-card[data-active] { border-color: var(--cluster-color); }
-.cluster-map-card[data-dimmed] { opacity: 0.45; }
 .cluster-map-card-head {
   display: flex;
   flex-wrap: wrap;
@@ -6791,11 +6737,6 @@ button.cluster-map-legend-chip[aria-pressed="true"] {
   color: var(--text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-.cluster-map-field {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
 }
 .cluster-map-track-list {
   display: grid;
@@ -6839,39 +6780,6 @@ button.icon-button.cluster-map-play-button[data-playing] {
   font-size: 11px;
   white-space: nowrap;
 }
-.cluster-map-glue {
-  margin: 0;
-  color: var(--text);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-.cluster-map-genres {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.cluster-map-more summary {
-  width: fit-content;
-  padding-block: 4px;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 12px;
-}
-.cluster-map-more summary:focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-.cluster-map-more[open] summary { margin-bottom: 2px; }
-
-.cluster-map-anomaly-summary {
-  margin: 0;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
 .cluster-map-anomalies {
   display: grid;
   min-width: 0;
@@ -6910,11 +6818,10 @@ button.icon-button.cluster-map-play-button[data-playing] {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.cluster-map-anomaly-meta .cluster-map-dot {
-  width: 7px;
-  height: 7px;
-}
 .cluster-map-anomaly-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -6975,8 +6882,8 @@ button.icon-button.cluster-map-play-button[data-playing] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Thin bars, square at the baseline and rounded at the value end. The group
-   that holds the cluster wears the cluster's colour; the rest stay neutral. */
+/* Thin bars, square at the baseline and rounded at the value end. The group the
+   candidates hold tightest wears the accent; the rest stay neutral. */
 .cluster-map-focus-track {
   position: relative;
   height: 6px;
@@ -6990,7 +6897,7 @@ button.icon-button.cluster-map-play-button[data-playing] {
   border-radius: 0 3px 3px 0;
   background: var(--text-soft);
 }
-.cluster-map-focus-row[data-holds] .cluster-map-focus-bar { background: var(--cluster-color); }
+.cluster-map-focus-row[data-holds] .cluster-map-focus-bar { background: var(--accent); }
 .cluster-map-focus-value {
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -7024,14 +6931,6 @@ button.icon-button.cluster-map-play-button[data-playing] {
   overflow-wrap: anywhere;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .cluster-map-legend-chip:hover:not(:disabled) { background: var(--surface-raised); }
-  .cluster-map-more summary:hover {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-}
-
 /* Narrow dialog: one column, and the body scrolls instead of the rail. */
 @container cluster-map (max-width: 960px) {
   .cluster-map-main {
@@ -7045,15 +6944,9 @@ button.icon-button.cluster-map-play-button[data-playing] {
     min-height: 0;
   }
   .cluster-map-tab-panel { overflow: visible; }
-  .cluster-map-cards {
-    grid-auto-flow: dense;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .cluster-map-cards > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 @container cluster-map (max-width: 640px) {
-  .cluster-map-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cluster-map-cards { grid-template-columns: minmax(0, 1fr); }
+  .cluster-map-kpi { padding: 10px; }
   .cluster-map-header { padding: 12px 10px 10px 14px; }
   .cluster-map-body { padding: 12px 14px; }
 }

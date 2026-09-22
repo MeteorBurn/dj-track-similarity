@@ -217,11 +217,10 @@ def register_search_routes(
             catalog_uuid=database.catalog_uuid,
             analysis_family=request.analysis_family,
             layer=validate_embedding_layer(request.analysis_family, request.layer),
-            silhouette=cluster_map.silhouette,
             angle_variance_kept=cluster_map.angle_variance_kept,
             center_similarity=cluster_map.center_similarity,
             points=cluster_map.points,
-            clusters=cluster_map.clusters,
+            profile=cluster_map.profile,
             drift=cluster_map.drift,
         )
 

@@ -995,29 +995,14 @@ class ClusterMapGroupSpreadResponse(_ResponseModel):
     std: float = Field(ge=0)
 
 
-class ClusterMapGenreShareResponse(_ResponseModel):
-    genre_name: str
-    share: float = Field(ge=0, le=1)
-
-
-class ClusterMapClusterResponse(_ResponseModel):
-    size: int = Field(ge=1)
-    median_similarity: float
-    representative_track_id: int
-    profile: list[ClusterMapGroupSpreadResponse]
-    maest_genres: list[ClusterMapGenreShareResponse]
-
-
 class ClusterMapPointResponse(_ResponseModel):
     track: TrackSummaryResponse
     seed: bool
     # Unbounded: float error can push a cosine past 1 by about 1e-10.
     similarity: float
     angle: float
-    cluster: int | None = Field(ge=0)
-    outlier: bool
-    outlier_score: float
-    outlier_features: list[ClusterMapFeatureValueResponse]
+    sonara_closeness: float = Field(ge=0, le=1)
+    sonara_gaps: list[ClusterMapFeatureValueResponse]
 
 
 class ClusterMapDriftResponse(_ResponseModel):
@@ -1030,20 +1015,19 @@ class ClusterMapResponse(_ResponseModel):
     """The cluster map of one seed search, as ``/api/search`` ranks it.
 
     ``points`` holds the seeds in request order, then the candidates in rank
-    order; ``clusters`` runs nearest to the core first and ``point.cluster``
-    indexes it (``None`` for seeds). ``center_similarity`` is the similarity
-    of the candidates' centre of mass to the core. ``layer`` is the layer
-    read, resolved from the request.
+    order; ``sonara_closeness`` is the share of the library that SONARA puts
+    farther from the references than the point. ``center_similarity`` is the
+    similarity of the candidates' centre of mass to the core. ``layer`` is the
+    layer read, resolved from the request.
     """
 
     catalog_uuid: str
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
     layer: int | None
-    silhouette: float
     angle_variance_kept: float
     center_similarity: float
     points: list[ClusterMapPointResponse]
-    clusters: list[ClusterMapClusterResponse]
+    profile: list[ClusterMapGroupSpreadResponse]
     drift: list[ClusterMapDriftResponse]
 
 

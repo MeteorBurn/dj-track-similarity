@@ -226,35 +226,23 @@ export type EmbeddingSearchPayload = {
 };
 
 /** A SONARA feature as stored (`mfcc_1`…`mfcc_12` are MFCC coefficients) and
- * its distance from the map's mean in library σ. */
+ * its gap from the references' mean in library σ. */
 export type ClusterMapFeatureValue = { feature: string; group: string; value: number; delta: number };
 
-/** Mean standard deviation of a group's features inside a cluster, in library σ. */
+/** Mean standard deviation of a group's features across the candidates, in library σ. */
 export type ClusterMapGroupSpread = { group: string; std: number };
 
-export type ClusterMapGenreShare = { genre_name: string; share: number };
-
-/** `profile` runs from the group the cluster holds tightest (its glue) to the loosest. */
-export type ClusterMapCluster = {
-  size: number;
-  median_similarity: number;
-  representative_track_id: number;
-  profile: ClusterMapGroupSpread[];
-  maest_genres: ClusterMapGenreShare[];
-};
-
 /** Radius `1 - similarity` is exact; `angle` (radians) comes from the two main
- * directions in which the candidates differ. `cluster` is null for seeds;
- * `outlier` comes from IsolationForest (lower score, more unusual). */
+ * directions in which the candidates differ. `sonara_closeness` is the share of
+ * the library that SONARA puts farther from the references (0.5 is a random
+ * track); `sonara_gaps` are the features that set the track farthest from them. */
 export type ClusterMapPoint = {
   track: Track;
   seed: boolean;
   similarity: number;
   angle: number;
-  cluster: number | null;
-  outlier: boolean;
-  outlier_score: number;
-  outlier_features: ClusterMapFeatureValue[];
+  sonara_closeness: number;
+  sonara_gaps: ClusterMapFeatureValue[];
 };
 
 /** The candidates' mean minus the references' mean for one feature, in library σ. */
@@ -262,18 +250,17 @@ export type ClusterMapDrift = { feature: string; group: string; delta: number };
 
 /** The map of exactly what `/api/search` returns for the same payload. `points`
  * holds the seeds in request order, then the candidates in rank order;
- * `point.cluster` indexes `clusters`, nearest to the core first;
- * `center_similarity` places the candidates' centre of mass; `drift` runs
+ * `center_similarity` places the candidates' centre of mass; `profile` runs
+ * from the SONARA group the candidates hold tightest to the loosest, `drift`
  * from the largest shift down. */
 export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
   layer: number | null;
-  silhouette: number;
   angle_variance_kept: number;
   center_similarity: number;
   points: ClusterMapPoint[];
-  clusters: ClusterMapCluster[];
+  profile: ClusterMapGroupSpread[];
   drift: ClusterMapDrift[];
 };
 

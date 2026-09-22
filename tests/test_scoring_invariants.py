@@ -66,7 +66,7 @@ def test_current_null_bpm_confidence_is_neutral_and_does_not_promote_tag_bpm() -
             "detected_bpm": 155.0,
             "bpm_confidence": None,
             "beat_grid_stability": 1.0,
-            "bpm_candidates_json": "[[155.0, 1.0]]",
+            "bpm_candidates_json": '[{"bpm":155.0,"rank":1,"score":1.0}]',
         },
         tag_bpm=128.0,
     )

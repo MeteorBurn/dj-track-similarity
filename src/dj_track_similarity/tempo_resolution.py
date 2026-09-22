@@ -155,16 +155,25 @@ def _relative_tempo_delta(candidate_bpm: float, reference_bpm: float) -> float:
     )
 
 
-def _candidate_bpms(value: object) -> tuple[float, ...]:
-    if not isinstance(value, (list, tuple)):
+def _candidate_bpms(raw_json: object) -> tuple[float, ...]:
+    """Stored ``bpm_candidates_json`` BPMs in their stored rank order.
+
+    The column holds a canonical JSON array of ``{"rank", "bpm", "score"}``
+    objects, as ``sonara_results`` writes and ``sonara_core_validation``
+    checks it.
+    """
+
+    if not isinstance(raw_json, str):
         return ()
-    result: list[float] = []
-    for item in value:
-        raw_bpm = item[0] if isinstance(item, (list, tuple)) and item else item
-        bpm = _valid_bpm(raw_bpm)
-        if bpm is not None:
-            result.append(bpm)
-    return _ordered_unique_bpms(result)
+    try:
+        candidates = json.loads(raw_json)
+    except ValueError:
+        return ()
+    if not isinstance(candidates, list):
+        return ()
+    return _ordered_unique_bpms(
+        [candidate.get("bpm") for candidate in candidates if isinstance(candidate, dict)]
+    )
 
 
 def _valid_bpm(value: object) -> float | None:
@@ -223,17 +232,7 @@ def resolve_tempo_evidence_from_values(
     confidence = _unit_interval_or_none(sonara_row.get("bpm_confidence"))
     grid_stability = _unit_interval_or_none(sonara_row.get("beat_grid_stability"))
 
-    # Parse bpm_candidates_json stored as a JSON array string.
-    raw_candidates = sonara_row.get("bpm_candidates_json")
-    candidate_bpms: tuple[float, ...] = ()
-    if isinstance(raw_candidates, str):
-        try:
-            parsed = json.loads(raw_candidates)
-        except (ValueError, TypeError):
-            parsed = None
-        candidate_bpms = _candidate_bpms(parsed)
-    elif raw_candidates is not None:
-        candidate_bpms = _candidate_bpms(raw_candidates)
+    candidate_bpms = _candidate_bpms(sonara_row.get("bpm_candidates_json"))
 
     clean_tag_bpm = _valid_bpm(tag_bpm)
 

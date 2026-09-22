@@ -100,7 +100,14 @@ def test_low_confidence_uses_tag_confirmed_by_sonara_candidate() -> None:
         sonara_values={
             "detected_bpm": 126.0,
             "bpm_confidence": 0.3,
-            "bpm_candidates_json": json.dumps([[190.0, 3.2], [126.0, 3.0]]),
+            "bpm_candidates_json": json.dumps(
+                [
+                    {"bpm": 190.0, "rank": 1, "score": 3.2},
+                    {"bpm": 126.0, "rank": 2, "score": 3.0},
+                ],
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
         },
     )
 

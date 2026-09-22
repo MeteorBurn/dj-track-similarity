@@ -1,4 +1,4 @@
-import { LoaderCircle, Orbit, Search, Shuffle } from "lucide-react";
+import { ChartScatter, LoaderCircle, Search, Shuffle } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type { SonaraMixerWeights, SonaraModifiers } from "./api";
 import type { SearchFiltersState, SearchHelpText } from "./SearchPlaylistPanel";
@@ -251,7 +251,7 @@ export function SimilaritySearchTab({
           onClick={clusterMap.show}
           type="button"
         >
-          {clusterMap.status === "loading" ? <LoaderCircle size={17} /> : <Orbit size={17} />}
+          {clusterMap.status === "loading" ? <LoaderCircle size={17} /> : <ChartScatter size={17} />}
         </button>
       </div>
       {missingReason ? <span className="embedding-search-requirement">{missingReason}</span> : null}
@@ -261,10 +261,10 @@ export function SimilaritySearchTab({
 }
 
 function clusterMapButtonTitle({ status, entry }: ClusterMapState, label: string, layer: number | null) {
-  if (status === "loading") return "Строим карту: раскладываем выдачу вокруг ядра и ищем исключения. Откройте, чтобы следить за ходом.";
-  if (status === "ready") return "Открыть карту (готова для этих референсов, модели, слоя и лимита).";
-  if (status === "error") return `Карта не построилась: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Нажмите, чтобы попробовать снова.`;
-  return `Построить карту ${label}${layer !== null ? ` L${layer}` : ""}: рой выдачи вокруг референсов и исключения.`;
+  if (status === "loading") return "Проверяем выдачу модели по физическим признакам SONARA. Откройте, чтобы следить за ходом.";
+  if (status === "ready") return "Открыть сохранённую проверку выдачи. Внутри можно пересчитать по текущим данным библиотеки.";
+  if (status === "error") return `Проверка не завершилась: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Нажмите, чтобы попробовать снова.`;
+  return `Проверить выдачу ${label}${layer !== null ? ` L${layer}` : ""} по SONARA: сравнение с референсами и общий сдвиг.`;
 }
 
 function formatSigned(value: number) {

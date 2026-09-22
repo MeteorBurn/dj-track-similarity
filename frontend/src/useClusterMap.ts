@@ -119,6 +119,11 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
 }
 
 function responseMismatch(response: ClusterMapResponse, payload: EmbeddingSearchPayload, seedCatalogs: string[]) {
+  if (!response?.calibration || !response.summary || !Array.isArray(response.summary.descriptors)
+    || !Array.isArray(response.points)
+    || response.points.some((point) => !point.sonara || !Array.isArray(point.sonara.deviations) || !Array.isArray(point.reference_similarities))) {
+    return "Сервер использует прежний формат карты. Перезапустите приложение через run_server.cmd.";
+  }
   if (!seedCatalogs.every((catalog) => catalog === response.catalog_uuid)) {
     return "Карта пришла для другой библиотеки. Обновите библиотеку и постройте карту заново.";
   }

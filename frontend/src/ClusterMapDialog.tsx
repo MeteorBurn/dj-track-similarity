@@ -1,69 +1,23 @@
-import { CircleAlert, Pause, Play, Star, X } from "lucide-react";
+import { CircleAlert, Pause, Play, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type {
-  ClusterMapFeatureValue,
-  ClusterMapPoint,
-  ClusterMapResponse,
-  EmbeddingLayersResponse,
-  Track,
-} from "./api";
+import type { ClusterMapDeviation, ClusterMapPoint, ClusterMapResponse, Track } from "./api";
 import { pluralRu } from "./audioDedupView";
-import { ClusterMapPlot, OrbitSkeleton } from "./ClusterMapPlot";
+import { ClusterMapPlot, MapSkeleton } from "./ClusterMapPlot";
 import { seedSearchModelPresentation, tabAfterKey } from "./searchSurfaceState";
 import { formatSonaraCoreValue, sonaraCoreFeatureGroups } from "./TrackMetadataDialog";
 import { displayTrack } from "./trackDisplay";
 import type { ClusterMapEntry } from "./useClusterMap";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 
-type RailTab = "tracks" | "layer";
-type LayerRow = EmbeddingLayersResponse["layers"][number];
+type RailTab = "tracks" | "summary";
 type Candidate = { point: ClusterMapPoint; rank: number };
-type MapView = {
-  seeds: ClusterMapPoint[];
-  candidates: Candidate[];
-  /** Both in search order, so the first exception is the one nearest the core. */
-  exceptions: Candidate[];
-  swarm: Candidate[];
-  medianSimilarity: number;
-};
-/** What the map measures, in the two cases its sentences need. */
-type Subject = { nominative: string; genitive: string };
+const railTabs: readonly RailTab[] = ["tracks", "summary"];
+const vectorLabels: Record<string, string> = { chroma: "Хрома", mfcc: "MFCC · тембр", spectral_contrast: "Спектральный контраст" };
+const groupLabels: Record<string, string> = { rhythm: "Ритм", dynamics: "Динамика", spectral: "Спектр", tonal: "Тональность", timbral: "Тембр" };
+const FOCUSABLE = "button:not([disabled]):not([tabindex='-1']), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
-const railTabs: readonly RailTab[] = ["tracks", "layer"];
-const DRIFT_SHOWN = 5;
-const layerSubject: Subject = { nominative: "слой", genitive: "слоя" };
-const modelSubject: Subject = { nominative: "модель", genitive: "модели" };
-// The map's SONARA groups, as the server names them.
-const groupNames: Record<string, string> = {
-  rhythm: "Ритм и динамика",
-  character: "Спектр и характер",
-  chroma: "Хрома",
-  contrast: "Контраст",
-  timbral: "Тембр",
-};
-// Groups of stored vectors: one bin or coefficient means nothing on its own.
-const vectorGroups = new Set(["chroma", "contrast", "timbral"]);
-const FOCUSABLE = [
-  "button:not([disabled]):not([tabindex='-1'])",
-  "summary",
-  "[href]",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(", ");
-
-/** The map of one REFERENCE search. It stays mounted while its build is
- * cached, so a closed map keeps its zoom and tab. */
-export function ClusterMapDialog({
-  entry,
-  open,
-  layerState,
-  playingTrackId,
-  onPreview,
-  onClose,
-  onRetry,
-}: {
+/** One cached model ranking, checked independently against physical SONARA descriptors. */
+export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPreview, onClose, onRetry }: {
   entry: ClusterMapEntry;
   open: boolean;
   layerState: EmbeddingLayerState;
@@ -73,27 +27,25 @@ export function ClusterMapDialog({
   onRetry: () => void;
 }) {
   const sectionRef = useRef<HTMLElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const pressedOnBackdrop = useRef(false);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const [tab, setTab] = useState<RailTab>("tracks");
+  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
   const { payload, response } = entry;
-  const view = useMemo(() => (response ? mapView(response) : null), [response]);
+  const { seeds, candidates } = useMemo(() => ({
+    seeds: response?.points.filter((point) => point.seed) ?? [],
+    candidates: response?.points.filter((point) => !point.seed).map((point, index) => ({ point, rank: index + 1 })) ?? [],
+  }), [response]);
+  const selected = candidates.find(({ point }) => point.track.track_id === selectedTrackId) ?? candidates[0] ?? null;
   const layer = payload.layer ?? null;
-  const subject = layer !== null ? layerSubject : modelSubject;
-  const layerRow = layer === null ? null : layerState.layers?.find((row) => row.layer === layer) ?? null;
+  const layerRow = layerState.layers?.find((row) => row.layer === layer);
   const seedCount = payload.seed_track_ids.length;
-  const seedText = `${seedCount} ${pluralRu(seedCount, "референс", "референса", "референсов")}`;
-  const summary = view
-    ? [
-      seedText,
-      `${view.candidates.length} ${pluralRu(view.candidates.length, "кандидат", "кандидата", "кандидатов")}`,
-      `медиана сходства ${view.medianSimilarity.toFixed(3)}`,
-    ].join(" · ")
-    : `${seedText} · до ${payload.limit} ${pluralRu(payload.limit, "кандидата", "кандидатов", "кандидатов")}`;
+  const summaryText = `${seedCount} ${pluralRu(seedCount, "референс", "референса", "референсов")} · ${response ? candidates.length : `до ${payload.limit}`} кандидатов`;
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open) return;
     sectionRef.current?.focus({ preventScroll: true });
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -103,6 +55,8 @@ export function ClusterMapDialog({
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [open]);
+
+  useEffect(() => { panelRef.current?.scrollTo({ top: 0 }); }, [selectedTrackId]);
 
   function requestClose() {
     const active = document.activeElement;
@@ -114,22 +68,13 @@ export function ClusterMapDialog({
   function keepFocusInside(event: KeyboardEvent<HTMLElement>) {
     if (event.key !== "Tab") return;
     const section = event.currentTarget;
-    const focusable = [...section.querySelectorAll<HTMLElement>(FOCUSABLE)]
-      .filter((element) => element.getClientRects().length > 0);
+    const focusable = [...section.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) => element.getClientRects().length > 0);
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    if (!first || !last) {
-      event.preventDefault();
-      return;
-    }
+    if (!first || !last) { event.preventDefault(); return; }
     const active = document.activeElement;
-    if (event.shiftKey && (active === first || active === section)) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    if (event.shiftKey && (active === first || active === section)) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
   }
 
   function selectTabByKey(event: KeyboardEvent<HTMLButtonElement>) {
@@ -140,446 +85,218 @@ export function ClusterMapDialog({
     document.getElementById(`cluster-map-tab-${target}`)?.focus();
   }
 
+  function selectCandidate(trackId: number) { setSelectedTrackId(trackId); setTab("tracks"); }
+
+  function preview(track: Track) { selectCandidate(track.track_id); onPreview(track); }
+
   return (
-    <div
-      className="cluster-map-backdrop"
-      role="presentation"
-      data-open={open ? "true" : "false"}
-      inert={!open}
-      onPointerDown={(event) => {
-        pressedOnBackdrop.current = event.target === event.currentTarget;
-      }}
+    <div className="cluster-map-backdrop" role="presentation" data-open={open ? "true" : "false"} inert={!open}
+      onPointerDown={(event) => { pressedOnBackdrop.current = event.target === event.currentTarget; }}
       onClick={(event) => {
-        // A pan or selection that merely ends on the backdrop must not close the map.
         const fromBackdrop = pressedOnBackdrop.current && event.target === event.currentTarget;
         pressedOnBackdrop.current = false;
         if (fromBackdrop) requestClose();
-      }}
-    >
-      <section
-        ref={sectionRef}
-        className="cluster-map-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cluster-map-title"
-        aria-describedby="cluster-map-summary"
-        aria-busy={entry.status === "loading" || undefined}
-        tabIndex={-1}
-        onKeyDown={keepFocusInside}
-      >
+      }}>
+      <section ref={sectionRef} className="cluster-map-dialog" role="dialog" aria-modal="true" aria-labelledby="cluster-map-title"
+        aria-describedby="cluster-map-summary" aria-busy={entry.status === "loading" || undefined} tabIndex={-1} onKeyDown={keepFocusInside}>
         <header className="cluster-map-header">
           <div className="cluster-map-heading">
-            <h2 id="cluster-map-title">Карта {subject.genitive}</h2>
+            <h2 id="cluster-map-title">Проверка выдачи</h2>
             <span className="cluster-map-chip">{seedSearchModelPresentation[payload.analysis_family].label}</span>
-            {layer !== null ? (
-              <span className="cluster-map-chip" title={[layerRow?.source, layerState.note].filter(Boolean).join("\n") || undefined}>
-                L{layer}{layerState.layers ? ` / ${layerState.layers.length}` : ""}
-              </span>
-            ) : null}
+            {layer !== null ? <span className="cluster-map-chip" title={[layerRow?.source, layerState.note].filter(Boolean).join("\n") || undefined}>L{layer}</span> : null}
             {layerRow?.label ? <span className="cluster-map-layer-hint">{layerRow.label}</span> : null}
           </div>
-          <p id="cluster-map-summary" className="cluster-map-summary">{summary}</p>
-          <button className="icon-button cluster-map-close-button" type="button" title="Закрыть" aria-label="Закрыть" onClick={requestClose}>
-            <X size={16} />
-          </button>
+          <p id="cluster-map-summary" className="cluster-map-summary">{summaryText} · независимая проверка SONARA</p>
+          <div className="cluster-map-header-actions">
+            {entry.status === "ready" ? <button type="button" title="Повторить поиск и проверку по текущим данным библиотеки" onClick={onRetry}><RotateCcw size={13} />Пересчитать</button> : null}
+            <button className="icon-button" type="button" title="Закрыть" aria-label="Закрыть" onClick={requestClose}><X size={16} /></button>
+          </div>
         </header>
         {entry.status === "loading" ? (
-          <div className="cluster-map-body">
-            <p className="cluster-map-status" role="status">
-              {`Строим карту ${subject.genitive}${layer !== null ? ` L${layer}` : ""}: раскладываем выдачу вокруг ядра и ищем исключения…`}
-            </p>
-            <div className="cluster-map-kpis" aria-hidden="true">
-              {[0, 1].map((tile) => (
-                <div key={tile} className="cluster-map-kpi">
-                  <span className="cluster-map-skeleton-line" />
-                  <span className="cluster-map-skeleton-line is-value" />
-                </div>
-              ))}
-            </div>
-            <div className="cluster-map-main" aria-hidden="true">
-              <div className="cluster-map-figure">
-                <div className="cluster-map-plot-frame"><OrbitSkeleton /></div>
-              </div>
-              <div className="cluster-map-rail">
-                {[0, 1, 2].map((card) => (
-                  <div key={card} className="cluster-map-card">
-                    <span className="cluster-map-skeleton-line" />
-                    <span className="cluster-map-skeleton-line is-wide" />
-                    <span className="cluster-map-skeleton-line is-wide" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <div className="cluster-map-body"><p className="cluster-map-status" role="status">Проверяем физические признаки кандидатов относительно каждого референса…</p><div className="cluster-map-plot-frame"><MapSkeleton /></div></div>
         ) : entry.status === "error" ? (
+          <div className="cluster-map-body"><div className="cluster-map-error" role="alert">
+            <CircleAlert size={18} aria-hidden="true" /><div><strong>Не удалось проверить выдачу</strong><p>{entry.error}</p></div>
+            <button type="button" onClick={onRetry}>Повторить</button>
+          </div></div>
+        ) : response ? (
           <div className="cluster-map-body">
-            <div className="cluster-map-error" role="alert">
-              <CircleAlert size={18} aria-hidden="true" />
-              <div>
-                <strong>Не удалось построить карту</strong>
-                <p>{entry.error}</p>
-              </div>
-              <button type="button" title="Построить карту заново" onClick={onRetry}>Повторить</button>
-            </div>
-          </div>
-        ) : response && view ? (
-          <div className="cluster-map-body">
-            <KpiRow view={view} subject={subject} />
+            <p className="cluster-map-coverage"><strong>Рисунок ударных пока не проверен.</strong> Отметки показывают отклонения сводных аудиопризнаков.</p>
+            <KpiRow response={response} />
+            {response.calibration.descriptor_count < response.calibration.total_descriptors ? (
+              <p className="cluster-map-coverage" role="status">Неполные данные референсов: доступны {response.calibration.descriptor_count} из {response.calibration.total_descriptors} признаков. Отсутствующие измерения не подтверждают сходство.</p>
+            ) : null}
             <div className="cluster-map-main">
               <figure className="cluster-map-figure">
-                <figcaption>
-                  {`Кандидаты расположены вокруг ядра референсов: чем ближе точка, тем больше трек похож на референс по мнению ${subject.genitive}. `}
-                  {"Пунктирное кольцо на краю — обычный трек библиотеки. "}
-                  {`Треки, которые отличаются от референса одинаково, образуют рой; исключение — трек, который ${subject.nominative} притягивает по другой причине. `}
-                  Нажмите на точку, чтобы прослушать трек.
-                </figcaption>
-                <ClusterMapPlot
-                  mapKey={entry.key}
-                  points={response.points}
-                  librarySimilarity={response.library_similarity}
-                  center={response.candidates_center}
-                  playingTrackId={playingTrackId}
-                  reasonText={reasonText}
-                  onPreview={onPreview}
-                />
+                <figcaption>Правее — больше сходство по модели. Выше — больше расхождение физических признаков SONARA с ближайшим референсом относительно библиотеки. Клик выберет и воспроизведёт трек.</figcaption>
+                <ClusterMapPlot mapKey={entry.key} points={response.points} librarySimilarity={response.library_similarity} totalDescriptors={response.calibration.total_descriptors}
+                  selectedTrackId={selected?.point.track.track_id ?? null} playingTrackId={playingTrackId}
+                  describePoint={pointDescription} onSelect={selectCandidate} onPreview={onPreview} />
                 <div className="cluster-map-legend">
-                  <span className="cluster-map-key">
-                    <span className="cluster-map-swatch is-swarm" aria-hidden="true" />
-                    Рой · {view.swarm.length}
-                  </span>
-                  <span
-                    className="cluster-map-key"
-                    title={`Кандидаты, которые не вписываются в остальные в пространстве ${subject.genitive} (LocalOutlierFactor)`}
-                  >
-                    <span className="cluster-map-key-exception" aria-hidden="true" />
-                    Исключения · {view.exceptions.length}
-                  </span>
-                  <span className="cluster-map-key">
-                    <span className="cluster-map-key-core" aria-hidden="true" />
-                    Ядро · {view.seeds.length}
-                  </span>
-                  <span
-                    className="cluster-map-key"
-                    title="Центр масс кандидатов: по его расстоянию от ядра видно, насколько поиск уходит от референсов"
-                  >
-                    <Star className="cluster-map-key-center" size={12} aria-hidden="true" />
-                    Центр кандидатов · {response.candidates_center.similarity.toFixed(3)}
-                  </span>
-                  <span
-                    className="cluster-map-key"
-                    title="Так близко к ядру стоит обычный трек библиотеки (медиана по всей библиотеке); по этому кольцу проходит край карты"
-                  >
-                    <span className="cluster-map-key-typical" aria-hidden="true" />
-                    Обычный трек · {response.library_similarity.toFixed(3)}
-                  </span>
+                  <span className="cluster-map-key"><span className="cluster-map-swatch is-neutral" aria-hidden="true" />Без отметки по сводным признакам</span>
+                  <span className="cluster-map-key"><span className="cluster-map-key-exception" aria-hidden="true" />Проверить на слух</span>
+                  <span className="cluster-map-key"><X size={12} aria-hidden="true" />Неполная проверка</span>
+                  <span className="cluster-map-key"><span className="cluster-map-key-typical" aria-hidden="true" />Медиана модели в библиотеке · {response.library_similarity.toFixed(3)}</span>
                 </div>
+                <p className="cluster-map-prose">P80 означает: 80 % сравнимых треков библиотеки ближе к референсам по SONARA. Это не вероятность ошибки модели. Цвет отмечает сильное физическое отклонение, отдельно от процентиля.</p>
+                {response.summary.compared_count < candidates.length ? <p className="cluster-map-coverage">Без общей оценки SONARA: {candidates.length - response.summary.compared_count}. Они остаются в списке; на графике показаны только измеренные кандидаты.</p> : null}
               </figure>
-              <aside className="cluster-map-rail" aria-label="Подробности карты">
-                <div className="search-tabs cluster-map-tabs" role="tablist" aria-label="Разделы карты">
-                  {railTabs.map((name) => (
-                    <button
-                      key={name}
-                      id={`cluster-map-tab-${name}`}
-                      className={`model-search-tab ${tab === name ? "active" : ""}`}
-                      title={railTabTitle(name, subject)}
-                      role="tab"
-                      aria-selected={tab === name}
-                      aria-controls={`cluster-map-panel-${name}`}
-                      tabIndex={tab === name ? 0 : -1}
-                      type="button"
-                      onClick={() => setTab(name)}
-                      onKeyDown={selectTabByKey}
-                    >
-                      {name === "tracks" ? "Треки" : layer !== null ? "Слой" : "Модель"}
-                    </button>
-                  ))}
+              <aside className="cluster-map-rail" aria-label="Подробности проверки">
+                <div className="search-tabs cluster-map-tabs" role="tablist" aria-label="Разделы проверки">
+                  {railTabs.map((name) => <button key={name} id={`cluster-map-tab-${name}`} className={`model-search-tab ${tab === name ? "active" : ""}`}
+                    role="tab" aria-selected={tab === name} aria-controls={`cluster-map-panel-${name}`} tabIndex={tab === name ? 0 : -1}
+                    type="button" onClick={() => setTab(name)} onKeyDown={selectTabByKey}>{name === "tracks" ? "Треки" : "Сводка выдачи"}</button>)}
                 </div>
-                <div
-                  id={`cluster-map-panel-${tab}`}
-                  className="cluster-map-tab-panel"
-                  role="tabpanel"
-                  aria-labelledby={`cluster-map-tab-${tab}`}
-                >
-                  {tab === "tracks" ? (
-                    <TracksPanel view={view} subject={subject} playingTrackId={playingTrackId} onPreview={onPreview} />
-                  ) : (
-                    <LayerPanel response={response} subject={subject} layer={layer} layerRow={layerRow} note={layerState.note} />
-                  )}
+                <div ref={panelRef} id={`cluster-map-panel-${tab}`} className="cluster-map-tab-panel" role="tabpanel" aria-labelledby={`cluster-map-tab-${tab}`}>
+                  {tab === "tracks" ? <>
+                    {selected ? <CandidateDetails candidate={selected} seeds={seeds} calibration={response.calibration} playingTrackId={playingTrackId} onPreview={preview} /> : <p className="empty-state">Кандидатов для проверки нет.</p>}
+                    <CandidateList candidates={candidates} selectedTrackId={selected?.point.track.track_id ?? null} playingTrackId={playingTrackId} totalDescriptors={response.calibration.total_descriptors} onSelect={selectCandidate} onPreview={preview} />
+                    <ReferenceList seeds={seeds} playingTrackId={playingTrackId} onPreview={onPreview} />
+                  </> : <SummaryPanel response={response} />}
                 </div>
               </aside>
             </div>
           </div>
         ) : null}
-        <footer className="cluster-map-footer">Оценки только ранжируют кандидатов; окончательный выбор — на слух.</footer>
+        <footer className="cluster-map-footer">SONARA описывает физические отличия; жанр, инструменты и музыкальную уместность подтверждает прослушивание.</footer>
       </section>
     </div>
   );
 }
 
-function KpiRow({ view, subject }: { view: MapView; subject: Subject }) {
-  const nearest = view.exceptions[0];
-  const total = view.candidates.length;
-  return (
-    <dl className="cluster-map-kpis">
-      <div className="cluster-map-kpi">
-        <dt>Исключения</dt>
-        <dd className="cluster-map-kpi-value">{view.exceptions.length}</dd>
-        <dd className="cluster-map-kpi-note">
-          {`из ${total} ${pluralRu(total, "кандидата", "кандидатов", "кандидатов")}, в стороне от роя в пространстве ${subject.genitive}`}
-        </dd>
-      </div>
-      <div className="cluster-map-kpi">
-        <dt>Ближайшее исключение</dt>
-        <dd className="cluster-map-kpi-value">{nearest ? `#${nearest.rank}` : "—"}</dd>
-        <dd className="cluster-map-kpi-note">
-          {nearest ? "место в выдаче: чем меньше номер, тем ближе к ядру" : "все кандидаты в рое"}
-        </dd>
-      </div>
-    </dl>
-  );
+function KpiRow({ response }: { response: ClusterMapResponse }) {
+  const { summary, calibration } = response;
+  return <dl className="cluster-map-kpis">
+    <div className="cluster-map-kpi"><dt>Проверить на слух</dt><dd className="cluster-map-kpi-value">{summary.requires_listening_count} / {summary.candidate_count}</dd><dd className="cluster-map-kpi-note">сильные отклонения от диапазона референсов</dd></div>
+    <div className="cluster-map-kpi"><dt>Медиана расхождения</dt><dd className="cluster-map-kpi-value">{summary.median_percentile === null ? "—" : `P${summary.median_percentile.toFixed(1)}`}</dd><dd className="cluster-map-kpi-note">общая оценка: {summary.compared_count} / {summary.candidate_count}</dd></div>
+    <div className="cluster-map-kpi"><dt>Общий сдвиг</dt><dd className="cluster-map-kpi-value">{summary.coherent_drift ? "Есть" : calibration.descriptor_count < calibration.total_descriptors ? "Неполная проверка" : summary.compared_count < 3 ? "Мало данных" : "Не выявлен"}</dd><dd className="cluster-map-kpi-note">по {calibration.descriptor_count} / {calibration.total_descriptors} физическим признакам</dd></div>
+  </dl>;
 }
 
-function TracksPanel({ view, subject, playingTrackId, onPreview }: {
-  view: MapView;
-  subject: Subject;
+function CandidateList({ candidates, selectedTrackId, playingTrackId, totalDescriptors, onSelect, onPreview }: {
+  candidates: Candidate[];
+  selectedTrackId: number | null;
+  playingTrackId: number | null;
+  totalDescriptors: number;
+  onSelect: (trackId: number) => void;
+  onPreview: (track: Track) => void;
+}) {
+  return <section className="cluster-map-list"><h3>Кандидаты · порядок модели</h3><ul className="cluster-map-anomalies">
+    {candidates.map(({ point, rank }) => <li key={point.track.track_id} className="cluster-map-anomaly" data-selected={point.track.track_id === selectedTrackId || undefined}>
+      <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
+      <button className="cluster-map-select-track" type="button" aria-pressed={point.track.track_id === selectedTrackId} onClick={() => onSelect(point.track.track_id)} title={`Выбрать: ${displayTrack(point.track)}`}>
+        <strong>{displayTrack(point.track)}</strong><span>#{rank} · модель {point.similarity.toFixed(3)} · {point.sonara.percentile === null ? "SONARA —" : `SONARA P${point.sonara.percentile.toFixed(1)}`}</span>
+      </button>
+      <div className="cluster-map-reasons"><span className="cluster-map-reason" data-departure={point.sonara.requires_listening === true || undefined}>{statusText(point, totalDescriptors)}</span></div>
+    </li>)}
+  </ul></section>;
+}
+
+function CandidateDetails({ candidate, seeds, calibration, playingTrackId, onPreview }: {
+  candidate: Candidate;
+  seeds: ClusterMapPoint[];
+  calibration: ClusterMapResponse["calibration"];
   playingTrackId: number | null;
   onPreview: (track: Track) => void;
 }) {
-  return (
-    <>
-      <article className="cluster-map-card cluster-map-core-card">
-        <header className="cluster-map-card-head">
-          <span className="cluster-map-key-core" aria-hidden="true" />
-          <h3>Ядро</h3>
-          <span className="cluster-map-card-meta">
-            {`${view.seeds.length} ${pluralRu(view.seeds.length, "референс", "референса", "референсов")}`}
-          </span>
-        </header>
-        <TrackList
-          items={view.seeds.map((point) => ({ point, meta: `${point.similarity.toFixed(3)} к ядру` }))}
-          playingTrackId={playingTrackId}
-          onPreview={onPreview}
-        />
-      </article>
-      <section className="cluster-map-list">
-        <h3>Исключения · {view.exceptions.length}</h3>
-        <p className="cluster-map-prose">
-          {view.exceptions.length
-            ? `Треки, которые ${subject.nominative} притягивает к референсам иначе, чем остальные кандидаты. Послушайте их первыми: если они чужие, ${subject.nominative} ловит не то, что вы ищете.`
-            : "Все кандидаты в рое."}
-        </p>
-        {view.exceptions.length ? (
-          <CandidateList items={view.exceptions} playingTrackId={playingTrackId} onPreview={onPreview} />
-        ) : null}
-      </section>
-      <section className="cluster-map-list">
-        <h3>Рой · {view.swarm.length}</h3>
-        <CandidateList items={view.swarm} playingTrackId={playingTrackId} onPreview={onPreview} />
-      </section>
-    </>
-  );
-}
-
-function CandidateList({ items, playingTrackId, onPreview }: {
-  items: Candidate[];
-  playingTrackId: number | null;
-  onPreview: (track: Track) => void;
-}) {
-  return (
-    <ul className="cluster-map-anomalies">
-      {items.map(({ point, rank }) => {
-        const name = displayTrack(point.track);
-        return (
-          <li key={point.track.track_id} className="cluster-map-anomaly">
-            <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
-            <div className="cluster-map-anomaly-title">
-              <strong title={name}>{name}</strong>
-              <span className="cluster-map-anomaly-meta">#{rank} · {point.similarity.toFixed(3)}</span>
-            </div>
-            <div className="cluster-map-reasons">
-              {point.sonara_gaps.map((item) => (
-                <span
-                  key={item.group}
-                  className="cluster-map-reason"
-                  title="SONARA: самое большое отклонение группы от среднего референсов, в σ библиотеки"
-                >
-                  {reasonText(item)}
-                </span>
-              ))}
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function LayerPanel({ response, subject, layer, layerRow, note }: {
-  response: ClusterMapResponse;
-  subject: Subject;
-  layer: number | null;
-  layerRow: LayerRow | null;
-  note: string | null;
-}) {
-  const widest = Math.max(...response.profile.map((spread) => spread.std), 1e-9);
-  // The drift runs from the largest shift down, so a group's first entry is its largest.
-  const drift = response.drift.filter((item, index, all) => all.findIndex((other) => other.group === item.group) === index);
-  return (
-    <div className="cluster-map-layer">
-      {layer !== null ? (
-        <div className="cluster-map-layer-about">
-          <h3>L{layer}{layerRow?.label ? ` · ${layerRow.label}` : ""}</h3>
-          {layerRow?.source ? <p className="cluster-map-prose">{layerRow.source}</p> : null}
-          {note ? <p className="cluster-map-prose">{note}</p> : null}
-        </div>
-      ) : null}
-      <div className="cluster-map-focus">
-        <h3>Что держит {subject.nominative}</h3>
-        <p className="cluster-map-prose">
-          {`Разброс каждой группы SONARA среди кандидатов, в σ библиотеки. Группу с самым малым разбросом ${subject.nominative} держит, с самым большим — отпускает.`}
-        </p>
-        {response.profile.map((spread, position) => (
-          <div
-            key={spread.group}
-            className="cluster-map-focus-row"
-            data-holds={position === 0 || undefined}
-            title={`${groupNames[spread.group]}: разброс ${spread.std.toFixed(2)}`}
-          >
-            <span className="cluster-map-focus-label">{groupNames[spread.group]}</span>
-            <span className="cluster-map-focus-track">
-              <span className="cluster-map-focus-bar" style={{ left: 0, width: `${(spread.std / widest) * 100}%` }} />
-            </span>
-            <span className="cluster-map-focus-value">{spread.std.toFixed(2)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="cluster-map-focus">
-        <h3>Дрейф от референсов</h3>
-        <p className="cluster-map-prose">
-          {`Среднее кандидатов минус среднее референсов, в σ библиотеки: куда ${subject.nominative} уводит поиск. По каждой группе SONARA — её самый большой сдвиг.`}
-        </p>
-        <div className="cluster-map-reasons">
-          {drift.slice(0, DRIFT_SHOWN).map((item) => (
-            <span key={item.group} className="cluster-map-reason">
-              {`${featureName(item)} ${signed(item.delta, 2)}σ`}
-            </span>
-          ))}
-        </div>
-      </div>
-      <p className="cluster-map-prose">
-        {`Расстояние от центра точное (1 − сходство с ядром); угол лишь приближённо показывает, чем трек отличается, и передаёт ${Math.round(response.angle_variance_kept * 100)} % этих отличий.`}
-      </p>
-      <p className="cluster-map-prose">
-        Карта строится для одной модели и одного слоя. Чтобы сравнить, переключите модель или слой в панели и откройте карту снова.
-      </p>
+  const { point, rank } = candidate;
+  const nearest = seeds.find((seed) => seed.track.track_id === point.sonara.nearest_reference_id);
+  const departures = point.sonara.deviations.filter((item) => item.departure === true);
+  return <article className="cluster-map-card cluster-map-candidate-details" aria-label="Выбранный кандидат">
+    <header className="cluster-map-card-head"><PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} /><h3>#{rank} · {displayTrack(point.track)}</h3></header>
+    <p className="cluster-map-prose">{statusText(point, calibration.total_descriptors)}. {point.sonara.distance === null ? "Общее расхождение неизвестно." : `Расхождение ${point.sonara.distance.toFixed(2)} IQR · ${point.sonara.percentile === null ? "процентиль неизвестен" : `P${point.sonara.percentile.toFixed(1)}`}.`}</p>
+    {nearest ? <p className="cluster-map-prose">Ближайший референс по SONARA: <strong>{displayTrack(nearest.track)}</strong></p> : null}
+    <div className="cluster-map-reference-scores"><h4>Сходство модели с каждым референсом</h4>
+      {point.reference_similarities.map((item) => <div key={item.track_id}><span title={referenceName(seeds, item.track_id)}>{referenceName(seeds, item.track_id)}</span><strong>{item.similarity.toFixed(3)}</strong></div>)}
     </div>
-  );
+    {departures.length ? <div className="cluster-map-reasons">{departures.map((item) => <span key={item.descriptor} className="cluster-map-reason" data-departure>{deviationDescription(item)}</span>)}</div> : null}
+    <details className="cluster-map-descriptors"><summary>Все физические признаки · {point.sonara.descriptor_count} / {calibration.total_descriptors}</summary>
+      <p className="cluster-map-prose">Сравнение с диапазоном всех референсов. Сильное отклонение — более {calibration.departure_threshold} IQR за его пределами. IQR — межквартильный размах признака в библиотеке. Порог служит ориентиром для прослушивания, а не уверенностью.</p>
+      <dl>{[...point.sonara.deviations].sort((left, right) => (right.envelope_distance ?? -1) - (left.envelope_distance ?? -1)).map((item) => <div key={item.descriptor} data-departure={item.departure === true || undefined}>
+        <dt>{descriptorLabel(item.descriptor)}</dt>
+        <dd>{item.available ? deviationDescription(item) : "Нет измерения или данных референсов"}</dd>
+        {item.value !== null ? <dd className="cluster-map-descriptor-values">Трек: {formatDescriptor(item.descriptor, item.value)} · референсы: {referenceRange(item)}</dd> : null}
+        {item.available ? <dd className="cluster-map-descriptor-values">До ближайшего референса по признаку: {numberOrDash(item.distance)} IQR · {item.percentile === null ? "процентиль неизвестен" : `P${item.percentile.toFixed(1)}`}</dd> : null}
+      </div>)}</dl>
+    </details>
+  </article>;
 }
 
-function TrackList({ items, playingTrackId, onPreview }: {
-  items: { point: ClusterMapPoint; meta: string }[];
-  playingTrackId: number | null;
-  onPreview: (track: Track) => void;
-}) {
-  return (
-    <ul className="cluster-map-track-list">
-      {items.map(({ point, meta }) => {
-        const name = displayTrack(point.track);
-        return (
-          <li key={point.track.track_id}>
-            <div className="cluster-map-track">
-              <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
-              <span className="cluster-map-track-name" title={name}>{name}</span>
-              <span className="cluster-map-track-meta">{meta}</span>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
+function SummaryPanel({ response }: { response: ClusterMapResponse }) {
+  const { calibration, summary } = response;
+  return <div className="cluster-map-layer">
+    <section className="cluster-map-layer-about"><h3>Независимая база сравнения</h3>
+      <p className="cluster-map-prose">Нормализация SONARA по библиотеке: {calibration.library_count} треков, {calibration.complete_library_count} с полным набором измерений. Доступны {calibration.descriptor_count} / {calibration.total_descriptors} признаков референсов. При смене модели или слоя база сравнения остаётся той же.</p>
+      <p className="cluster-map-prose">Каждый кандидат сравнивается с отдельными референсами. Общая дистанция — до ближайшего из них; сильное отклонение признака — выход за диапазон всех референсов.</p>
+    </section>
+    <section className="cluster-map-focus"><h3>Систематические отличия выдачи</h3>
+      <p className="cluster-map-prose">Общий сдвиг требует не менее трёх сравнений, согласованного направления у большинства и величины более {calibration.drift_threshold} IQR. Это описание физических отличий, а не оценка музыкальной уместности.</p>
+      <ul className="cluster-map-summary-descriptors">{[...summary.descriptors].sort((left, right) => Number(right.coherent_drift) - Number(left.coherent_drift) || (right.coherent_shift_distance ?? -1) - (left.coherent_shift_distance ?? -1)).map((item) => <li key={item.descriptor} data-drift={item.coherent_drift || undefined}>
+        <div><strong>{descriptorLabel(item.descriptor)}</strong><span>{groupLabels[item.group] ?? item.group}</span></div>
+        <p>{item.compared_count === 0 ? "Недостаточно измерений" : <>{item.coherent_drift ? "Общий сдвиг" : "Без подтверждённого общего сдвига"} · {item.compared_count} сравнений</>}</p>
+        {item.compared_count > 0 ? <p>Сильных отклонений: {item.departure_count}{item.below_count !== null && item.above_count !== null ? <><br />За диапазоном референсов: ниже {item.below_count} · выше {item.above_count}</> : null}<br />Одно направление: {item.direction_count} / {item.compared_count}<br />Медиана выхода: {numberOrDash(item.median_envelope_distance)} IQR · общий сдвиг: {numberOrDash(item.coherent_shift_distance)} IQR{item.median_delta_iqr !== null ? ` · Δ ${signed(item.median_delta_iqr)} IQR` : ""}</p> : null}
+      </li>)}</ul>
+    </section>
+    <p className="cluster-map-prose">Пороговые отметки помогают выбрать треки для прослушивания. Отсутствие отметки не доказывает сходство; неизвестные признаки остаются неизвестными.</p>
+  </div>;
 }
 
-function PlayButton({ track, playingTrackId, onPreview }: {
-  track: Track;
-  playingTrackId: number | null;
-  onPreview: (track: Track) => void;
-}) {
+function ReferenceList({ seeds, playingTrackId, onPreview }: { seeds: ClusterMapPoint[]; playingTrackId: number | null; onPreview: (track: Track) => void }) {
+  return <section className="cluster-map-card"><h3>Референсы</h3><ul className="cluster-map-track-list">{seeds.map((point) => <li key={point.track.track_id}><div className="cluster-map-track">
+    <PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} /><span className="cluster-map-track-name" title={displayTrack(point.track)}>{displayTrack(point.track)}</span>
+  </div></li>)}</ul></section>;
+}
+
+function PlayButton({ track, playingTrackId, onPreview }: { track: Track; playingTrackId: number | null; onPreview: (track: Track) => void }) {
   const playing = playingTrackId === track.track_id;
   const action = playing ? "Пауза" : "Прослушать";
-  return (
-    <button
-      className="icon-button cluster-map-play-button"
-      data-playing={playing || undefined}
-      title={action}
-      aria-label={`${action}: ${displayTrack(track)}`}
-      type="button"
-      onClick={() => onPreview(track)}
-    >
-      {playing ? <Pause size={13} /> : <Play size={13} />}
-    </button>
-  );
+  return <button className="icon-button cluster-map-play-button" data-playing={playing || undefined} title={action} aria-label={`${action}: ${displayTrack(track)}`} type="button" onClick={() => onPreview(track)}>{playing ? <Pause size={13} /> : <Play size={13} />}</button>;
 }
 
-function mapView(response: ClusterMapResponse): MapView {
-  const seeds: ClusterMapPoint[] = [];
-  const candidates: Candidate[] = [];
-  for (const point of response.points) {
-    if (point.seed) seeds.push(point);
-    else candidates.push({ point, rank: candidates.length + 1 });
-  }
-  return {
-    seeds,
-    candidates,
-    exceptions: candidates.filter(({ point }) => point.exception),
-    swarm: candidates.filter(({ point }) => !point.exception),
-    medianSimilarity: median(candidates.map(({ point }) => point.similarity)),
-  };
+function statusText(point: ClusterMapPoint, total: number) {
+  const status = point.sonara.requires_listening === true ? "Проверить на слух" : !point.sonara.available || point.sonara.requires_listening === null || point.sonara.descriptor_count < total ? "Неполная проверка" : "Без отметки по сводным признакам";
+  return point.sonara.descriptor_count < total ? `${status} · признаки ${point.sonara.descriptor_count}/${total}` : status;
 }
 
-function median(values: number[]) {
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+function pointDescription(point: ClusterMapPoint) {
+  const departures = point.sonara.deviations.filter((item) => item.departure === true);
+  return departures.length ? departures.slice(0, 2).map(deviationDescription).join(" · ") : "Физические измерения и сравнение с референсами — в карточке трека.";
 }
 
-function signed(value: number, digits: number) {
-  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
+function referenceName(seeds: ClusterMapPoint[], trackId: number) {
+  const seed = seeds.find((point) => point.track.track_id === trackId);
+  return seed ? displayTrack(seed.track) : `Референс #${trackId}`;
 }
 
-function railTabTitle(tab: RailTab, subject: Subject) {
-  return tab === "tracks"
-    ? "Ядро, исключения и рой в порядке выдачи"
-    : `Что держит ${subject.nominative} и куда уводит поиск`;
-}
-
-/** The group, then its SONARA feature under the track card's own label; a stored
- * vector reads as its group alone. */
-function featureName(item: { feature: string; group: string }) {
-  return vectorGroups.has(item.group) ? groupNames[item.group] : `${groupNames[item.group]}: ${featureLabel(item.feature)}`;
-}
-
-/** A SONARA reason: the feature, its value where it reads, and its gap from the references. */
-function reasonText(item: ClusterMapFeatureValue) {
-  const gap = `${signed(item.delta, 1)}σ`;
-  return vectorGroups.has(item.group)
-    ? `${featureName(item)} ${gap}`
-    : `${featureName(item)} ${formatFeatureValue(item.feature, item.value)} (${gap})`;
-}
-
-function sonaraFeature(feature: string) {
+function descriptorLabel(descriptor: string) {
+  if (vectorLabels[descriptor]) return vectorLabels[descriptor];
   for (const group of sonaraCoreFeatureGroups) {
-    const descriptor = group.features.find((candidate) => candidate.key === feature);
-    if (descriptor) return descriptor;
+    const found = group.features.find((feature) => feature.key === descriptor);
+    if (found) return found.label;
   }
-  return null;
+  return descriptor;
 }
 
-/** SONARA labels and units come from the track card, the one place that names them. */
-function featureLabel(feature: string) {
-  return sonaraFeature(feature)?.label ?? feature;
+function formatDescriptor(descriptor: string, value: number) {
+  for (const group of sonaraCoreFeatureGroups) {
+    const found = group.features.find((feature) => feature.key === descriptor);
+    if (found) return formatSonaraCoreValue(found.key, value);
+  }
+  return value.toFixed(2);
 }
 
-function formatFeatureValue(feature: string, value: number) {
-  const descriptor = sonaraFeature(feature);
-  return descriptor ? formatSonaraCoreValue(descriptor.key, value) : value.toFixed(2);
+function referenceRange(item: ClusterMapDeviation) {
+  if (item.reference_min === null || item.reference_max === null) return "—";
+  return item.reference_min === item.reference_max ? formatDescriptor(item.descriptor, item.reference_min)
+    : `${formatDescriptor(item.descriptor, item.reference_min)}…${formatDescriptor(item.descriptor, item.reference_max)}`;
 }
+
+function deviationDescription(item: ClusterMapDeviation) {
+  const label = descriptorLabel(item.descriptor);
+  if (!item.available) return `${label}: нет измерения`;
+  const direction = item.delta_iqr === null ? "отклонение" : item.delta_iqr > 0 ? "выше референсов" : item.delta_iqr < 0 ? "ниже референсов" : "в диапазоне";
+  return `${label}: ${direction} · ${numberOrDash(item.envelope_distance)} IQR`;
+}
+
+function numberOrDash(value: number | null) { return value === null ? "—" : value.toFixed(2); }
+function signed(value: number) { return `${value > 0 ? "+" : ""}${value.toFixed(2)}`; }

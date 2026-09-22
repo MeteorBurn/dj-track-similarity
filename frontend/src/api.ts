@@ -225,45 +225,77 @@ export type EmbeddingSearchPayload = {
   noise?: number;
 };
 
-/** A SONARA feature as stored (`chroma_N`, `contrast_N` and `mfcc_N` are entries
- * of stored vectors) and its gap from the references' mean in library σ. */
-export type ClusterMapFeatureValue = { feature: string; group: string; value: number; delta: number };
+/** One physical descriptor, scaled against the same library for every model/layer. */
+export type ClusterMapDeviation = {
+  descriptor: string;
+  group: string;
+  value: number | null;
+  reference_min: number | null;
+  reference_max: number | null;
+  delta_iqr: number | null;
+  distance: number | null;
+  envelope_distance: number | null;
+  percentile: number | null;
+  available: boolean;
+  departure: boolean | null;
+};
 
-/** Mean standard deviation of a group's features across the candidates, in library σ. */
-export type ClusterMapGroupSpread = { group: string; std: number };
-
-/** Radius `1 - similarity` is exact; `angle` (radians) only approximates the
- * direction of difference. `exception` marks a candidate that does not fit in
- * with the rest in the layer's space (never a seed); `sonara_gaps` explain the
- * track in SONARA terms: each group's widest gap from the references, widest first. */
 export type ClusterMapPoint = {
   track: Track;
   seed: boolean;
   similarity: number;
-  angle: number;
-  exception: boolean;
-  sonara_gaps: ClusterMapFeatureValue[];
+  reference_similarities: { track_id: number; similarity: number }[];
+  sonara: {
+    available: boolean;
+    distance: number | null;
+    percentile: number | null;
+    nearest_reference_id: number | null;
+    descriptor_count: number;
+    requires_listening: boolean | null;
+    deviations: ClusterMapDeviation[];
+  };
 };
 
-/** The candidates' mean minus the references' mean for one feature, in library σ. */
-export type ClusterMapDrift = { feature: string; group: string; delta: number };
+export type ClusterMapDescriptorSummary = {
+  descriptor: string;
+  group: string;
+  compared_count: number;
+  median_distance: number | null;
+  median_envelope_distance: number | null;
+  median_delta_iqr: number | null;
+  above_count: number | null;
+  below_count: number | null;
+  departure_count: number;
+  coherent_shift_distance: number | null;
+  direction_count: number;
+  coherent_drift: boolean;
+};
 
-/** The map of exactly what `/api/search` returns for the same payload. `points`
- * holds the seeds in request order, then the candidates in rank order;
- * `library_similarity` is how close a typical library track sits to the core;
- * `candidates_center` places the candidates' centre of mass on the orbit;
- * `profile` runs from the SONARA group the candidates hold tightest to the
- * loosest, `drift` from the largest shift down. */
+/** Exact model rank and independent, reference-anchored SONARA measurements.
+ * Percentiles describe the library distribution, never confidence of a match. */
 export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
   layer: number | null;
-  angle_variance_kept: number;
   library_similarity: number;
-  candidates_center: { similarity: number; angle: number };
   points: ClusterMapPoint[];
-  profile: ClusterMapGroupSpread[];
-  drift: ClusterMapDrift[];
+  calibration: {
+    library_count: number;
+    complete_library_count: number;
+    descriptor_count: number;
+    total_descriptors: number;
+    departure_threshold: number;
+    drift_threshold: number;
+  };
+  summary: {
+    candidate_count: number;
+    compared_count: number;
+    requires_listening_count: number;
+    median_distance: number | null;
+    median_percentile: number | null;
+    coherent_drift: boolean;
+    descriptors: ClusterMapDescriptorSummary[];
+  };
 };
 
 export type EmbeddingRandomTrackPayload = {

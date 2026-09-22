@@ -147,50 +147,68 @@ def test_generic_search_endpoint_returns_muq_result_shape(
 def test_cluster_map_places_the_current_search_and_explains_it(
     monkeypatch, tmp_path: Path
 ) -> None:
+    from dataclasses import replace
+
+    import dj_track_similarity.api.routes_search as routes_search
+    from dj_track_similarity.analysis_models import SonaraFeatureRow
+    from dj_track_similarity.search.cluster_map import build_cluster_map
+
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = _sonara_library(db_path)
     dimension = current_embedding_spec("maest").dimension
-    private_axes = iter(range(30, 60))
-    # A complete SONARA row, as every ML-analysed track has one.
-    sonara = {
-        "bpm_confidence": 0.9,
-        "beat_grid_stability": 0.9,
-        "onset_density_per_second": 4.0,
-        "dissonance_score": 0.3,
-        "chord_changes_per_second": 0.5,
-        "integrated_loudness_lufs": -9.0,
-        "dynamic_range_db": 8.0,
-        "loudness_range_lu": 6.0,
-        "energy_curve_hop_seconds": 0.5,
-        "energy_curve_sample_count": 600,
-        "energy_curve_mean": 0.5,
-        "energy_curve_min": 0.2,
-        "energy_curve_max": 0.7,
-        "energy_curve_stddev": 0.1,
-        "spectral_centroid_hz": 2000.0,
-        "spectral_bandwidth_hz": 2500.0,
-        "spectral_rolloff_hz": 6000.0,
-        "spectral_flatness": 0.1,
-        "zero_crossing_rate": 0.06,
-        "danceability_score": 0.6,
-        "valence_score": 0.4,
-        "acousticness_score": 0.2,
-        "mood_happy_score": 0.3,
-        "mood_aggressive_score": 0.3,
-        "mood_relaxed_score": 0.4,
-        "mood_sad_score": 0.3,
+    # Each coordinate varies independently in the fixed library background.
+    # Candidate composition must never determine its own validation scale.
+    scalars = {
+        "tempo_variability": (0.03, 0.01),
+        "onset_density_per_second": (4.0, 1.0),
+        "dynamic_range_db": (10.0, 2.0),
+        "loudness_range_lu": (5.0, 1.0),
+        "energy_curve_stddev": (0.1, 0.02),
+        "zero_crossing_rate": (0.1, 0.02),
+        "spectral_centroid_hz": (2000.0, 300.0),
+        "spectral_bandwidth_hz": (2500.0, 300.0),
+        "spectral_rolloff_hz": (6000.0, 500.0),
+        "spectral_flatness": (0.1, 0.02),
+        "dissonance_score": (0.1, 0.02),
+        "chord_changes_per_second": (1.0, 0.2),
+    }
+    vectors = {
+        "chroma_mean_blob": 12,
+        "mfcc_mean_blob": 13,
+        "spectral_contrast_mean_blob": 7,
     }
 
-    def add(
-        name: str, bpm: float, energy: float, direction: dict[int, float], **features: float
-    ) -> AnalysisTarget:
+    def profile(offsets: np.ndarray) -> dict[str, object]:
+        values = {
+            name: mean + scale * offset
+            for (name, (mean, scale)), offset in zip(scalars.items(), offsets, strict=False)
+        }
+        cursor = len(scalars)
+        for name, length in vectors.items():
+            values[name] = np.asarray(
+                1.0 + 0.1 * offsets[cursor:cursor + length], dtype="<f4"
+            )
+            cursor += length
+        return values
+
+    width = len(scalars) + sum(vectors.values())
+    matching = profile(np.zeros(width))
+    shifted = profile(np.full(width, 8.0))
+    rng = np.random.default_rng(81)
+    background = [profile(row) for row in rng.uniform(-1.0, 1.0, (256, width))]
+    profiles: dict[int, dict[str, object]] = {}
+
+    def add(name: str, direction: dict[int, float], values: dict[str, object]) -> AnalysisTarget:
         target = _add_sonara_track(
-            db,
-            tmp_path,
-            name,
-            {**sonara, "detected_bpm": bpm, "energy": energy, **features},
+            db, tmp_path, name,
+            {
+                **{key: value for key, value in values.items() if key in scalars},
+                "energy_curve_hop_seconds": 0.5, "energy_curve_sample_count": 600,
+                "energy_curve_mean": 0.5, "energy_curve_min": 0.0, "energy_curve_max": 1.0,
+            },
         )
+        profiles[target.track_id] = values
         vector = np.zeros(dimension, dtype=np.float32)
         vector[0] = 1.0
         for axis, value in direction.items():
@@ -198,47 +216,49 @@ def test_cluster_map_places_the_current_search_and_explains_it(
         vector /= np.linalg.norm(vector)
         result = db.save_maest_results((MaestWrite(
             target=target,
-            genres=(MaestGenreScore(label="Electronic---Drum n Bass", score=0.9),),
-            syncopated_rhythm=None,
-            analyzed_at=_NOW,
+            genres=(MaestGenreScore(label="Electronic---House", score=0.9),),
+            syncopated_rhythm=None, analyzed_at=_NOW,
             embedding=EmbeddingOutput(
-                family="maest",
-                vector=vector,
-                analyzed_at=_NOW,
+                family="maest", vector=vector, analyzed_at=_NOW,
                 layer_vectors=same_vector_layers("maest", vector),
             ),
         ),))[0]
         assert result.ok, result.error
         return target
 
-    def swarm_track(
-        name: str, bpm: float = 170.0, energy: float = 0.3, **features: float
-    ) -> AnalysisTarget:
-        return add(name, bpm, energy, {1: 0.1, next(private_axes): 0.01}, **features)
+    seeds = [add("seed-a.wav", {20: 0.2}, matching), add("seed-b.wav", {20: -0.2}, matching)]
+    ordinary = [add(f"match-{i}.wav", {1: 0.1, 30 + i: 0.01}, matching) for i in range(17)]
+    model_direction = add("different-model-direction.wav", {2: 0.1, 50: 0.01}, matching)
+    excluded_only = add("excluded-features.wav", {1: 0.1, 51: 0.01}, {
+        **matching, "detected_bpm": 85.0, "energy_score": 0.0,
+        "mood_sad_score": 1.0, "vocal_probability": 1.0,
+    })
+    anomaly = add("sonara-deviation.wav", {1: 0.1, 52: 0.01}, shifted)
+    sonara_output = db.active_analysis_output("sonara", "core")
+    rows = tuple(
+        replace(row, values={**row.values, **profiles[row.target.track_id]})
+        for row in db.load_sonara_feature_rows(sonara_output)
+    )
+    calibration_rows = tuple(
+        SonaraFeatureRow(
+            AnalysisTarget(db.catalog_uuid, 1000 + i, f"background-{i}"),
+            sonara_output, values,
+        )
+        for i, values in enumerate(background)
+    )
+    monkeypatch.setattr(LibraryDatabase, "load_sonara_feature_rows", lambda *args, **kwargs: rows + calibration_rows)
+    captured = {}
 
-    # The seeds average to e0 exactly, the core. The swarm leaves it along e1,
-    # each track with a small private axis of its own; the exception leaves it
-    # along e2 at the same similarity, so the layer ranks it among the swarm
-    # while it shares no direction with them.
-    seeds = [
-        add("seed-169.wav", 169.0, 0.3, {20: 0.2}),
-        add("seed-171.wav", 171.0, 0.3, {20: -0.2}),
-    ]
-    # Twenty candidates, as the REFERENCE panel asks for by default.
-    swarm = [swarm_track(f"swarm-{index}.wav") for index in range(11)]
-    off_tempo = [swarm_track("off-tempo-125.wav", 125.0), swarm_track("off-tempo-85.wav", 85.0)]
-    busy = [
-        swarm_track(f"busy-{index}.wav", onset_density_per_second=8.0, dynamic_range_db=16.0)
-        for index in range(6)
-    ]
-    exception = add("exception.wav", 170.0, 0.3, {2: 0.1, next(private_axes): 0.01})
+    def record_map(tracks, library_sonara):
+        captured["tracks"] = tracks
+        captured["library"] = library_sonara
+        return build_cluster_map(tracks, library_sonara)
+
+    monkeypatch.setattr(routes_search, "build_cluster_map", record_map)
     request = {
-        "analysis_family": "maest",
-        "seed_track_ids": [seed.track_id for seed in seeds],
-        "limit": 20,
-        "noise": 0,
+        "analysis_family": "maest", "layer": 5,
+        "seed_track_ids": [seed.track_id for seed in seeds], "limit": 20, "noise": 0,
     }
-
     with TestClient(create_app(db_path)) as client:
         search = client.post("/api/search", json=request)
         response = client.post("/api/search/cluster-map", json=request)
@@ -246,37 +266,79 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     assert search.status_code == 200
     assert response.status_code == 200, response.text
     payload = response.json()
-    scores = {item["track"]["track_id"]: item["score"] for item in search.json()}
-    points = {point["track"]["track_id"]: point for point in payload["points"]}
-    assert {track_id for track_id, point in points.items() if point["seed"]} == {
+    candidates = [point for point in payload["points"] if not point["seed"]]
+    assert [point["track"]["track_id"] for point in candidates] == [
+        item["track"]["track_id"] for item in search.json()
+    ]
+    for point, result in zip(candidates, search.json(), strict=True):
+        assert point["similarity"] == pytest.approx(result["score"], abs=1e-5)
+        assert point["track"]["track_uuid"] == result["track"]["track_uuid"]
+    assert {point["track"]["track_id"] for point in payload["points"] if point["seed"]} == {
         seed.track_id for seed in seeds
     }
-    assert {track_id for track_id, point in points.items() if not point["seed"]} == set(scores)
-    for track_id, score in scores.items():
-        assert points[track_id]["similarity"] == pytest.approx(score, abs=1e-5)
-    # The layer alone names the exception: the track it ranks among the swarm
-    # while leaving the core another way, and none of the tracks it keeps in
-    # the swarm, however far SONARA puts them.
-    assert {track_id for track_id, point in points.items() if point["exception"]} == {
-        exception.track_id
-    }
-    # SONARA only explains, counting from the references' mean: a swarm track
-    # that matches them shows no gap, and tempo counts as stored, never folded
-    # again to half or double time.
-    assert all(abs(gap["delta"]) < 1e-9 for gap in points[swarm[0].track_id]["sonara_gaps"])
-    for target in off_tempo:
-        gap = points[target.track_id]["sonara_gaps"][0]
-        assert gap["feature"] == "detected_bpm" and gap["delta"] < -1
-    # Each group explains once: the busy tracks differ in two rhythm features,
-    # and the next reasons come from other groups.
-    for target in busy:
-        groups = [gap["group"] for gap in points[target.track_id]["sonara_gaps"]]
-        assert groups[0] == "rhythm" and len(set(groups)) == len(groups)
-    # The busy tracks lift the candidates' event density above the references.
-    drift = {item["feature"]: item["delta"] for item in payload["drift"]}
-    assert drift["onset_density_per_second"] > 0
     assert payload["catalog_uuid"] == db.catalog_uuid
-    assert payload["layer"] == 13
+    assert payload["layer"] == 5
+    points = {point["track"]["track_id"]: point for point in candidates}
+    assert {track_id for track_id, point in points.items() if point["sonara"]["requires_listening"]} == {
+        anomaly.track_id
+    }
+    for target in [*ordinary, model_direction, excluded_only]:
+        validation = points[target.track_id]["sonara"]
+        assert validation["available"]
+        assert validation["distance"] == pytest.approx(0.0)
+        assert not any(item["departure"] for item in validation["deviations"])
+    deviation = points[anomaly.track_id]["sonara"]
+    assert deviation["distance"] > points[ordinary[0].track_id]["sonara"]["distance"]
+    assert all(item["available"] and item["departure"] for item in deviation["deviations"])
+    assert not payload["summary"]["coherent_drift"]
+
+    # An internally identical cohort far from the references must retain drift;
+    # changing its composition never refits the library scale or the references.
+    displaced_tracks = [
+        item if item.seed else replace(item, sonara=shifted)
+        for item in captured["tracks"]
+    ]
+    displaced = build_cluster_map(displaced_tracks, captured["library"])
+    assert displaced.summary.coherent_drift
+    assert all(item.coherent_drift for item in displaced.summary.descriptors)
+    for point in displaced.points:
+        if not point.seed:
+            assert point.sonara.requires_listening
+            assert point.sonara.distance == pytest.approx(deviation["distance"])
+
+    # Opposing vector departures are individual deviations, not a coherent
+    # shift in one direction. Magnitudes alone would falsely mark this cohort.
+    opposing = []
+    for index, item in enumerate(captured["tracks"]):
+        vector_shift = profile(np.full(width, 8.0 if index % 2 else -8.0))
+        values = {**matching, **{key: vector_shift[key] for key in vectors}}
+        opposing.append(item if item.seed else replace(item, sonara=values))
+    split = build_cluster_map(opposing, captured["library"])
+    assert not split.summary.coherent_drift
+    assert all(point.sonara.requires_listening for point in split.points if not point.seed)
+
+    # Distinct references are alternatives: matching a real reference must
+    # not become an anomaly merely because it differs from their mean.
+    alternatives = [
+        captured["tracks"][0],
+        replace(captured["tracks"][1], sonara=shifted),
+        replace(captured["tracks"][len(seeds)], sonara=shifted),
+    ]
+    alternative = build_cluster_map(alternatives, captured["library"]).points[2].sonara
+    assert alternative.distance == pytest.approx(0.0)
+    assert alternative.nearest_reference_id == seeds[1].track_id
+    assert alternative.requires_listening is False
+
+    # Missing measured evidence is unavailable, never an imputed safe match.
+    single = [captured["tracks"][0], captured["tracks"][len(seeds)]]
+    single[1] = replace(single[1], sonara={**matching, "tempo_variability": None})
+    incomplete = build_cluster_map(single, captured["library"])
+    validation = incomplete.points[1].sonara
+    assert not validation.available
+    assert validation.distance is None
+    assert validation.percentile is None
+    assert validation.requires_listening is None
+    assert any(not item.available for item in validation.deviations)
 
 
 def test_sonara_search_endpoint_accepts_mixer_and_modifiers(

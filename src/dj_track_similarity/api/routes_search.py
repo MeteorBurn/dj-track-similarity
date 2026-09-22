@@ -8,6 +8,7 @@ from uuid import uuid4
 import time
 
 from fastapi import FastAPI, HTTPException
+import numpy as np
 
 from ..analysis_models import AnalysisTarget
 from ..analysis.model_runners import (
@@ -47,6 +48,7 @@ from ..search.engine import (
     SearchFilters,
     SimilaritySearch,
     SimilaritySearchResult,
+    _ranking_score,
 )
 from ..search.sonara import (
     SonaraSearchUnavailable,
@@ -176,7 +178,7 @@ def register_search_routes(
                     track=track,
                     seed=True,
                     vector=vectors[target],
-                    sonara=sonara_by_target[target],
+                    sonara=sonara_by_target.get(target, {}),
                 )
                 for target, track in zip(seeds, seed_tracks, strict=True)
             ]
@@ -185,23 +187,27 @@ def register_search_routes(
                     track=candidate["track"],
                     seed=False,
                     vector=vectors[result.target],
-                    sonara=sonara_by_target[result.target],
+                    sonara=sonara_by_target.get(result.target, {}),
+                    similarity=result.score,
                 )
                 for result, candidate in zip(results, candidates, strict=True)
             )
+            # Recheck that vectors loaded after the search still produce its ranking scores.
+            seed_mean = np.mean([vectors[target] for target in seeds], axis=0)
+            seed_norm = np.linalg.norm(seed_mean)
+            if not np.isfinite(seed_norm) or seed_norm <= 0 or any(
+                abs(_ranking_score(
+                    result.target,
+                    float(vectors[result.target] @ (seed_mean / seed_norm)),
+                    request.noise,
+                ) - result.score) > 1e-4
+                for result in results
+            ):
+                raise RuntimeError(_CLUSTER_MAP_CHANGED)
             cluster_map = build_cluster_map(
                 tracks,
                 [row.values for row in library_sonara],
             )
-            # The map's float64 cosine repeats the float32 search score far
-            # inside this tolerance unless a vector changed between the reads.
-            if any(
-                abs(point.similarity - result.score) > 1e-4
-                for point, result in zip(
-                    cluster_map.points[len(seeds):], results, strict=True
-                )
-            ):
-                raise RuntimeError(_CLUSTER_MAP_CHANGED)
         except (DatabaseBusy, KeyError) as error:
             # The selected library was replaced or busy, or a track vanished.
             raise HTTPException(
@@ -218,12 +224,10 @@ def register_search_routes(
             catalog_uuid=database.catalog_uuid,
             analysis_family=request.analysis_family,
             layer=validate_embedding_layer(request.analysis_family, request.layer),
-            angle_variance_kept=cluster_map.angle_variance_kept,
             library_similarity=library_similarity,
-            candidates_center=cluster_map.candidates_center,
             points=cluster_map.points,
-            profile=cluster_map.profile,
-            drift=cluster_map.drift,
+            calibration=cluster_map.calibration,
+            summary=cluster_map.summary,
         )
 
     @app.post(

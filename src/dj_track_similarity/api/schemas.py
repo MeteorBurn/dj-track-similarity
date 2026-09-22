@@ -983,16 +983,33 @@ class SimilaritySearchResultResponse(_ResponseModel):
     score_breakdown: dict[str, float] | None = None
 
 
-class ClusterMapFeatureValueResponse(_ResponseModel):
-    feature: str
+class ClusterMapDeviationResponse(_ResponseModel):
+    descriptor: str
     group: str
-    value: float
-    delta: float
+    value: float | None
+    reference_min: float | None
+    reference_max: float | None
+    delta_iqr: float | None
+    distance: float | None
+    envelope_distance: float | None
+    percentile: float | None = Field(ge=0, le=100)
+    available: bool
+    departure: bool | None
 
 
-class ClusterMapGroupSpreadResponse(_ResponseModel):
-    group: str
-    std: float = Field(ge=0)
+class ClusterMapSonaraResponse(_ResponseModel):
+    available: bool
+    distance: float | None
+    percentile: float | None = Field(ge=0, le=100)
+    nearest_reference_id: int | None
+    descriptor_count: int = Field(ge=0)
+    requires_listening: bool | None
+    deviations: list[ClusterMapDeviationResponse]
+
+
+class ClusterMapReferenceSimilarityResponse(_ResponseModel):
+    track_id: int
+    similarity: float
 
 
 class ClusterMapPointResponse(_ResponseModel):
@@ -1000,42 +1017,58 @@ class ClusterMapPointResponse(_ResponseModel):
     seed: bool
     # Unbounded: float error can push a cosine past 1 by about 1e-10.
     similarity: float
-    angle: float
-    exception: bool
-    sonara_gaps: list[ClusterMapFeatureValueResponse]
+    reference_similarities: list[ClusterMapReferenceSimilarityResponse]
+    sonara: ClusterMapSonaraResponse
 
 
-class ClusterMapCenterResponse(_ResponseModel):
-    similarity: float
-    angle: float
+class ClusterMapCalibrationResponse(_ResponseModel):
+    library_count: int = Field(ge=0)
+    complete_library_count: int = Field(ge=0)
+    descriptor_count: int = Field(ge=0)
+    total_descriptors: int = Field(ge=0)
+    departure_threshold: float = Field(ge=0)
+    drift_threshold: float = Field(ge=0)
 
 
-class ClusterMapDriftResponse(_ResponseModel):
-    feature: str
+class ClusterMapDescriptorSummaryResponse(_ResponseModel):
+    descriptor: str
     group: str
-    delta: float
+    compared_count: int = Field(ge=0)
+    median_distance: float | None
+    median_envelope_distance: float | None
+    median_delta_iqr: float | None
+    above_count: int | None
+    below_count: int | None
+    departure_count: int = Field(ge=0)
+    direction_count: int = Field(ge=0)
+    coherent_shift_distance: float | None
+    coherent_drift: bool
+
+
+class ClusterMapSummaryResponse(_ResponseModel):
+    candidate_count: int = Field(ge=0)
+    compared_count: int = Field(ge=0)
+    requires_listening_count: int = Field(ge=0)
+    median_distance: float | None
+    median_percentile: float | None = Field(ge=0, le=100)
+    coherent_drift: bool
+    descriptors: list[ClusterMapDescriptorSummaryResponse]
 
 
 class ClusterMapResponse(_ResponseModel):
-    """The cluster map of one seed search, as ``/api/search`` ranks it.
+    """Unchanged model ranking with an independent reference-anchored SONARA check.
 
-    ``points`` holds the seeds in request order, then the candidates in rank
-    order; ``exception`` marks a candidate that does not fit in with the rest
-    in the layer's space. ``library_similarity`` is how close a typical
-    library track sits to the core, the median over the whole library, and
-    ``candidates_center`` places the candidates' centre of mass on the orbit.
-    ``layer`` is the layer read, resolved from the request.
+    Library percentiles describe acoustic distance, never genre probabilities.
+    Missing SONARA comparisons remain explicit rather than becoming zero gaps.
     """
 
     catalog_uuid: str
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
     layer: int | None
-    angle_variance_kept: float
     library_similarity: float
-    candidates_center: ClusterMapCenterResponse
     points: list[ClusterMapPointResponse]
-    profile: list[ClusterMapGroupSpreadResponse]
-    drift: list[ClusterMapDriftResponse]
+    calibration: ClusterMapCalibrationResponse
+    summary: ClusterMapSummaryResponse
 
 
 class EmbeddingLayerCountResponse(_ResponseModel):

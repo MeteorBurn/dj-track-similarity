@@ -6265,27 +6265,15 @@ button.dedup-play-button {
 .embedding-layer-select small { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .embedding-layer-select .error { color: var(--danger-text); }
 
-/* Cluster map: a REFERENCE search drawn as an orbit around its reference core.
-   --cluster-swarm marks the candidates that fit in with the rest in the layer's space,
-   --cluster-exception the ones that do not; the colours mark points, keys and swatches,
-   never text. Plotly parses the colours it draws with itself, so those tokens stay plain
-   hex. Each theme's pair passes the dataviz validator on --surface: normal-vision
-   Delta E >= 15 and contrast >= 3:1. --cluster-glow-opacity drives the dark theme's neon
-   glow; 0 turns it off. --font-mono is for small numeric captions only: ring values,
-   bars, ranks, scores. */
+/* Independent SONARA validation of a model ranking. Plotly reads plain hex tokens. */
 :root {
-  --cluster-swarm: #05841c;
   --cluster-exception: #d3407b;
-  --cluster-glow-opacity: 0;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 :root[data-theme="dark"] {
-  --cluster-swarm: #26d484;
   --cluster-exception: #f973b3;
-  --cluster-glow-opacity: .22;
 }
 
-/* The map button shares the Search row at its 38px height. */
 .embedding-search-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -6293,17 +6281,9 @@ button.dedup-play-button {
   margin-bottom: 8px;
   min-width: 0;
 }
-.embedding-search-row .embedding-search-button {
-  margin-bottom: 0;
-  min-width: 0;
-}
-button.icon-button.cluster-map-button {
-  position: relative;
-  width: 38px;
-  min-height: 38px;
-}
+.embedding-search-row .embedding-search-button { margin-bottom: 0; min-width: 0; }
+button.icon-button.cluster-map-button { position: relative; width: 38px; min-height: 38px; }
 .cluster-map-button[aria-busy="true"] svg { animation: spin 1s linear infinite; }
-/* Ready: a built map for exactly these inputs opens without a request. */
 .cluster-map-button[data-ready]::after {
   content: "";
   position: absolute;
@@ -6317,8 +6297,7 @@ button.icon-button.cluster-map-button {
 }
 :is(.cluster-map-button, .cluster-map-dialog button):active:not(:disabled) { background: var(--surface-subtle); }
 
-/* The dialog stays mounted while its map is cached: closing fades it out and
-   hides it without unmounting, so Plotly keeps its size and the view its zoom. */
+/* Closing keeps the measured plot mounted, including the user's zoom. */
 .cluster-map-backdrop {
   position: fixed;
   inset: 0;
@@ -6346,12 +6325,7 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   height: min(900px, calc(100dvh - 32px));
   min-width: 0;
   overflow: hidden;
-  /* Two soft glows from the swarm and exception colours light opposite corners;
-     the colour and the image are separate so an unsupported mix leaves the surface. */
-  background-color: var(--surface);
-  background-image:
-    radial-gradient(60% 50% at 0 0, color-mix(in srgb, var(--cluster-swarm) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent),
-    radial-gradient(60% 50% at 100% 100%, color-mix(in srgb, var(--cluster-exception) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent);
+  background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--workbench-dialog-radius);
   box-shadow: var(--workbench-dialog-shadow);
@@ -6359,27 +6333,16 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   transform-origin: center;
   transition: scale 220ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-/* The dialog is focused only as the starting point; its controls carry the focus ring. */
 .cluster-map-dialog:focus { outline: none; }
-.cluster-map-backdrop[data-open="false"] .cluster-map-dialog {
-  scale: 0.97;
-  transition-duration: 160ms;
-}
+.cluster-map-backdrop[data-open="false"] .cluster-map-dialog { scale: 0.97; transition-duration: 160ms; }
 @starting-style {
   .cluster-map-backdrop[data-open="true"] { opacity: 0; }
   .cluster-map-backdrop[data-open="true"] .cluster-map-dialog { scale: 0.97; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cluster-map-dialog,
-  .cluster-map-backdrop[data-open="false"] .cluster-map-dialog {
-    scale: none;
-    transition: none;
-  }
-  @starting-style {
-    .cluster-map-backdrop[data-open="true"] .cluster-map-dialog { scale: none; }
-  }
+  .cluster-map-dialog, .cluster-map-backdrop[data-open="false"] .cluster-map-dialog { scale: none; transition: none; }
+  @starting-style { .cluster-map-backdrop[data-open="true"] .cluster-map-dialog { scale: none; } }
 }
-
 .cluster-map-header {
   display: grid;
   flex: none;
@@ -6389,19 +6352,8 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   padding: 14px 14px 12px 18px;
   border-bottom: 1px solid var(--border-soft);
 }
-.cluster-map-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  min-width: 0;
-}
-.cluster-map-heading h2 {
-  margin: 0 4px 0 0;
-  color: var(--text-strong);
-  font-size: 17px;
-  font-weight: 600;
-}
+.cluster-map-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.cluster-map-heading h2 { margin: 0 4px 0 0; color: var(--text-strong); font-size: 17px; font-weight: 600; }
 .cluster-map-chip {
   display: inline-flex;
   align-items: center;
@@ -6416,25 +6368,10 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   font-weight: 650;
   white-space: nowrap;
 }
-.cluster-map-layer-hint {
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.cluster-map-summary {
-  grid-column: 1;
-  min-width: 0;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.cluster-map-close-button {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-}
-
+.cluster-map-layer-hint { min-width: 0; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.cluster-map-summary { grid-column: 1; min-width: 0; margin: 0; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cluster-map-header-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 6px; align-items: center; }
+.cluster-map-header-actions > button:not(.icon-button) { display: inline-flex; gap: 5px; align-items: center; padding: 6px 8px; font-size: 11px; }
 .cluster-map-body {
   display: flex;
   flex: 1 1 auto;
@@ -6443,32 +6380,16 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   min-height: 0;
   overflow-y: auto;
   padding: 14px 18px;
-  /* A control scrolled into view keeps its focus ring clear of the edge. */
   scroll-padding-block: 14px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
-.cluster-map-status {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-.cluster-map-footer {
-  flex: none;
-  padding: 9px 18px;
-  border-top: 1px solid var(--border-soft);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-style: italic;
-}
-
-/* One ruled strip rather than two cards: the 1px gap shows the strip's
-   background as a hairline between the cells. */
+.cluster-map-status { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+.cluster-map-footer { flex: none; padding: 9px 18px; border-top: 1px solid var(--border-soft); color: var(--text-muted); font-size: 12px; font-style: italic; }
 .cluster-map-kpis {
   display: grid;
   flex: none;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   margin: 0;
   overflow: hidden;
@@ -6476,114 +6397,28 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   border-radius: var(--workbench-radius);
   background: var(--border-soft);
 }
-.cluster-map-kpi {
-  display: grid;
-  align-content: start;
-  gap: 3px;
-  min-width: 0;
-  padding: 10px 14px;
-  background: var(--surface-muted);
-}
-/* Micro-labels: the small uppercase captions over values and bars. */
-.cluster-map-kpi dt,
-.cluster-map-focus-label {
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-.cluster-map-kpi dd {
-  min-width: 0;
-  margin: 0;
-}
-.cluster-map-kpi-value {
-  color: var(--text-strong);
-  font-size: 22px;
-  font-variant-numeric: proportional-nums;
-  font-weight: 650;
-  line-height: 1.15;
-}
-.cluster-map-kpi-note {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-.cluster-map-skeleton-line {
-  display: block;
-  width: 40%;
-  height: 10px;
-  border-radius: 4px;
-  background: var(--border-soft);
-}
-.cluster-map-skeleton-line.is-value {
-  width: 55%;
-  height: 22px;
-}
-.cluster-map-skeleton-line.is-wide { width: 85%; }
+.cluster-map-kpi { display: grid; align-content: start; gap: 3px; min-width: 0; padding: 10px 14px; background: var(--surface-muted); }
+.cluster-map-kpi dt { color: var(--text-muted); font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.cluster-map-kpi dd { min-width: 0; margin: 0; }
+.cluster-map-kpi-value { color: var(--text-strong); font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 650; line-height: 1.15; }
+.cluster-map-kpi-note { color: var(--text-muted); font-size: 12px; }
+.cluster-map-coverage { margin: 0; padding: 7px 9px; border-left: 2px solid var(--border-strong); background: var(--surface-muted); color: var(--body-copy); font-size: 12px; line-height: 1.4; }
 
 .cluster-map-main {
   display: grid;
-  flex: 1 0 380px;
-  grid-template-columns: minmax(0, 1fr) clamp(300px, 30cqi, 380px);
+  flex: 1 0 420px;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 33cqi, 420px);
   grid-template-rows: minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
 }
-.cluster-map-figure {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
-}
-.cluster-map-figure figcaption {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-.cluster-map-plot-frame {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 280px;
-  overflow: hidden;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--workbench-radius);
-  background: var(--surface);
-}
-/* Plotly takes its font from this host, so the ring values and cluster letters
-   on the map are set as measurements. */
-.cluster-map-plot {
-  position: absolute;
-  inset: 0;
-  font-family: var(--font-mono);
-}
-.cluster-map-orbit-skeleton {
-  position: absolute;
-  inset: 16px;
-  width: calc(100% - 32px);
-  height: calc(100% - 32px);
-  fill: none;
-  pointer-events: none;
-  stroke: var(--border-soft);
-}
-.cluster-map-orbit-skeleton :is(circle, line) {
-  stroke-width: 1px;
-  vector-effect: non-scaling-stroke;
-}
-.cluster-map-toolbar {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 1;
-  display: grid;
-  gap: 4px;
-}
-.cluster-map-toolbar button.icon-button {
-  width: 30px;
-  min-height: 30px;
-  background: var(--surface);
-}
+.cluster-map-figure { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; margin: 0; }
+.cluster-map-figure figcaption { color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+.cluster-map-plot-frame { position: relative; flex: 1 1 auto; min-height: 280px; overflow: hidden; border: 1px solid var(--border-soft); border-radius: var(--workbench-radius); background: var(--surface); }
+.cluster-map-plot { position: absolute; inset: 0; font-family: var(--font-mono); }
+.cluster-map-plot-loading { position: absolute; inset: 48px 30px; display: grid; align-content: center; padding: 14px; background: var(--surface); color: var(--text-muted); font-size: 12px; text-align: center; pointer-events: none; }
+.cluster-map-toolbar { position: absolute; top: 8px; right: 8px; z-index: 1; display: grid; gap: 4px; }
+.cluster-map-toolbar button.icon-button { width: 30px; min-height: 30px; background: var(--surface); }
 .cluster-map-plot-error {
   position: absolute;
   inset: 50% 12px auto;
@@ -6618,87 +6453,16 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   line-height: 1.3;
   pointer-events: none;
 }
-.cluster-map-tooltip-values {
-  color: var(--text-strong);
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-}
 .cluster-map-tooltip-name { overflow-wrap: anywhere; }
-.cluster-map-tooltip-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.cluster-map-legend {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-}
-/* A point's colour beside its words. */
-.cluster-map-swatch {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-}
-.cluster-map-swatch.is-swarm { background: var(--cluster-swarm); }
-.cluster-map-swatch.is-exception { background: var(--cluster-exception); }
-.cluster-map-key {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.cluster-map-key-core {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  margin: 0 1px;
-  background: var(--text-strong);
-  rotate: 45deg;
-}
-/* The exception key repeats the plot's mark: the colour inside a ring. */
-.cluster-map-key-exception {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  margin: 0 2px;
-  border-radius: 50%;
-  background: var(--cluster-exception);
-  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--text-strong);
-}
-.cluster-map-key-center {
-  flex: none;
-  color: var(--accent);
-  fill: var(--accent);
-}
-.cluster-map-key-typical {
-  flex: none;
-  width: 11px;
-  height: 11px;
-  border: 1.5px dashed var(--text-muted);
-  border-radius: 50%;
-}
-
-.cluster-map-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  min-height: 0;
-}
-.search-tabs.cluster-map-tabs {
-  flex: none;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-}
+.cluster-map-tooltip-line { color: var(--text-muted); font-size: 11px; }
+.cluster-map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
+.cluster-map-swatch { width: 8px; height: 8px; flex: none; border-radius: 50%; }
+.cluster-map-swatch.is-neutral { background: var(--text-muted); }
+.cluster-map-key { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cluster-map-key-exception { width: 9px; height: 9px; flex: none; rotate: 45deg; background: var(--cluster-exception); }
+.cluster-map-key-typical { width: 14px; height: 0; flex: none; border-top: 1.5px dashed var(--text-muted); }
+.cluster-map-rail { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
+.search-tabs.cluster-map-tabs { flex: none; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
 .cluster-map-tab-panel {
   display: grid;
   flex: 1 1 auto;
@@ -6707,263 +6471,80 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  /* The scroll box clips at its padding edge: 3px outside the rail's content
-     keep the focus rings of edge-aligned controls whole. */
   margin-inline: -3px;
   padding-inline: 3px;
   scroll-padding-block: 4px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
-.cluster-map-card {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft);
-  border-top: 2px solid var(--border-strong);
-  border-radius: var(--workbench-radius);
-  background: var(--surface-muted);
-}
-.cluster-map-core-card { border-top-color: var(--text-strong); }
-.cluster-map-card-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-width: 0;
-}
-.cluster-map-card-head h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 650;
-}
-.cluster-map-card-meta {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.cluster-map-track-list {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.cluster-map-track {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-button.icon-button.cluster-map-play-button {
-  width: 28px;
-  min-height: 28px;
-  border-color: var(--accent-soft-border);
-  border-radius: 5px;
-  background: var(--accent-muted-bg);
-  color: var(--accent);
-}
-button.icon-button.cluster-map-play-button[data-playing] {
-  border-color: var(--accent-border);
-  background: var(--accent-strong-bg);
-  color: var(--accent-active-text);
-}
-.cluster-map-track-name {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-track);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cluster-map-track-meta {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.cluster-map-list {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-.cluster-map-list h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 650;
-}
-.cluster-map-anomalies {
-  display: grid;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.cluster-map-anomaly {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 5px 8px;
-  min-width: 0;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-soft);
-}
-.cluster-map-anomaly-title {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-.cluster-map-anomaly-title strong {
-  overflow: hidden;
-  color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cluster-map-anomaly-meta {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-.cluster-map-reasons {
-  display: flex;
-  flex-wrap: wrap;
-  grid-column: 2 / -1;
-  gap: 4px;
-  min-width: 0;
-}
-.cluster-map-reason {
-  padding: 2px 7px;
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  background: var(--surface-muted);
-  color: var(--text);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
+.cluster-map-card { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: var(--workbench-radius); background: var(--surface-muted); }
+.cluster-map-candidate-details { border-top: 2px solid var(--accent); }
+.cluster-map-card-head { display: flex; align-items: start; gap: 8px; min-width: 0; }
+.cluster-map-card h3 { margin: 0; color: var(--text-strong); font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.cluster-map-track-list { display: grid; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.cluster-map-track { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; }
+button.icon-button.cluster-map-play-button { flex: none; width: 28px; min-height: 28px; border-color: var(--accent-soft-border); border-radius: 5px; background: var(--accent-muted-bg); color: var(--accent); }
+button.icon-button.cluster-map-play-button[data-playing] { border-color: var(--accent-border); background: var(--accent-strong-bg); color: var(--accent-active-text); }
+.cluster-map-track-name { min-width: 0; overflow: hidden; color: var(--text-track); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.cluster-map-list { display: grid; gap: 6px; min-width: 0; }
+.cluster-map-list h3 { margin: 0; color: var(--text-strong); font-size: 13px; font-weight: 650; }
+.cluster-map-anomalies { display: grid; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.cluster-map-anomaly { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 5px 8px; min-width: 0; padding: 8px 4px; border-bottom: 1px solid var(--border-soft); }
+.cluster-map-anomaly[data-selected] { background: var(--surface-muted); box-shadow: inset 2px 0 var(--accent); }
+button.cluster-map-select-track { display: grid; gap: 2px; min-width: 0; padding: 3px; border: 0; background: transparent; color: var(--text); text-align: left; }
+.cluster-map-select-track strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.cluster-map-select-track span { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cluster-map-reasons { display: flex; flex-wrap: wrap; grid-column: 2 / -1; gap: 4px; min-width: 0; }
+.cluster-map-reason { padding: 2px 7px; border: 1px solid var(--border-soft); border-radius: 4px; background: var(--surface-muted); color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cluster-map-reason[data-departure] { border-left: 3px solid var(--cluster-exception); }
+.cluster-map-candidate-details > .cluster-map-reasons { grid-column: auto; }
 
-.cluster-map-layer,
-.cluster-map-layer-about,
-.cluster-map-focus {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
+.cluster-map-reference-scores { display: grid; gap: 4px; min-width: 0; }
+.cluster-map-reference-scores h4 { margin: 0 0 2px; font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.cluster-map-reference-scores > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; font-size: 11px; }
+.cluster-map-reference-scores span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cluster-map-reference-scores strong { font-variant-numeric: tabular-nums; }
+.cluster-map-descriptors { min-width: 0; border-top: 1px solid var(--border-soft); padding-top: 8px; }
+.cluster-map-descriptors summary { cursor: pointer; color: var(--text-strong); font-size: 12px; font-weight: 600; }
+.cluster-map-descriptors > p { margin-top: 8px; }
+.cluster-map-descriptors dl { display: grid; margin: 8px 0 0; }
+.cluster-map-descriptors dl > div { display: grid; gap: 3px; padding: 7px 0; border-top: 1px solid var(--border-soft); }
+.cluster-map-descriptors dl > div[data-departure] { padding-left: 7px; border-left: 2px solid var(--cluster-exception); }
+.cluster-map-descriptors dt { font-size: 12px; font-weight: 600; color: var(--text-strong); }
+.cluster-map-descriptors dd { margin: 0; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.cluster-map-descriptor-values { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.cluster-map-layer, .cluster-map-layer-about, .cluster-map-focus { display: grid; gap: 8px; min-width: 0; }
 .cluster-map-layer { gap: 14px; }
-.cluster-map-layer h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 650;
-}
-.cluster-map-prose {
-  margin: 0;
-  color: var(--body-copy);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.cluster-map-focus {
-  --focus-label: 104px;
-  --focus-value: 44px;
-}
-.cluster-map-focus-row {
-  display: grid;
-  grid-template-columns: var(--focus-label) minmax(0, 1fr) var(--focus-value);
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.cluster-map-focus-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Thin bars, square at the baseline and rounded at the value end. The group the
-   candidates hold tightest wears the accent; the rest stay neutral. */
-.cluster-map-focus-track {
-  position: relative;
-  height: 6px;
-  border-radius: 0 3px 3px 0;
-  background: var(--border-soft);
-}
-.cluster-map-focus-bar {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: 0 3px 3px 0;
-  background: var(--text-soft);
-}
-.cluster-map-focus-row[data-holds] .cluster-map-focus-bar { background: var(--accent); }
-.cluster-map-focus-value {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-align: right;
-}
-.cluster-map-focus-row[data-holds] :is(.cluster-map-focus-label, .cluster-map-focus-value) {
-  color: var(--text-strong);
-}
-.cluster-map-focus-row[data-holds] .cluster-map-focus-value { font-weight: 650; }
-
-.cluster-map-error {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--danger-border);
-  border-radius: var(--workbench-radius);
-  background: var(--danger-bg);
-  color: var(--danger-text);
-}
+.cluster-map-layer h3 { margin: 0; color: var(--text-strong); font-size: 13px; font-weight: 650; }
+.cluster-map-prose { margin: 0; color: var(--body-copy); font-size: 12px; line-height: 1.45; }
+.cluster-map-summary-descriptors { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cluster-map-summary-descriptors li { min-width: 0; padding: 7px 9px; border: 1px solid var(--border-soft); border-radius: var(--workbench-radius); background: var(--surface-muted); }
+.cluster-map-summary-descriptors li[data-drift] { border-left: 3px solid var(--cluster-exception); }
+.cluster-map-summary-descriptors li > div { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.cluster-map-summary-descriptors span { color: var(--text-muted); font-size: 10px; }
+.cluster-map-summary-descriptors p { margin: 4px 0 0; color: var(--body-copy); font-size: 11px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.cluster-map-error { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 14px; border: 1px solid var(--danger-border); border-radius: var(--workbench-radius); background: var(--danger-bg); color: var(--danger-text); }
 .cluster-map-error svg { margin-top: 1px; }
-.cluster-map-error strong {
-  color: var(--danger-deep-text);
-  font-size: 13px;
-}
-.cluster-map-error p {
-  margin: 3px 0 0;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
+.cluster-map-error strong { color: var(--danger-deep-text); font-size: 13px; }
+.cluster-map-error p { margin: 3px 0 0; font-size: 12px; overflow-wrap: anywhere; }
 
-/* Narrow dialog: one column, and the body scrolls instead of the rail. */
 @container cluster-map (max-width: 960px) {
-  .cluster-map-main {
-    flex: none;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
-  }
-  .cluster-map-plot-frame {
-    flex: none;
-    height: clamp(300px, 58cqi, 460px);
-    min-height: 0;
-  }
+  .cluster-map-main { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .cluster-map-plot-frame { flex: none; height: clamp(300px, 58cqi, 460px); min-height: 0; }
   .cluster-map-tab-panel { overflow: visible; }
 }
 @container cluster-map (max-width: 640px) {
-  .cluster-map-header { padding: 12px 10px 10px 14px; }
+  .cluster-map-header { padding: 12px 10px 10px 14px; gap: 8px; }
+  .cluster-map-header-actions { grid-row: 1; }
+  .cluster-map-header-actions > button:not(.icon-button) { font-size: 10px; padding: 5px; }
+  .cluster-map-summary { grid-column: 1 / -1; }
   .cluster-map-body { padding: 12px 14px; }
+  .cluster-map-kpis { grid-template-columns: minmax(0, 1fr); }
+  .cluster-map-kpi { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 8px 10px; }
+  .cluster-map-kpi-value { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 18px; }
+  .cluster-map-kpi-note { grid-column: 1; }
 }
 @media (max-width: 600px) {
   .cluster-map-backdrop { padding: 0; }
-  .cluster-map-dialog {
-    width: 100%;
-    height: 100dvh;
-    border: 0;
-    border-radius: 0;
-  }
+  .cluster-map-dialog { width: 100%; height: 100dvh; border: 0; border-radius: 0; }
 }

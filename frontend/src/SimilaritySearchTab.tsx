@@ -1,8 +1,9 @@
-import { Search, Shuffle } from "lucide-react";
+import { LoaderCircle, Orbit, Search, Shuffle } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type { SonaraMixerWeights, SonaraModifiers } from "./api";
 import type { SearchFiltersState, SearchHelpText } from "./SearchPlaylistPanel";
 import { EmbeddingLayerSelect } from "./EmbeddingLayerSelect";
+import type { ClusterMapState } from "./useClusterMap";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 import {
   seedSearchModels,
@@ -23,7 +24,8 @@ export function SimilaritySearchTab({
   setFilters,
   helpText,
   onSearch,
-  onAddRandomTrack
+  onAddRandomTrack,
+  clusterMap
 }: {
   layerState: EmbeddingLayerState;
   model: SeedSearchModel;
@@ -38,6 +40,7 @@ export function SimilaritySearchTab({
   helpText: SearchHelpText;
   onSearch: () => void;
   onAddRandomTrack: () => void;
+  clusterMap: ClusterMapState;
 }) {
   const { label, title, description } = seedSearchModelPresentation[model];
   const showSonara = model === "sonara";
@@ -56,6 +59,13 @@ export function SimilaritySearchTab({
   const randomTrackTitle = missingReason || (showSonara
     ? "Добавить случайный SONARA-ready трек из базы в seed"
     : `Add a random track with a current ${label} embedding as a seed.`);
+  // A built or building map opens whatever else is running; a new build waits for the search.
+  const clusterMapBlocked = clusterMap.reason
+    || missingReason
+    || ((clusterMap.status === "idle" || clusterMap.status === "error") && (busy || pending)
+      ? "Wait for the current search to finish."
+      : "");
+  const clusterMapTitle = clusterMapBlocked || clusterMapButtonTitle(clusterMap, label, layerState.layer);
   const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
     { key: "timbre", label: "Timbre", title: helpText.sonaraMixerTimbre },
     { key: "rhythm", label: "Rhythm", title: helpText.sonaraMixerRhythm },
@@ -219,20 +229,42 @@ export function SimilaritySearchTab({
           </div>
         </div>
       ) : null}
-      <button
-        className="embedding-search-button"
-        title={requestTitle}
-        disabled={busy || pending || Boolean(missingReason)}
-        onClick={onSearch}
-        type="button"
-      >
-        <Search size={17} />
-        {pending ? "Searching..." : "Search"}
-      </button>
+      <div className="embedding-search-row">
+        <button
+          className="embedding-search-button"
+          title={requestTitle}
+          disabled={busy || pending || Boolean(missingReason)}
+          onClick={onSearch}
+          type="button"
+        >
+          <Search size={17} />
+          {pending ? "Searching..." : "Search"}
+        </button>
+        <button
+          id="cluster-map-button"
+          className="icon-button cluster-map-button"
+          title={clusterMapTitle}
+          aria-label={clusterMapTitle}
+          aria-busy={clusterMap.status === "loading" || undefined}
+          data-ready={clusterMap.status === "ready" || undefined}
+          disabled={Boolean(clusterMapBlocked)}
+          onClick={clusterMap.show}
+          type="button"
+        >
+          {clusterMap.status === "loading" ? <LoaderCircle size={17} /> : <Orbit size={17} />}
+        </button>
+      </div>
       {missingReason ? <span className="embedding-search-requirement">{missingReason}</span> : null}
       {error ? <span className="embedding-search-requirement error">{error}</span> : null}
     </>
   );
+}
+
+function clusterMapButtonTitle({ status, entry }: ClusterMapState, label: string, layer: number | null) {
+  if (status === "loading") return "Building the cluster map. Open it to follow progress.";
+  if (status === "ready") return "Open the cluster map (ready for these seeds, model, layer and limit).";
+  if (status === "error") return `Last build failed: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Click to try again.`;
+  return `Map this ${label}${layer !== null ? ` L${layer}` : ""} search: candidates orbit the reference tracks by similarity.`;
 }
 
 function formatSigned(value: number) {

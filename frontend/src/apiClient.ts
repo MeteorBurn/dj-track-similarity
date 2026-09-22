@@ -12,6 +12,7 @@ import type {
   AudioDedupReportSummary,
   AudioDedupScanRequest,
   ClassifierResetResult,
+  ClusterMapResponse,
   DatabaseClearResult,
   DatabaseDialogResult,
   DatabaseOptimizationJobStatus,
@@ -357,6 +358,12 @@ const searchApi = {
     request<EmbeddingLayersResponse>(`/api/library/embedding-layers/${family}`, { signal: options?.signal }),
   search: (payload: EmbeddingSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
+  clusterMap: (payload: EmbeddingSearchPayload, options?: { signal?: AbortSignal }) =>
+    request<ClusterMapResponse>("/api/search/cluster-map", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,

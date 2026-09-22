@@ -274,7 +274,7 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
   const controller = new AbortController();
 
   await api.track(7, { signal: controller.signal });
-  await api.search({
+  const searchPayload = {
     analysis_family: "muq",
     layer: 7,
     seed_track_ids: [7],
@@ -282,7 +282,9 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
     min_similarity: 0,
     epsilon: null,
     noise: 0,
-  }, { signal: controller.signal });
+  };
+  await api.search(searchPayload, { signal: controller.signal });
+  await api.clusterMap(searchPayload, { signal: controller.signal });
   const sonaraPayload = {
     seed_track_ids: [7],
     limit: 10,
@@ -315,6 +317,7 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
     [
       "/api/tracks/7",
       "/api/search",
+      "/api/search/cluster-map",
       "/api/search/sonara",
       "/api/search/sonara/random-track",
       "/api/search/random-track",
@@ -325,17 +328,20 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
       "/api/library/embedding-layers/maest"
     ]
   );
-  assert.deepEqual(JSON.parse(calls[2].options.body), sonaraPayload);
-  assert.deepEqual(JSON.parse(calls[3].options.body), {
+  // The cluster map maps exactly what the search returns, so it posts the search's own body.
+  assert.equal(calls[2].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[2].options.body), JSON.parse(calls[1].options.body));
+  assert.deepEqual(JSON.parse(calls[3].options.body), sonaraPayload);
+  assert.deepEqual(JSON.parse(calls[4].options.body), {
     exclude_track_ids: [7],
   });
-  assert.deepEqual(JSON.parse(calls[4].options.body), {
+  assert.deepEqual(JSON.parse(calls[5].options.body), {
     analysis_family: "mert_v2",
     layer: 12,
     exclude_track_ids: [7],
   });
   assert.equal(JSON.parse(calls[1].options.body).layer, 7);
-  for (const call of calls.slice(7)) assert.equal(call.options.body, undefined);
+  for (const call of calls.slice(8)) assert.equal(call.options.body, undefined);
   for (const call of calls) {
     assert.equal(call.options.signal, controller.signal);
   }

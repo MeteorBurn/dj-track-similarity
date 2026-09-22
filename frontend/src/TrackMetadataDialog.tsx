@@ -42,7 +42,7 @@ const sonaraFeatureDescriptionExcludedKeys = new Set<string>([
   ...sonaraCandidateListKeys,
 ]);
 
-const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
+export const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Tempo",
     features: [
@@ -595,7 +595,7 @@ function readableClassifierName(key: string) {
     .join(" ");
 }
 
-function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
+export function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
   if (key === "analyzed_at") return formatTimestamp(String(value));
   if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
   if (Array.isArray(value)) return formatRecordList(value);

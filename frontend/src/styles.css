@@ -6264,3 +6264,842 @@ button.dedup-play-button {
 }
 .embedding-layer-select small { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .embedding-layer-select .error { color: var(--danger-text); }
+
+/* Cluster map: a REFERENCE search drawn as an orbit around its reference core.
+   Cluster colours mark identity only (dots, keys, borders), never text. Plotly
+   parses the colours it draws with itself, so those tokens stay plain hex. */
+:root {
+  --cluster-1: #157123;
+  --cluster-2: #e93684;
+  --cluster-3: #285e9f;
+  --cluster-4: #a5851d;
+  --cluster-5: #a84cdf;
+  --cluster-6: #944123;
+  --cluster-glow-opacity: 0;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+:root[data-theme="dark"] {
+  --cluster-1: #22b95b;
+  --cluster-2: #f14499;
+  --cluster-3: #4b8efe;
+  --cluster-4: #f3c530;
+  --cluster-5: #d48cf3;
+  --cluster-6: #ea763c;
+  --cluster-glow-opacity: .22;
+}
+.cluster-map-dialog [data-slot="1"] { --cluster-color: var(--cluster-1); }
+.cluster-map-dialog [data-slot="2"] { --cluster-color: var(--cluster-2); }
+.cluster-map-dialog [data-slot="3"] { --cluster-color: var(--cluster-3); }
+.cluster-map-dialog [data-slot="4"] { --cluster-color: var(--cluster-4); }
+.cluster-map-dialog [data-slot="5"] { --cluster-color: var(--cluster-5); }
+.cluster-map-dialog [data-slot="6"] { --cluster-color: var(--cluster-6); }
+
+/* The map button shares the Search row at its 38px height. */
+.embedding-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+.embedding-search-row .embedding-search-button {
+  margin-bottom: 0;
+  min-width: 0;
+}
+button.icon-button.cluster-map-button {
+  position: relative;
+  width: 38px;
+  min-height: 38px;
+}
+.cluster-map-button[aria-busy="true"] svg { animation: spin 1s linear infinite; }
+/* Ready: a built map for exactly these inputs opens without a request. */
+.cluster-map-button[data-ready]::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--button-bg);
+}
+:is(.cluster-map-button, .cluster-map-dialog button):active:not(:disabled) { background: var(--surface-subtle); }
+
+/* The dialog stays mounted while its map is cached: closing fades it out and
+   hides it without unmounting, so Plotly keeps its size and the view its zoom. */
+.cluster-map-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--overlay-deeper);
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 220ms cubic-bezier(0.23, 1, 0.32, 1), visibility 0s linear 0s;
+}
+.cluster-map-backdrop[data-open="false"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1), visibility 0s linear 160ms;
+}
+html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
+.cluster-map-dialog {
+  container: cluster-map / inline-size;
+  display: flex;
+  flex-direction: column;
+  width: min(1440px, 100%);
+  height: min(900px, calc(100dvh - 32px));
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--workbench-dialog-radius);
+  box-shadow: var(--workbench-dialog-shadow);
+  color: var(--text);
+  transform-origin: center;
+  transition: scale 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+/* The dialog is focused only as the starting point; its controls carry the focus ring. */
+.cluster-map-dialog:focus { outline: none; }
+.cluster-map-backdrop[data-open="false"] .cluster-map-dialog {
+  scale: 0.97;
+  transition-duration: 160ms;
+}
+@starting-style {
+  .cluster-map-backdrop[data-open="true"] { opacity: 0; }
+  .cluster-map-backdrop[data-open="true"] .cluster-map-dialog { scale: 0.97; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cluster-map-dialog,
+  .cluster-map-backdrop[data-open="false"] .cluster-map-dialog {
+    scale: none;
+    transition: none;
+  }
+  @starting-style {
+    .cluster-map-backdrop[data-open="true"] .cluster-map-dialog { scale: none; }
+  }
+}
+
+.cluster-map-header {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 12px;
+  padding: 14px 14px 12px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.cluster-map-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.cluster-map-heading h2 {
+  margin: 0 4px 0 0;
+  color: var(--text-strong);
+  font-size: 17px;
+  font-weight: 600;
+}
+.cluster-map-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-chip);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.cluster-map-layer-hint {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.cluster-map-summary {
+  grid-column: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cluster-map-close-button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.cluster-map-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+.cluster-map-status,
+.cluster-map-note,
+.cluster-map-muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.cluster-map-note.empty-state {
+  justify-content: flex-start;
+  min-height: 0;
+  padding: 8px 10px;
+  text-align: left;
+}
+.cluster-map-footer {
+  flex: none;
+  padding: 9px 18px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cluster-map-kpis {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.cluster-map-kpi {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--workbench-radius);
+  background: var(--surface-muted);
+}
+.cluster-map-kpi dt {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.cluster-map-kpi dd {
+  min-width: 0;
+  margin: 0;
+}
+.cluster-map-kpi-value {
+  color: var(--text-strong);
+  font-size: 22px;
+  font-variant-numeric: proportional-nums;
+  font-weight: 650;
+  line-height: 1.15;
+}
+.cluster-map-kpi-note {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.cluster-map-kpi-note svg {
+  flex: none;
+  color: var(--warning-text);
+}
+.cluster-map-skeleton-line {
+  display: block;
+  width: 40%;
+  height: 10px;
+  border-radius: 4px;
+  background: var(--border-soft);
+}
+.cluster-map-skeleton-line.is-value {
+  width: 55%;
+  height: 22px;
+}
+.cluster-map-skeleton-line.is-wide { width: 85%; }
+
+.cluster-map-main {
+  display: grid;
+  flex: 1 0 380px;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 30cqi, 380px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+}
+.cluster-map-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+}
+.cluster-map-figure figcaption {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.cluster-map-plot-frame {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 280px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--workbench-radius);
+  background: var(--surface);
+}
+.cluster-map-plot {
+  position: absolute;
+  inset: 0;
+}
+.cluster-map-orbit-skeleton {
+  position: absolute;
+  inset: 16px;
+  width: calc(100% - 32px);
+  height: calc(100% - 32px);
+  fill: none;
+  pointer-events: none;
+  stroke: var(--border-soft);
+}
+.cluster-map-orbit-skeleton :is(circle, line) {
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.cluster-map-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+}
+.cluster-map-toolbar button.icon-button {
+  width: 30px;
+  min-height: 30px;
+  background: var(--surface);
+}
+.cluster-map-plot-error {
+  position: absolute;
+  inset: 50% 12px auto;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--workbench-radius);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  translate: 0 -50%;
+}
+.cluster-map-tooltip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: min(280px, calc(100% - 16px));
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 22px var(--shadow-tooltip);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.3;
+  pointer-events: none;
+}
+.cluster-map-tooltip-values {
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.cluster-map-tooltip-name { overflow-wrap: anywhere; }
+.cluster-map-tooltip-cluster,
+.cluster-map-tooltip-flag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cluster-map-tooltip-flag { color: var(--warning-text); }
+.cluster-map-tooltip-flag svg { flex: none; }
+.cluster-map-line-key {
+  flex: none;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--cluster-color);
+}
+
+.cluster-map-legend {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+button.cluster-map-legend-chip {
+  min-height: 28px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.cluster-map-legend-count {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.cluster-map-legend-chip[aria-pressed="true"] {
+  background: var(--surface-raised);
+  border-color: var(--cluster-color);
+  box-shadow: inset 0 0 0 1px var(--cluster-color);
+  color: var(--text-strong);
+}
+.cluster-map-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cluster-color);
+}
+.cluster-map-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cluster-map-key-core {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 1px;
+  background: var(--text-strong);
+  rotate: 45deg;
+}
+.cluster-map-key-ring {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--text-strong);
+  border-radius: 50%;
+}
+
+.cluster-map-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+.search-tabs.cluster-map-tabs {
+  flex: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+.cluster-map-tab-panel {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+.cluster-map-cards {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.cluster-map-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-top: 2px solid var(--cluster-color, var(--border-strong));
+  border-radius: var(--workbench-radius);
+  background: var(--surface-muted);
+}
+.cluster-map-core-card { border-top-color: var(--text-strong); }
+.cluster-map-card[data-active] { border-color: var(--cluster-color); }
+.cluster-map-card[data-dimmed] { opacity: 0.45; }
+.cluster-map-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.cluster-map-card-head h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+.cluster-map-card-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cluster-map-field {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.cluster-map-field-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.cluster-map-track-list {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cluster-map-track {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+button.icon-button.cluster-map-play-button {
+  width: 28px;
+  min-height: 28px;
+  border-color: var(--accent-soft-border);
+  border-radius: 5px;
+  background: var(--accent-muted-bg);
+  color: var(--accent);
+}
+button.icon-button.cluster-map-play-button[data-playing] {
+  border-color: var(--accent-border);
+  background: var(--accent-strong-bg);
+  color: var(--accent-active-text);
+}
+.cluster-map-track-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-track);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cluster-map-track-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cluster-map-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.cluster-map-trait {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cluster-map-trait svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.cluster-map-genres {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.cluster-map-more summary {
+  width: fit-content;
+  padding-block: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+.cluster-map-more summary:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.cluster-map-more[open] summary { margin-bottom: 2px; }
+
+.cluster-map-anomaly-summary {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.cluster-map-anomalies {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cluster-map-anomaly {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px 8px;
+  min-width: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.cluster-map-anomaly-title {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.cluster-map-anomaly-title strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cluster-map-anomaly-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cluster-map-anomaly-meta .cluster-map-dot {
+  width: 7px;
+  height: 7px;
+}
+.cluster-map-severity {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.cluster-map-severity[data-severity="mild"] {
+  border-color: var(--warning-soft-border);
+  background: var(--warning-soft-bg);
+  color: var(--warning-text);
+}
+.cluster-map-severity[data-severity="strong"] {
+  border-color: var(--danger-soft-border);
+  background: var(--danger-soft-bg);
+  color: var(--danger-soft-text);
+}
+.cluster-map-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 2 / -1;
+  gap: 4px;
+  min-width: 0;
+}
+.cluster-map-reason {
+  padding: 2px 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.cluster-map-layer,
+.cluster-map-layer-about,
+.cluster-map-focus {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.cluster-map-layer { gap: 14px; }
+.cluster-map-layer h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+.cluster-map-prose {
+  margin: 0;
+  color: var(--body-copy);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.cluster-map-focus {
+  --focus-label: 104px;
+  --focus-value: 44px;
+}
+.cluster-map-focus-scale {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  margin: 0 calc(var(--focus-value) + 8px) 0 calc(var(--focus-label) + 8px);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.cluster-map-focus-scale span:last-child { justify-self: end; }
+.cluster-map-focus-group {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.cluster-map-focus-group h4 {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.cluster-map-focus-row {
+  display: grid;
+  grid-template-columns: var(--focus-label) minmax(0, 1fr) var(--focus-value);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+.cluster-map-focus-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cluster-map-focus-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+/* The 1× mark: left of it the layer keeps a feature closer than chance. */
+.cluster-map-focus-track::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 50%;
+  width: 1px;
+  background: var(--border-strong);
+}
+.cluster-map-focus-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--text-faint);
+}
+.cluster-map-focus-row[data-holds] .cluster-map-focus-bar { background: var(--accent); }
+.cluster-map-focus-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cluster-map-focus-row[data-holds] .cluster-map-focus-value {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.cluster-map-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--workbench-radius);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.cluster-map-error svg { margin-top: 1px; }
+.cluster-map-error strong {
+  color: var(--danger-deep-text);
+  font-size: 13px;
+}
+.cluster-map-error p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cluster-map-legend-chip:hover:not(:disabled) { background: var(--surface-raised); }
+  .cluster-map-more summary:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+/* Narrow dialog: one column, and the body scrolls instead of the rail. */
+@container cluster-map (max-width: 960px) {
+  .cluster-map-main {
+    flex: none;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .cluster-map-plot-frame {
+    flex: none;
+    height: clamp(300px, 58cqi, 460px);
+    min-height: 0;
+  }
+  .cluster-map-tab-panel { overflow: visible; }
+  .cluster-map-cards {
+    grid-auto-flow: dense;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cluster-map-cards > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@container cluster-map (max-width: 640px) {
+  .cluster-map-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cluster-map-cards { grid-template-columns: minmax(0, 1fr); }
+  .cluster-map-header { padding: 12px 10px 10px 14px; }
+  .cluster-map-body { padding: 12px 14px; }
+}
+@media (max-width: 600px) {
+  .cluster-map-backdrop { padding: 0; }
+  .cluster-map-dialog {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+}

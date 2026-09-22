@@ -14,12 +14,14 @@
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
     "lucide-react": "^0.560.0",
+    "plotly.js-basic-dist-min": "^4.1.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "typescript": "^5.9.3",
     "vite": "^7.2.7"
   },
   "devDependencies": {
+    "@types/plotly.js-basic-dist-min": "^2.12.4",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3"
   }

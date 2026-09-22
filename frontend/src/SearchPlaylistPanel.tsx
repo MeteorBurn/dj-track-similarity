@@ -13,6 +13,8 @@ import {
 } from "./classifierCompatibility";
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
+import { ClusterMapDialog } from "./ClusterMapDialog";
+import { useClusterMap } from "./useClusterMap";
 import { MAX_SEED_TRACKS } from "./useSearchPlaylist";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
@@ -249,6 +251,13 @@ export function SearchPlaylistPanel({
 }) {
   const [embeddingSearchPending, setEmbeddingSearchPending] = useState<Partial<Record<EmbeddingSource, boolean>>>({});
   const [embeddingSearchErrors, setEmbeddingSearchErrors] = useState<Partial<Record<EmbeddingSource, string>>>({});
+  const clusterMap = useClusterMap({
+    databaseIdentity,
+    model: seedSearchModel,
+    layerState: embeddingLayers,
+    seedTracks,
+    limit: filters.limit,
+  });
   const showGenericSearchResults = genericSearchResultIsCurrent(
     activeSearchTab,
     genericSearchResultOrigin,
@@ -405,6 +414,7 @@ export function SearchPlaylistPanel({
               helpText={helpText}
               onSearch={seedSearchModel === "sonara" ? handleSonaraSearch : () => void runEmbeddingSearch(seedSearchModel)}
               onAddRandomTrack={seedSearchModel === "sonara" ? handleAddRandomSonaraTrack : handleAddRandomEmbeddingTrack}
+              clusterMap={clusterMap}
             />
           </div>
         )}
@@ -667,6 +677,18 @@ export function SearchPlaylistPanel({
           </div>
         ) : null}
       </section>
+      {clusterMap.entry ? (
+        <ClusterMapDialog
+          key={clusterMap.entry.key}
+          entry={clusterMap.entry}
+          open={clusterMap.open}
+          layerState={embeddingLayers}
+          playingTrackId={playingTrackId}
+          onPreview={setPreview}
+          onClose={clusterMap.close}
+          onRetry={clusterMap.retry}
+        />
+      ) : null}
     </aside>
   );
 }

@@ -6266,25 +6266,28 @@ button.dedup-play-button {
 .embedding-layer-select .error { color: var(--danger-text); }
 
 /* Cluster map: a REFERENCE search drawn as an orbit around its reference core.
-   Cluster colours mark identity only (dots, keys, borders), never text. Plotly
-   parses the colours it draws with itself, so those tokens stay plain hex. */
+   Cluster colours mark identity only (dots, keys, borders, bars), never text. Plotly
+   parses the colours it draws with itself, so those tokens stay plain hex. Each set
+   passes the dataviz validator all-pairs on --surface: normal-vision Delta E >= 15 and
+   contrast >= 3:1. --cluster-glow-opacity drives the dark theme's neon glow; 0 turns it
+   off. --font-mono is for small numeric captions only: ring values, bars, ranks, scores. */
 :root {
-  --cluster-1: #157123;
-  --cluster-2: #e93684;
-  --cluster-3: #285e9f;
-  --cluster-4: #a5851d;
-  --cluster-5: #a84cdf;
-  --cluster-6: #944123;
+  --cluster-1: #05841c;
+  --cluster-2: #d3407b;
+  --cluster-3: #0661bf;
+  --cluster-4: #a8860c;
+  --cluster-5: #9654d1;
+  --cluster-6: #9e4106;
   --cluster-glow-opacity: 0;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 :root[data-theme="dark"] {
-  --cluster-1: #22b95b;
-  --cluster-2: #f14499;
-  --cluster-3: #4b8efe;
-  --cluster-4: #f3c530;
-  --cluster-5: #d48cf3;
-  --cluster-6: #ea763c;
+  --cluster-1: #26d484;
+  --cluster-2: #f973b3;
+  --cluster-3: #0e9cff;
+  --cluster-4: #fbbf22;
+  --cluster-5: #b175ff;
+  --cluster-6: #fd6d0a;
   --cluster-glow-opacity: .22;
 }
 .cluster-map-dialog [data-slot="1"] { --cluster-color: var(--cluster-1); }
@@ -6293,7 +6296,8 @@ button.dedup-play-button {
 .cluster-map-dialog [data-slot="4"] { --cluster-color: var(--cluster-4); }
 .cluster-map-dialog [data-slot="5"] { --cluster-color: var(--cluster-5); }
 .cluster-map-dialog [data-slot="6"] { --cluster-color: var(--cluster-6); }
-.cluster-map-dialog [data-slot="other"] { --cluster-color: var(--text-faint); }
+/* The same neutral the plot draws for points outside every cluster. */
+.cluster-map-dialog [data-slot="other"] { --cluster-color: var(--text-muted); }
 
 /* The map button shares the Search row at its 38px height. */
 .embedding-search-row {
@@ -6356,7 +6360,12 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   height: min(900px, calc(100dvh - 32px));
   min-width: 0;
   overflow: hidden;
-  background: var(--surface);
+  /* Two soft glows from the palette's first and fifth colours light opposite corners;
+     the colour and the image are separate so an unsupported mix leaves the surface. */
+  background-color: var(--surface);
+  background-image:
+    radial-gradient(60% 50% at 0 0, color-mix(in srgb, var(--cluster-1) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent),
+    radial-gradient(60% 50% at 100% 100%, color-mix(in srgb, var(--cluster-5) calc(var(--cluster-glow-opacity) * 45%), transparent), transparent);
   border: 1px solid var(--border-strong);
   border-radius: var(--workbench-dialog-radius);
   box-shadow: var(--workbench-dialog-shadow);
@@ -6448,22 +6457,17 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   min-height: 0;
   overflow-y: auto;
   padding: 14px 18px;
+  /* A control scrolled into view keeps its focus ring clear of the edge. */
+  scroll-padding-block: 14px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
 .cluster-map-status,
-.cluster-map-note,
-.cluster-map-muted {
+.cluster-map-note {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
-}
-.cluster-map-note.empty-state {
-  justify-content: flex-start;
-  min-height: 0;
-  padding: 8px 10px;
-  text-align: left;
 }
 .cluster-map-footer {
   flex: none;
@@ -6471,29 +6475,39 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   border-top: 1px solid var(--border-soft);
   color: var(--text-muted);
   font-size: 12px;
+  font-style: italic;
 }
 
+/* One ruled strip rather than four cards: the 1px gaps show the strip's
+   background as hairlines between the cells. */
 .cluster-map-kpis {
   display: grid;
   flex: none;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 1px;
   margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--workbench-radius);
+  background: var(--border-soft);
 }
 .cluster-map-kpi {
   display: grid;
   align-content: start;
   gap: 3px;
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--workbench-radius);
+  padding: 10px 14px;
   background: var(--surface-muted);
 }
-.cluster-map-kpi dt {
+/* Micro-labels: the small uppercase captions over values, fields and bars. */
+.cluster-map-kpi dt,
+.cluster-map-field-label,
+.cluster-map-focus-label {
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .1em;
+  text-transform: uppercase;
 }
 .cluster-map-kpi dd {
   min-width: 0;
@@ -6560,9 +6574,12 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   border-radius: var(--workbench-radius);
   background: var(--surface);
 }
+/* Plotly takes its font from this host, so the ring values and cluster letters
+   on the map are set as measurements. */
 .cluster-map-plot {
   position: absolute;
   inset: 0;
+  font-family: var(--font-mono);
 }
 .cluster-map-orbit-skeleton {
   position: absolute;
@@ -6667,7 +6684,9 @@ button.cluster-map-legend-chip {
   color: var(--text-muted);
   font-weight: 500;
 }
-.cluster-map-legend-chip[aria-pressed="true"] {
+/* The element selector ties the global button hover and wins by order, so
+   hovering the isolated chip keeps its cluster ring. */
+button.cluster-map-legend-chip[aria-pressed="true"] {
   background: var(--surface-raised);
   border-color: var(--cluster-color);
   box-shadow: inset 0 0 0 1px var(--cluster-color);
@@ -6729,7 +6748,11 @@ button.cluster-map-legend-chip {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 2px;
+  /* The scroll box clips at its padding edge: 3px outside the rail's content
+     keep the focus rings of edge-aligned controls whole. */
+  margin-inline: -3px;
+  padding-inline: 3px;
+  scroll-padding-block: 4px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
@@ -6775,11 +6798,6 @@ button.cluster-map-legend-chip {
   gap: 2px;
   min-width: 0;
 }
-.cluster-map-field-label {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-}
 .cluster-map-track-list {
   display: grid;
   gap: 2px;
@@ -6818,8 +6836,8 @@ button.icon-button.cluster-map-play-button[data-playing] {
 }
 .cluster-map-track-meta {
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .cluster-map-glue {
@@ -6899,8 +6917,8 @@ button.icon-button.cluster-map-play-button[data-playing] {
 }
 .cluster-map-anomaly-score {
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .cluster-map-reasons {
@@ -6951,38 +6969,39 @@ button.icon-button.cluster-map-play-button[data-playing] {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
 }
 .cluster-map-focus-label {
   min-width: 0;
   overflow: hidden;
-  color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Thin bars, square at the baseline and rounded at the value end. The group
+   that holds the cluster wears the cluster's colour; the rest stay neutral. */
 .cluster-map-focus-track {
   position: relative;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--surface-subtle);
+  height: 6px;
+  border-radius: 0 3px 3px 0;
+  background: var(--border-soft);
 }
 .cluster-map-focus-bar {
   position: absolute;
   top: 0;
   bottom: 0;
-  border-radius: 999px;
-  background: var(--text-faint);
+  border-radius: 0 3px 3px 0;
+  background: var(--text-soft);
 }
-.cluster-map-focus-row[data-holds] .cluster-map-focus-bar { background: var(--accent); }
+.cluster-map-focus-row[data-holds] .cluster-map-focus-bar { background: var(--cluster-color); }
 .cluster-map-focus-value {
   color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 11px;
   text-align: right;
 }
-.cluster-map-focus-row[data-holds] .cluster-map-focus-value {
-  color: var(--accent);
-  font-weight: 650;
+.cluster-map-focus-row[data-holds] :is(.cluster-map-focus-label, .cluster-map-focus-value) {
+  color: var(--text-strong);
 }
+.cluster-map-focus-row[data-holds] .cluster-map-focus-value { font-weight: 650; }
 
 .cluster-map-error {
   display: grid;

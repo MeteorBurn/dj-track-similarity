@@ -498,7 +498,7 @@ function LayerPanel({ response, isolated, layer, layerRow, note }: {
           {note ? <p className="cluster-map-prose">{note}</p> : null}
         </div>
       ) : null}
-      <div className="cluster-map-focus">
+      <div className="cluster-map-focus" data-slot={clusterSlot(clusterIndex)}>
         <h3>{cluster ? `Glue of cluster ${clusterLetter(clusterIndex)}` : "Glue"}</h3>
         <p className="cluster-map-prose">
           The spread of each SONARA group inside the cluster, in library σ. The {subject} holds the group with the smallest

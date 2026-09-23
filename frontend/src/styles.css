@@ -6259,11 +6259,16 @@ button.dedup-play-button {
   min-width: 0;
   height: var(--workbench-control-height);
   min-height: var(--workbench-control-height);
+  padding-inline: 10px;
   font-size: 12px;
   text-overflow: ellipsis;
 }
 .embedding-layer-select small { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .embedding-layer-select .error { color: var(--danger-text); }
+/* Narrow like the model and limit fields; it follows the base rule, which would win otherwise. */
+@container search-workflow (max-width: 300px) {
+  .embedding-layer-select select { padding-inline: 6px; }
+}
 
 /* SONARA evidence map of a model ranking: one colour per facet, kept/differs cells. */
 :root {
@@ -6411,6 +6416,9 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   scrollbar-width: thin;
 }
 .cluster-map-status { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+.cluster-map-loading { align-items: center; justify-content: center; text-align: center; }
+.cluster-map-loading strong { color: var(--text-strong); font-size: 18px; font-weight: 600; }
+.cluster-map-loading .cluster-map-status { max-width: 48ch; }
 .cluster-map-footer { flex: none; padding: 9px 18px; border-top: 1px solid var(--border-soft); color: var(--text-muted); font-size: 12px; font-style: italic; }
 .cluster-map-kpis {
   display: grid;
@@ -6424,41 +6432,74 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
   background: var(--border-soft);
 }
 .cluster-map-kpi { display: grid; align-content: start; gap: 3px; min-width: 0; padding: 10px 14px; background: var(--surface-muted); }
-.cluster-map-kpi dt { color: var(--text-muted); font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.cluster-map-kpi dt { color: var(--text-muted); font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
 .cluster-map-kpi dd { min-width: 0; margin: 0; }
 .cluster-map-kpi-value { color: var(--text-strong); font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 650; line-height: 1.15; }
 .cluster-map-kpi-note { color: var(--text-muted); font-size: 12px; }
 .cluster-map-coverage { margin: 0; padding: 7px 9px; border-left: 2px solid var(--border-strong); background: var(--surface-muted); color: var(--body-copy); font-size: 12px; line-height: 1.4; }
 
+/* Wide layout: the body's height is shared by two panes that scroll on their own,
+   so the map stays in view while the rail is read. */
 .cluster-map-main {
   display: grid;
-  flex: 1 0 auto;
+  flex: 1 1 0;
   grid-template-columns: minmax(0, 1fr) clamp(380px, 44cqi, 640px);
   grid-template-rows: minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
 }
-.cluster-map-figure { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; }
+.cluster-map-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  /* The 3px frame keeps focus rings at the pane edges out of the clip. */
+  margin: -3px;
+  padding: 3px;
+  overflow: hidden auto;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
 .cluster-map-figure-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .cluster-map-facet-select { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
-.cluster-map-facet-select select { min-height: 28px; max-width: 260px; }
+.cluster-map-facet-select select {
+  min-height: 28px;
+  max-width: 260px;
+  padding-inline: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--workbench-radius);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
 .cluster-map-plot-frame { position: relative; width: 100%; max-width: 720px; margin: 0 auto; border: 1px solid var(--border-soft); border-radius: var(--workbench-radius); background: var(--surface); }
 .cluster-map-plot { display: block; width: 100%; height: auto; font-family: var(--font-mono); }
-.cluster-map-sector { fill-opacity: 0.055; stroke: var(--border-soft); }
-.cluster-map-sector[data-active] { fill-opacity: 0.16; }
+.cluster-map-face { fill: var(--surface-muted); stroke: var(--border); }
+.cluster-map-sector { fill-opacity: 0.09; }
+.cluster-map-sector[data-active] { fill-opacity: 0.2; }
+.cluster-map-spoke { stroke: var(--border); }
+/* Coloured inline per facet: a [data-facet] fill would fill the arc's chord. */
+.cluster-map-rim { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-opacity 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.cluster-map-rim[data-muted] { stroke-opacity: 0.3; }
 .cluster-map-sector-label { font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 650; }
-.cluster-map-ring { fill: none; stroke: var(--text-soft); stroke-opacity: 0.35; stroke-dasharray: 2 4; }
-.cluster-map-ring[data-typical] { stroke-opacity: 0.75; stroke-dasharray: 5 4; }
-.cluster-map-ring-label { fill: var(--text-soft); font-size: 10px; }
-.cluster-map-core { fill: var(--blue-bg); fill-opacity: 0.6; stroke: var(--blue-border); stroke-dasharray: 3 3; }
-.cluster-map-reference { fill: var(--cluster-reference); stroke: var(--surface); stroke-width: 1.5; }
+.cluster-map-ring { fill: none; stroke: var(--border-strong); }
+.cluster-map-ring[data-typical] { stroke: var(--text-soft); stroke-width: 1.5; stroke-dasharray: 6 4; stroke-opacity: 0.9; }
+.cluster-map-ring-label { fill: var(--text-muted); font-size: 11px; paint-order: stroke; stroke: var(--surface-muted); stroke-width: 3px; stroke-linejoin: round; }
+.cluster-map-ring-label[data-typical] { fill: var(--text); font-weight: 650; }
+.cluster-map-core { fill: var(--blue-bg); fill-opacity: 0.55; stroke: var(--blue-border); stroke-width: 1.25; stroke-dasharray: 3 3; }
+/* Stars and dots carry a face-coloured stroke that knocks them out of the lines and marks beneath. */
+.cluster-map-reference { fill: var(--cluster-reference); stroke: var(--surface-muted); stroke-width: 2; }
 .cluster-map-candidate { cursor: pointer; outline: none; }
-.cluster-map-candidate circle { fill: var(--cluster-candidate); fill-opacity: 0.88; stroke: var(--surface); stroke-width: 1.5; transition: r 160ms cubic-bezier(0.23, 1, 0.32, 1), fill 160ms; }
-.cluster-map-candidate[data-diffuse] circle { stroke-dasharray: 3 2; stroke-width: 2; }
-.cluster-map-candidate:is(:hover, :focus-visible) circle { fill-opacity: 1; stroke: var(--text-strong); }
-.cluster-map-candidate[data-selected] circle { fill: var(--cluster-selected); fill-opacity: 1; stroke: var(--text-strong); }
-.cluster-map-candidate text { fill: var(--surface); font-size: 10px; font-weight: 700; pointer-events: none; }
-.cluster-map-candidate text.cluster-map-clipped { fill: var(--text-muted); }
+.cluster-map-dot { fill: var(--cluster-candidate); stroke: var(--surface-muted); stroke-width: 2; transition: r 160ms cubic-bezier(0.23, 1, 0.32, 1), fill 160ms; }
+.cluster-map-candidate[data-diffuse] .cluster-map-dot { stroke-dasharray: 3 2; }
+.cluster-map-candidate:not([data-selected]):is(:hover, :focus-visible) .cluster-map-dot { stroke: var(--text-strong); r: 13px; }
+.cluster-map-candidate[data-selected] .cluster-map-dot { fill: var(--cluster-selected); stroke: var(--text-strong); }
+.cluster-map-dot-halo { fill: none; stroke: var(--cluster-selected); stroke-opacity: 0.45; stroke-width: 2; pointer-events: none; }
+.cluster-map-candidate text { fill: var(--surface); font-size: 10.5px; font-weight: 700; pointer-events: none; }
+.cluster-map-candidate[data-selected]:focus-visible .cluster-map-dot-halo { stroke-opacity: 1; }
 .cluster-map-plot [data-facet="0"] { fill: var(--cluster-f0); }
 .cluster-map-plot [data-facet="1"] { fill: var(--cluster-f1); }
 .cluster-map-plot [data-facet="2"] { fill: var(--cluster-f2); }
@@ -6485,12 +6526,24 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
 }
 .cluster-map-tooltip-name { overflow-wrap: anywhere; }
 .cluster-map-tooltip-line { color: var(--text-muted); font-size: 11px; }
-.cluster-map-legend { color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+.cluster-map-legend { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+/* Each mark repeats the plot's own mark; the text beside it carries the meaning. */
+.cluster-map-key { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+.cluster-map-key li { display: flex; align-items: center; gap: 6px; }
+.cluster-map-key-mark { display: inline-grid; flex: none; place-items: center; width: 18px; height: 18px; border-radius: 50%; }
+.cluster-map-key-mark[data-mark="ring"] { border: 1.5px dashed var(--text-soft); }
+.cluster-map-key-mark[data-mark="reference"] { color: var(--cluster-reference); font-size: 16px; line-height: 1; }
+.cluster-map-key-mark[data-mark="core"] { border: 1px dashed var(--blue-border); background: var(--blue-bg); }
+.cluster-map-key-mark:is([data-mark="candidate"], [data-mark="diffuse"]) { background: var(--cluster-candidate); color: var(--surface); font: 700 10px/1 var(--font-mono); }
+.cluster-map-key-mark[data-mark="diffuse"] { border: 2px dashed var(--surface); }
 .cluster-map-facet-dot { display: inline-block; width: 8px; height: 8px; flex: none; margin-right: 5px; border-radius: 50%; vertical-align: 0; }
 .cluster-map-facet-table { display: grid; gap: 6px; min-width: 0; }
 .cluster-map-facet-table-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .cluster-map-facet-table-head h3 { margin: 0; color: var(--text-strong); font-size: 13px; font-weight: 650; }
-.cluster-map-sort { display: inline-flex; margin-left: auto; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
+.cluster-map-table-controls { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 4px 12px; margin-left: auto; }
+.cluster-map-sort-field { display: inline-flex; align-items: baseline; gap: 6px; }
+.cluster-map-sort-label { color: var(--text-muted); font-size: 11px; }
+.cluster-map-sort { display: inline-flex; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
 .cluster-map-sort button { padding: 3px 9px; border: 0; border-radius: 0; background: var(--surface-muted); font-size: 11px; }
 .cluster-map-sort button[aria-pressed="true"] { background: var(--accent-active-bg); color: var(--accent-active-text); font-weight: 650; }
 .cluster-map-table-scroll { min-width: 0; overflow-x: auto; }
@@ -6500,6 +6553,7 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
 .cluster-map-facet-table tbody tr:not([data-seed]) { cursor: pointer; }
 .cluster-map-facet-table tbody tr:not([data-seed]):hover td { background: var(--surface-subtle); }
 .cluster-map-facet-table tr[data-selected] .cluster-map-cell-name { color: var(--cluster-selected); font-weight: 700; }
+.cluster-map-facet-table tr[data-selected] .cluster-map-cell-rank { box-shadow: inset 3px 0 var(--cluster-selected); }
 td.cluster-map-cell { min-width: 34px; padding: 0 4px; border: 1px solid var(--surface); text-align: center; line-height: 22px; }
 td.cluster-map-cell[data-strong] { color: var(--surface); font-weight: 650; }
 .cluster-map-cell-rank { width: 28px; color: var(--text-muted); }
@@ -6514,13 +6568,15 @@ td.cluster-map-cell[data-strong] { color: var(--surface); font-weight: 650; }
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  margin-inline: -3px;
-  padding-inline: 3px;
+  margin: -3px;
+  padding: 3px;
   scroll-padding-block: 4px;
+  scrollbar-gutter: stable;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
 .cluster-map-empty { display: grid; gap: 10px; justify-items: center; text-align: center; }
+.cluster-map-empty button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; }
 .cluster-map-candidate-panel, .cluster-map-output { display: grid; align-content: start; gap: 12px; min-width: 0; }
 .cluster-map-card-head { display: flex; align-items: start; gap: 8px; min-width: 0; }
 .cluster-map-card-head h3 { margin: 0; color: var(--text-strong); font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
@@ -6528,10 +6584,11 @@ button.icon-button.cluster-map-play-button { flex: none; width: 28px; min-height
 button.icon-button.cluster-map-play-button[data-playing] { border-color: var(--accent-border); background: var(--accent-strong-bg); color: var(--accent-active-text); }
 .cluster-map-section { display: grid; gap: 7px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--border-soft); }
 .cluster-map-section h4 { margin: 0; color: var(--text-strong); font-size: 13px; font-weight: 650; }
-.cluster-map-section h4 small, .cluster-map-section td small, .cluster-map-mood-row small { display: block; color: var(--text-muted); font-size: 11px; font-weight: 400; }
+.cluster-map-section h4 small, .cluster-map-section td small, .cluster-map-mood-row small { display: block; color: var(--text-muted); font-size: 12px; font-weight: 400; }
 .cluster-map-section h4 small { display: inline; }
-.cluster-map-note { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
-.cluster-map-verdicts { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: center; gap: 5px 8px; }
+.cluster-map-section td small { font-size: 11px; }
+.cluster-map-note { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.cluster-map-verdicts { display: grid; grid-template-columns: 116px minmax(0, 1fr); align-items: center; gap: 5px 8px; }
 .cluster-map-reasons { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .cluster-map-reason { display: inline-flex; align-items: center; padding: 2px 7px; border: 1px solid var(--border-soft); border-radius: 999px; background: var(--surface-muted); color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cluster-map-reason[data-kind="kept"] { border-color: var(--accent-soft-border); background: var(--accent-soft-bg); color: var(--accent-active-text); }
@@ -6550,18 +6607,45 @@ th.cluster-map-number { text-align: right; }
 .cluster-map-strip-reference { stroke: var(--cluster-reference); stroke-width: 1.6; }
 .cluster-map-strip-candidate { fill: var(--cluster-selected); stroke: var(--surface); }
 .cluster-map-descriptors { min-width: 0; padding: 6px 8px; border: 1px solid var(--border-soft); border-radius: var(--workbench-radius); }
-.cluster-map-descriptors summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; }
-.cluster-map-descriptors[open] summary { margin-bottom: 6px; }
+/* The summary spans the whole card, so its hover and chevron read as one disclosure row. */
+.cluster-map-descriptors summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -6px -8px;
+  padding: 6px 8px;
+  border-radius: calc(var(--workbench-radius) - 1px);
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+  transition: background-color 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.cluster-map-descriptors summary::-webkit-details-marker { display: none; }
+.cluster-map-descriptors summary::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline: 1px 2px;
+  border: solid var(--text-muted);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(-45deg);
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.cluster-map-descriptors summary:hover { background: var(--surface-subtle); }
+.cluster-map-descriptors[open] > summary { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.cluster-map-descriptors[open] > summary::before { transform: rotate(45deg); }
 .cluster-map-mood { padding: 10px; border: 1px dashed var(--border); border-radius: var(--workbench-radius); background: var(--surface-muted); }
 .cluster-map-mood-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border-soft); font-size: 12px; }
 .cluster-map-mood-row .cluster-map-prose { margin-top: 3px; }
 .cluster-map-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
 .cluster-map-chart-card { display: grid; gap: 3px; min-width: 0; padding: 6px; border: 1px solid var(--border-soft); border-radius: var(--workbench-radius); background: var(--surface); }
-.cluster-map-chart-caption { display: flex; justify-content: space-between; gap: 6px; color: var(--text-muted); font-size: 11px; }
+.cluster-map-chart-caption { display: flex; justify-content: space-between; gap: 6px; color: var(--text-muted); font-size: 12px; }
 .cluster-map-chart-caption span:first-child { color: var(--text-strong); font-weight: 600; }
 .cluster-map-chart { display: block; width: 100%; height: auto; }
 .cluster-map-chart-axis { stroke: var(--border); }
-.cluster-map-chart-tick { fill: var(--text-soft); font-size: 9px; }
+.cluster-map-chart-tick { fill: var(--text-muted); font-size: 10px; }
 .cluster-map-chart-candidate { stroke: var(--cluster-selected); stroke-width: 1.8; }
 .cluster-map-chart-reference { stroke: var(--cluster-reference); stroke-opacity: 0.45; stroke-width: 1; }
 .cluster-map-chart-dot { fill: var(--cluster-selected); }
@@ -6570,7 +6654,7 @@ th.cluster-map-number { text-align: right; }
 .cluster-map-mode { fill: var(--cluster-f1); }
 .cluster-map-mode[data-minor] { fill: var(--cluster-f3); }
 .cluster-map-mode[data-reference] { fill-opacity: 0.55; }
-.cluster-map-chart-legend { display: flex; flex-wrap: wrap; gap: 10px; color: var(--text-muted); font-size: 11px; }
+.cluster-map-chart-legend { display: flex; flex-wrap: wrap; gap: 10px; color: var(--text-muted); font-size: 12px; }
 .cluster-map-chart-legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 4px; border-radius: 2px; vertical-align: middle; }
 .cluster-map-chart-legend [data-kind="candidate"]::before { background: var(--cluster-selected); }
 .cluster-map-chart-legend [data-kind="reference"]::before { background: var(--cluster-reference); opacity: 0.5; }
@@ -6595,7 +6679,7 @@ th.cluster-map-number { text-align: right; }
 
 @container cluster-map (max-width: 960px) {
   .cluster-map-main { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
-  .cluster-map-tab-panel { overflow: visible; }
+  .cluster-map-figure, .cluster-map-tab-panel { overflow: visible; }
 }
 @container cluster-map (max-width: 640px) {
   .cluster-map-header { padding: 12px 10px 10px 14px; gap: 8px; }

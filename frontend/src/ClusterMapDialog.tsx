@@ -119,9 +119,10 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPr
           </div>
         </header>
         {entry.status === "loading" ? (
-          <div className="cluster-map-body"><p className="cluster-map-status" role="status">
-            Измеряем выдачу по SONARA. Первая карта в библиотеке сначала калибрует шкалы по выборке библиотеки — это до минуты.
-          </p></div>
+          <div className="cluster-map-body cluster-map-loading" role="status">
+            <strong>Подождите…</strong>
+            <p className="cluster-map-status">Измеряем выдачу по SONARA. Первая карта в библиотеке сначала калибрует шкалы по выборке библиотеки — это до минуты.</p>
+          </div>
         ) : entry.status === "error" ? (
           <div className="cluster-map-body"><div className="cluster-map-error" role="alert">
             <CircleAlert size={18} aria-hidden="true" /><div><strong>Не удалось построить карту</strong><p>{entry.error}</p></div>
@@ -141,11 +142,7 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPr
                   <span className="cluster-map-status">дальше {KEPT}% ближайших треков библиотеки: {candidates.filter((point) => (point.evidence.percentile ?? 0) > KEPT).length} из {candidates.length}</span>
                 </div>
                 <ClusterMapPlot response={response} facet={facet} selectedTrackId={selected?.track.track_id ?? null} onSelect={selectCandidate} />
-                <figcaption className="cluster-map-legend">
-                  {facet === null
-                    ? <>Радиус — расстояние SONARA до медианы референсов, та же величина, что раскладывается в объяснении. Угол — какие грани дают это расстояние. Кольца — доля библиотеки, которая ближе к референсам; пунктир 50% — обычный трек. ★ — референсы, голубой круг — типичный референс, число — место в выдаче модели, пунктирная обводка — причина размыта по граням. Расстояния между кандидатами карта не показывает.</>
-                    : <>Радиус — расстояние только по грани «{response.facets[facet].label}»: 1 = обычный трек библиотеки на этой грани. Угол прежний.</>}
-                </figcaption>
+                <MapLegend response={response} facet={facet} />
                 <FacetTable response={response} seeds={seeds} candidates={candidates} sort={sort} onSort={setSort}
                   selectedTrackId={selected?.track.track_id ?? null} onSelect={selectCandidate} />
               </figure>
@@ -221,6 +218,27 @@ function PlayButton({ track, playingTrackId, onPreview }: { track: Track; playin
   return <button className="icon-button cluster-map-play-button" data-playing={playing || undefined} title={action} aria-label={`${action}: ${displayTrack(track)}`} type="button" onClick={() => onPreview(track)}>{playing ? <Pause size={13} /> : <Play size={13} />}</button>;
 }
 
+/** The two channels, then a key of the marks the plot actually draws. */
+function MapLegend({ response, facet }: { response: ClusterMapResponse; facet: number | null }) {
+  const mark = (kind: "ring" | "reference" | "core" | "candidate" | "diffuse", content?: string) =>
+    <span className="cluster-map-key-mark" data-mark={kind} aria-hidden="true">{content}</span>;
+  return <figcaption className="cluster-map-legend">
+    {facet === null
+      ? <><p className="cluster-map-prose">Радиус — расстояние SONARA до медианы референсов, та же величина, что раскладывается в объяснении.</p>
+        <p className="cluster-map-prose">Угол — какие грани дают это расстояние.</p></>
+      : <><p className="cluster-map-prose">Радиус — расстояние только по грани «{response.facets[facet].label}»: 1 = обычный трек библиотеки на этой грани.</p>
+        <p className="cluster-map-prose">Угол прежний.</p></>}
+    <ul className="cluster-map-key">
+      <li>{mark("ring")}Кольца — доля библиотеки, которая ближе к референсам; пунктир 50% — обычный трек.</li>
+      <li>{mark("reference", "★")}референсы</li>
+      {facet === null && response.reference.core_distance > 0 ? <li>{mark("core")}типичный референс</li> : null}
+      <li>{mark("candidate", "1")}число — место в выдаче модели</li>
+      <li>{mark("diffuse")}пунктирная обводка — причина размыта по граням</li>
+    </ul>
+    <p className="cluster-map-note">Расстояния между кандидатами карта не показывает.</p>
+  </figcaption>;
+}
+
 function FacetTable({ response, seeds, candidates, sort, onSort, selectedTrackId, onSelect }: {
   response: ClusterMapResponse;
   seeds: ClusterMapPoint[];
@@ -242,9 +260,13 @@ function FacetTable({ response, seeds, candidates, sort, onSort, selectedTrackId
     <div className="cluster-map-facet-table-head">
       <h3>Грани по кандидатам</h3>
       <span className="cluster-map-status">сколько библиотеки ближе к референсам, %</span>
-      <span className="cluster-map-sort" role="group" aria-label="Порядок строк">
-        <button type="button" aria-pressed={sort === "rank"} onClick={() => onSort("rank")} title="Порядок модели">ранг</button>
-        <button type="button" aria-pressed={sort === "distance"} onClick={() => onSort("distance")} title="По расстоянию SONARA">SONARA</button>
+      <span className="cluster-map-table-controls">
+        <span className="cluster-map-sort-field"><span className="cluster-map-sort-label" aria-hidden="true">порядок</span>
+          <span className="cluster-map-sort" role="group" aria-label="Порядок строк">
+            <button type="button" aria-pressed={sort === "rank"} onClick={() => onSort("rank")} title="Порядок модели">ранг</button>
+            <button type="button" aria-pressed={sort === "distance"} onClick={() => onSort("distance")} title="По расстоянию SONARA">SONARA</button>
+          </span>
+        </span>
       </span>
     </div>
     <div className="cluster-map-table-scroll"><table>
@@ -269,7 +291,9 @@ function LineChart({ series, xMax, yMin, yMax, shades = [], yDigits = 1 }: {
     {shades.map(([a, b], index) => <rect key={index} x={x(a)} y={top} width={Math.max(1, x(b) - x(a))} height={plotH} className="cluster-map-chart-shade" />)}
     <line x1={left} y1={top + plotH} x2={left + plotW} y2={top + plotH} className="cluster-map-chart-axis" />
     {[yMin, (yMin + yMax) / 2, yMax].map((value) => <text key={value} x={left - 3} y={y(value) + 3} textAnchor="end" className="cluster-map-chart-tick">{value.toFixed(yDigits)}</text>)}
-    {[0, 0.25, 0.5, 0.75, 1].map((share) => <text key={share} x={x(xMax * share)} y={height - 4} textAnchor="middle" className="cluster-map-chart-tick">{minutes(xMax * share)}</text>)}
+    {/* The last label ends at the edge: centred on the axis end it would be clipped. */}
+    {[0, 0.25, 0.5, 0.75, 1].map((share) => <text key={share} x={share === 1 ? width : x(xMax * share)} y={height - 4}
+      textAnchor={share === 1 ? "end" : "middle"} className="cluster-map-chart-tick">{minutes(xMax * share)}</text>)}
     {series.map((item, index) => <polyline key={index} className={`cluster-map-chart-${item.kind}`} fill="none"
       points={item.y.map((value, i) => `${x(item.x[i]).toFixed(1)},${y(value).toFixed(1)}`).join(" ")} />)}
   </svg>;
@@ -290,7 +314,10 @@ function ProfileChart({ labels, candidate, references, band, digits = 1 }: {
     <polygon className="cluster-map-chart-band" points={`${band.map(([, hi], i) => `${x(i)},${y(hi)}`).join(" ")} ${band.map(([lo], i) => `${x(i)},${y(lo)}`).reverse().join(" ")}`} />
     <line x1={left} y1={top + plotH} x2={left + plotW} y2={top + plotH} className="cluster-map-chart-axis" />
     {[low + pad, high - pad].map((v) => <text key={v} x={left - 3} y={y(v) + 3} textAnchor="end" className="cluster-map-chart-tick">{v.toFixed(digits)}</text>)}
-    {labels.map((label, i) => <text key={label + i} x={x(i)} y={height - 5} textAnchor="middle" className="cluster-map-chart-tick">{label}</text>)}
+    {labels.map((label, i) => {
+      const last = i === labels.length - 1;
+      return <text key={label + i} x={last ? width : x(i)} y={height - 5} textAnchor={last ? "end" : "middle"} className="cluster-map-chart-tick">{label}</text>;
+    })}
     {references.map((row, index) => <polyline key={index} className="cluster-map-chart-reference" fill="none" points={line(row)} />)}
     <polyline className="cluster-map-chart-candidate" fill="none" points={line(candidate)} />
     {candidate.map((v, i) => (v === null ? null : <circle key={i} cx={x(i)} cy={y(v)} r={2.4} className="cluster-map-chart-dot" />))}

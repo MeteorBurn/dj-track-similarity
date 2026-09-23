@@ -96,6 +96,22 @@ work unverified rather than inventing its instructions.
   fingerprint rows but not timeline rows.
   A library without the `sonara_timeline` table gets an explicit error and is
   never migrated automatically.
+- The REFERENCE map (`cluster_map.py` and `sonara_descriptors.py` in
+  `src/dj_track_similarity/search/`) judges a ranking by SONARA alone. The
+  model or layer supplies only the candidates and their order (the
+  `/api/search` ranking); neither it nor its similarity scores enter the
+  distance. Read SONARA Core and stored Timeline rows, never the heuristic
+  Perceptual, Mood, Aggression or Vocalness outputs; facet weights are fixed
+  before any search, with tempo and pitch class reduced. Fit every scale and
+  within-facet weight on the fixed library sample (`BACKGROUND_SIZE`), never on
+  the returned tracks, and center on the per-descriptor median of the
+  references. The distance, its exact per-descriptor split and the map radius
+  are one calculation; band curves, decoded read-only from source audio on
+  request, never enter it. Mood is only a labeled reading of measured
+  descriptors, never a measurement. Persist nothing and produce no standalone
+  or local HTML map files: the map lives in browser memory until the library,
+  model, layer, references or limit change, and the library scales live only
+  in server memory, rebuilt when SONARA data changes.
 - Start project servers only through `run_server.cmd` in a visible interactive
   window, after checking existing listeners/processes and the selected database.
   Do not launch hidden direct `dj-sim`, Uvicorn or Vite processes. While the

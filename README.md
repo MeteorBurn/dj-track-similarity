@@ -94,7 +94,7 @@ Package versions and sources follow [pyproject.toml](pyproject.toml), [uv.lock](
 
 - **NumPy 1.26.4** - Numerical processing.
 - **SciPy 1.15.3** - Scientific processing.
-- **scikit-learn 1.7.2** - Classifiers and feature processing.
+- **scikit-learn 1.7.2** - Classifiers, feature processing, and the reference map's library scales.
 - **joblib 1.5.3** - Model persistence.
 
 **🗂️ Files and reports**
@@ -173,7 +173,7 @@ On a library created before SONARA stored timelines, SONARA analysis stops with 
 
 ## 🎚️ Main workflows
 
-The top bar switches workspaces: **DISCOVER** shows the analysis, library, and search panels side by side, **ANALYZE**, **LIBRARY**, and **SEARCH** show one of them, and **EXPORT** shows the current set. It also holds the theme toggle, the log, a stop button for the running stage, and the power button. The main interface mixes Russian and English, and [UI language](docs/dj-track-similarity/help/ui-language.md) maps the labels. Search tabs are LAB (Model Listening Lab), SIMILARITY, PROMPT, and CLASSIFIER.
+The top bar switches workspaces: **DISCOVER** shows the analysis, library, and search panels side by side, **ANALYZE**, **LIBRARY**, and **SEARCH** show one of them, and **EXPORT** shows the current set. It also holds the theme toggle, the log, a stop button for the running stage, and the power button. The main interface mixes Russian and English, and [UI language](docs/dj-track-similarity/help/ui-language.md) maps the labels. Search tabs are LAB (Model Listening Lab), REFERENCE, PROMPT, and CLASSIFIER.
 
 ### 1. 🔍 Rediscover your own library
 
@@ -181,11 +181,13 @@ Search by path, title, artist, or genre (LIKE or FTS), show liked tracks, filter
 
 ### 2. 🎯 Start from a reference track
 
-The SIMILARITY tab ranks candidates in one model space per search. SONARA uses measured Core features with a manual mixer of five sliders and nine directional modifiers, and takes up to five seeds. MAEST, MERT-v2, MuQ, MuQ-MuLan, and CLAP each search their own embedding space; for MERT-v2 you pick one of its 24 stored layers. The LAB tab shows a short candidate list per model for the first seed, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
+The REFERENCE tab ranks candidates in one model space per search. SONARA uses measured Core features with a manual mixer of five sliders and nine directional modifiers, and takes up to five seeds. MAEST, MERT-v2, MuQ, MuQ-MuLan, and CLAP each search their own embedding space; for MAEST, MERT-v2, and MuQ you pick one of their stored layers (13, 24, and 13 layers; each family's last layer is the default). The LAB tab shows a short candidate list per model for the first seed, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
+
+In the REFERENCE tab, with an embedding model selected, the scatter-chart button next to **Search** opens the reference map: the candidates that **Search** returns for the current references, model, layer, and limit, placed by SONARA measurements alone at their distance from the references across seven facets (rhythm and groove, dynamics, spectrum and texture, timbre, harmony and mode, pitch class, and tempo). Select a candidate to see which facets it keeps or loses, its values beside the references and the library, curves across the whole track, and optional band curves read from the audio, read-only and outside the distance. Another tab summarizes which facets the whole output keeps compared with random library tracks, whether deeper ranks keep them too, and any consistent shift of the output. Model scores never enter the distance, and SONARA's heuristic mood, perceptual, aggression, and vocalness outputs are not read; mood appears only as a labelled reading of measured features. The first map after the server starts, or after the library or its SONARA data changes, calibrates on a library sample, which can take up to a minute. A map stays in browser memory until the library, model, layer, references, or limit change.
 
 ### 3. 🌊 Curate the current set
 
-Add results one row at a time, or in bulk from the current library page or every shown PROMPT candidate. The EXPORT workspace previews and removes set tracks, saves the list as a Rhythm Lab collection, and exports M3U or CSV. The set is in-memory browser state rather than automatic sequencing: switching databases or removing a track from the catalog clears it. See [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md).
+Add results one row at a time, or in bulk from the current library page or every shown REFERENCE or PROMPT candidate. The EXPORT workspace previews and removes set tracks, saves the list as a Rhythm Lab collection, and exports M3U or CSV. The set is in-memory browser state rather than automatic sequencing: switching databases or removing a track from the catalog clears it. See [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md).
 
 ### 4. 💬 Search by text
 
@@ -230,7 +232,7 @@ Analysis uses upstream projects and downloaded checkpoints: [SONARA](https://git
 The analysis panel's Tools row holds **Refresh Tags**, **Save Genres**, **Validate DB**, **Rhythm-Lab**, and **Audio Dedup**.
 
 - **🔍 Audio Dedup** finds duplicates across the library from stored SONARA fingerprints alone. **Fingerprints**, the default mode, compares tracks of similar duration. **Fingerprints + LSH** is faster and can match copies of different length, but may miss some pairs. An optional spectrogram analysis, off by default, flags suspected transcodes. Review the report folder by folder, mark copies singly or in bulk, keep a different copy than suggested, and download the report as XLSX. Deletion asks for confirmation, stays inside the folder filter you reviewed, uses the recycle bin by default, rechecks each file, keeps at least one copy per group, and removes deleted copies from the library. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
-- **✅ Validate DB** checks SQLite integrity, track identities and files, SONARA Core, fingerprint, and embedding rows, and ML embeddings without changing the library. It skips SONARA timelines, MAEST genres, classifier scores, and MERT-v2 layers other than 24.
+- **✅ Validate DB** checks SQLite integrity, track identities and files, SONARA Core, fingerprint, and embedding rows, and ML embeddings without changing the library. It skips SONARA timelines, MAEST genres, and classifier scores, and checks only the default layer of MAEST (13), MERT-v2 (24), and MuQ (13).
 - **🗃️ Database optimization** is offered after validation reports zero errors. A verified backup protects the database during compaction and index maintenance; it is removed after a verified result and kept if verification fails. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
 
 Starting the app never converts an older database, and the project ships no migration command.

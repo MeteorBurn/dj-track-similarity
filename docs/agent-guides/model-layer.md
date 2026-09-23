@@ -24,12 +24,18 @@ are relative to this file. These guides are read by task, not imported as a batc
   normalization are caller policies, separate from native model outputs.
   Every family keeps its own `models/<family>/contract.json`; none of these
   files is read at runtime.
-- `mert_v2_embeddings` alone stores 24 separate layer vectors per track in one
-  table: key `(track_id, layer)`, layers 1–24, each 1024D float32, L2-normalized.
-  Other neural embedding tables store one vector per `track_id`. Reads/joins
-  select a layer (default 24); counters count tracks. Full-analysis readiness
-  requires all 24 layers with the current track UUID and one `analyzed_at`.
-  Replace/reset the complete layer set atomically; do not split tables or
+- Families in `EMBEDDING_LAYERS` (`analysis_models.py`) store one float32
+  L2-normalized vector per model layer, keyed `(track_id, layer)`:
+  `maest_embeddings` (layers 1–13, 768D), `mert_v2_embeddings` (1–24, 1024D)
+  and `muq_embeddings` (1–13, 1024D). `mulan_embeddings`, `clap_embeddings`
+  and `sonara_embeddings` store one vector per `track_id`. Reads/joins select
+  a layer, by default the family's `EMBEDDING_LAYERS` default, which holds its
+  primary vector; counters count tracks. Readiness is the default-layer row
+  with the current track UUID: one write replaces all layers of a track under
+  one UUID and `analyzed_at`, so that row stands for the set. A track migrated
+  with only the default layer is ready too, but its other layers stay empty
+  until the family is reset and reanalyzed. Write and reset whole layer sets
+  atomically (`EmbeddingOutput` rejects a partial set); do not split tables or
   average layers in storage.
 - `embedding/registry.py` owns the single `adapter_factories()` map and typed
   `create_embedding_adapter()` factory; `embedding/contracts.py` defines the

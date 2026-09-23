@@ -144,7 +144,7 @@ def test_generic_search_endpoint_returns_muq_result_shape(
         ).status_code == 422
 
 
-def test_cluster_map_places_the_current_search_and_explains_it(
+def test_cluster_map_explains_the_current_search_by_sonara_alone(
     monkeypatch, tmp_path: Path
 ) -> None:
     from dataclasses import replace
@@ -152,62 +152,67 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     import dj_track_similarity.api.routes_search as routes_search
     from dj_track_similarity.analysis_models import SonaraFeatureRow
     from dj_track_similarity.search.cluster_map import build_cluster_map
+    from dj_track_similarity.search.sonara_descriptors import DESCRIPTOR_KEYS, FACET_KEYS
 
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = _sonara_library(db_path)
     dimension = current_embedding_spec("maest").dimension
-    # Each coordinate varies independently in the fixed library background.
-    # Candidate composition must never determine its own validation scale.
+    # Each measured column varies independently in the fixed library background;
+    # the candidates never set their own scale.
     scalars = {
-        "tempo_variability": (0.03, 0.01),
+        "detected_bpm": (124.0, 3.0),
         "onset_density_per_second": (4.0, 1.0),
-        "dynamic_range_db": (10.0, 2.0),
+        "tempo_variability": (0.03, 0.01),
+        "beat_grid_stability": (0.8, 0.05),
+        "integrated_loudness_lufs": (-9.0, 1.0),
         "loudness_range_lu": (5.0, 1.0),
+        "dynamic_range_db": (10.0, 2.0),
         "energy_curve_stddev": (0.1, 0.02),
-        "zero_crossing_rate": (0.1, 0.02),
         "spectral_centroid_hz": (2000.0, 300.0),
         "spectral_bandwidth_hz": (2500.0, 300.0),
         "spectral_rolloff_hz": (6000.0, 500.0),
         "spectral_flatness": (0.1, 0.02),
+        "zero_crossing_rate": (0.1, 0.02),
         "dissonance_score": (0.1, 0.02),
         "chord_changes_per_second": (1.0, 0.2),
     }
-    vectors = {
-        "chroma_mean_blob": 12,
-        "mfcc_mean_blob": 13,
-        "spectral_contrast_mean_blob": 7,
-    }
+    spectral = ("spectral_centroid_hz", "spectral_bandwidth_hz", "spectral_rolloff_hz",
+                "spectral_flatness", "zero_crossing_rate")
+    vectors = {"mfcc_mean_blob": 13, "chroma_mean_blob": 12, "spectral_contrast_mean_blob": 7}
+    width = len(scalars) + sum(vectors.values())
 
     def profile(offsets: np.ndarray) -> dict[str, object]:
-        values = {
+        values: dict[str, object] = {
             name: mean + scale * offset
             for (name, (mean, scale)), offset in zip(scalars.items(), offsets, strict=False)
         }
         cursor = len(scalars)
         for name, length in vectors.items():
-            values[name] = np.asarray(
-                1.0 + 0.1 * offsets[cursor:cursor + length], dtype="<f4"
-            )
+            values[name] = tuple(1.0 + 0.1 * offsets[cursor:cursor + length])
             cursor += length
+        values["analyzed_duration_seconds"] = 300.0
         return values
 
-    width = len(scalars) + sum(vectors.values())
+    def shifted(values: dict[str, object], sign: float = 1.0) -> dict[str, object]:
+        return {**values, **{name: scalars[name][0] + sign * 8 * scalars[name][1] for name in spectral}}
+
     matching = profile(np.zeros(width))
-    shifted = profile(np.full(width, 8.0))
     rng = np.random.default_rng(81)
     background = [profile(row) for row in rng.uniform(-1.0, 1.0, (256, width))]
+    # One stored Timeline for everyone: its descriptors can never separate tracks.
+    beats = list(range(0, 12_000, 20))
+    timeline = {
+        "beats": beats, "onsets": [b + offset for b in beats for offset in (0, 10)],
+        "energy_curve": [0.5 + 0.2 * np.sin(i / 20) for i in range(600)], "energy_curve_hop_seconds": 0.5,
+        "loudness_curve": [-9.0] * 300, "tempo_curve": [124.0] * len(beats),
+        "segments": [{"start_sec": 0.0, "end_sec": 300.0, "energy": 0.5}],
+        "chord_events": [{"label": "Am", "start_sec": 0.0, "end_sec": 200.0}, {"label": "C", "start_sec": 200.0, "end_sec": 300.0}],
+    }
     profiles: dict[int, dict[str, object]] = {}
 
     def add(name: str, direction: dict[int, float], values: dict[str, object]) -> AnalysisTarget:
-        target = _add_sonara_track(
-            db, tmp_path, name,
-            {
-                **{key: value for key, value in values.items() if key in scalars},
-                "energy_curve_hop_seconds": 0.5, "energy_curve_sample_count": 600,
-                "energy_curve_mean": 0.5, "energy_curve_min": 0.0, "energy_curve_max": 1.0,
-            },
-        )
+        target = _add_sonara_track(db, tmp_path, name, {})
         profiles[target.track_id] = values
         vector = np.zeros(dimension, dtype=np.float32)
         vector[0] = 1.0
@@ -229,30 +234,31 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     seeds = [add("seed-a.wav", {20: 0.2}, matching), add("seed-b.wav", {20: -0.2}, matching)]
     ordinary = [add(f"match-{i}.wav", {1: 0.1, 30 + i: 0.01}, matching) for i in range(17)]
     model_direction = add("different-model-direction.wav", {2: 0.1, 50: 0.01}, matching)
-    excluded_only = add("excluded-features.wav", {1: 0.1, 51: 0.01}, {
-        **matching, "detected_bpm": 85.0, "energy_score": 0.0,
-        "mood_sad_score": 1.0, "vocal_probability": 1.0,
+    heuristics_only = add("excluded-heuristics.wav", {1: 0.1, 51: 0.01}, {
+        **matching, "energy_score": 0.0, "danceability_score": 1.0, "mood_sad_score": 1.0,
+        "aggression_score": 1.0, "vocal_probability": 1.0,
     })
-    anomaly = add("sonara-deviation.wav", {1: 0.1, 52: 0.01}, shifted)
+    anomaly = add("brighter.wav", {1: 0.1, 52: 0.01}, shifted(matching))
     sonara_output = db.active_analysis_output("sonara", "core")
-    rows = tuple(
-        replace(row, values={**row.values, **profiles[row.target.track_id]})
-        for row in db.load_sonara_feature_rows(sonara_output)
-    )
-    calibration_rows = tuple(
-        SonaraFeatureRow(
-            AnalysisTarget(db.catalog_uuid, 1000 + i, f"background-{i}"),
-            sonara_output, values,
-        )
+    stored = {row.target: row for row in db.load_sonara_feature_rows(sonara_output)}
+    rows = {
+        target: replace(row, values={**row.values, **profiles[target.track_id]})
+        for target, row in stored.items()
+    }
+    rows |= {
+        (target := AnalysisTarget(db.catalog_uuid, 1000 + i, f"background-{i}")): SonaraFeatureRow(target, sonara_output, values)
         for i, values in enumerate(background)
-    )
-    monkeypatch.setattr(LibraryDatabase, "load_sonara_feature_rows", lambda *args, **kwargs: rows + calibration_rows)
+    }
+    monkeypatch.setattr(LibraryDatabase, "load_sonara_feature_rows",
+                        lambda self, output, *, targets=None: tuple(rows.values()) if targets is None
+                        else tuple(rows[target] for target in targets if target in rows))
+    monkeypatch.setattr(LibraryDatabase, "load_sonara_timelines",
+                        lambda self, targets: {target: timeline for target in targets})
     captured = {}
 
-    def record_map(tracks, library_sonara):
-        captured["tracks"] = tracks
-        captured["library"] = library_sonara
-        return build_cluster_map(tracks, library_sonara)
+    def record_map(background_scales, tracks, *, shown):
+        captured.update(background=background_scales, tracks=tracks, shown=shown)
+        return build_cluster_map(background_scales, tracks, shown=shown)
 
     monkeypatch.setattr(routes_search, "build_cluster_map", record_map)
     request = {
@@ -267,78 +273,56 @@ def test_cluster_map_places_the_current_search_and_explains_it(
     assert response.status_code == 200, response.text
     payload = response.json()
     candidates = [point for point in payload["points"] if not point["seed"]]
-    assert [point["track"]["track_id"] for point in candidates] == [
-        item["track"]["track_id"] for item in search.json()
-    ]
-    for point, result in zip(candidates, search.json(), strict=True):
+    # The map shows exactly the search: identities, order and model scores.
+    assert [point["track"]["track_id"] for point in candidates] == [item["track"]["track_id"] for item in search.json()]
+    for rank, (point, result) in enumerate(zip(candidates, search.json(), strict=True), start=1):
+        assert point["rank"] == rank
         assert point["similarity"] == pytest.approx(result["score"], abs=1e-5)
         assert point["track"]["track_uuid"] == result["track"]["track_uuid"]
-    assert {point["track"]["track_id"] for point in payload["points"] if point["seed"]} == {
-        seed.track_id for seed in seeds
-    }
-    assert payload["catalog_uuid"] == db.catalog_uuid
-    assert payload["layer"] == 5
-    points = {point["track"]["track_id"]: point for point in candidates}
-    assert {track_id for track_id, point in points.items() if point["sonara"]["requires_listening"]} == {
-        anomaly.track_id
-    }
-    for target in [*ordinary, model_direction, excluded_only]:
-        validation = points[target.track_id]["sonara"]
-        assert validation["available"]
-        assert validation["distance"] == pytest.approx(0.0)
-        assert not any(item["departure"] for item in validation["deviations"])
-    deviation = points[anomaly.track_id]["sonara"]
-    assert deviation["distance"] > points[ordinary[0].track_id]["sonara"]["distance"]
-    assert all(item["available"] and item["departure"] for item in deviation["deviations"])
-    assert not payload["summary"]["coherent_drift"]
+    assert {point["track"]["track_id"] for point in payload["points"] if point["seed"]} == {s.track_id for s in seeds}
+    assert payload["catalog_uuid"] == db.catalog_uuid and payload["layer"] == 5
+    assert payload["background_count"] == len(rows)
 
-    # An internally identical cohort far from the references must retain drift;
-    # changing its composition never refits the library scale or the references.
-    displaced_tracks = [
-        item if item.seed else replace(item, sonara=shifted)
-        for item in captured["tracks"]
-    ]
-    displaced = build_cluster_map(displaced_tracks, captured["library"])
-    assert displaced.summary.coherent_drift
-    assert all(item.coherent_drift for item in displaced.summary.descriptors)
-    for point in displaced.points:
+    points = {point["track"]["track_id"]: point["evidence"] for point in candidates}
+    spectrum = FACET_KEYS.index("spectrum")
+    # A different model direction or different heuristic labels are not SONARA
+    # distance: only measured physics moves a point.
+    for target in [*ordinary, model_direction, heuristics_only]:
+        assert points[target.track_id]["distance"] == pytest.approx(0.0, abs=1e-9)
+    evidence = points[anomaly.track_id]
+    assert evidence["distance"] > 0.5
+    # The explanation is the exact split of the same distance.
+    assert sum(evidence["contribution"]) == pytest.approx(1.0)
+    assert evidence["facet_share"][spectrum] == pytest.approx(1.0)
+    assert evidence["facet_percentile"][spectrum] > 99
+    assert not payload["summary"]["shifts"]
+
+    # Scales and the centre never refit on the returned tracks: a cohort shifted
+    # together keeps each track's distance and shows a coherent shift.
+    displaced = [item if item.seed else replace(item, core=shifted(dict(item.core))) for item in captured["tracks"]]
+    moved = build_cluster_map(captured["background"], displaced, shown=captured["shown"])
+    for point in moved.points:
         if not point.seed:
-            assert point.sonara.requires_listening
-            assert point.sonara.distance == pytest.approx(deviation["distance"])
+            assert point.evidence.distance == pytest.approx(evidence["distance"])
+    shift_keys = {DESCRIPTOR_KEYS[item.descriptor] for item in moved.summary.shifts}
+    assert shift_keys == {"centroid", "bandwidth", "rolloff", "flatness", "zcr"}
+    assert all(item.median > 0 for item in moved.summary.shifts)
 
-    # Opposing vector departures are individual deviations, not a coherent
-    # shift in one direction. Magnitudes alone would falsely mark this cohort.
-    opposing = []
-    for index, item in enumerate(captured["tracks"]):
-        vector_shift = profile(np.full(width, 8.0 if index % 2 else -8.0))
-        values = {**matching, **{key: vector_shift[key] for key in vectors}}
-        opposing.append(item if item.seed else replace(item, sonara=values))
-    split = build_cluster_map(opposing, captured["library"])
-    assert not split.summary.coherent_drift
-    assert all(point.sonara.requires_listening for point in split.points if not point.seed)
-
-    # Distinct references are alternatives: matching a real reference must
-    # not become an anomaly merely because it differs from their mean.
-    alternatives = [
-        captured["tracks"][0],
-        replace(captured["tracks"][1], sonara=shifted),
-        replace(captured["tracks"][len(seeds)], sonara=shifted),
+    # Opposite departures are individual deviations, not a shift of the output.
+    opposing = [
+        item if item.seed else replace(item, core=shifted(dict(item.core), 1.0 if index % 2 else -1.0))
+        for index, item in enumerate(captured["tracks"])
     ]
-    alternative = build_cluster_map(alternatives, captured["library"]).points[2].sonara
-    assert alternative.distance == pytest.approx(0.0)
-    assert alternative.nearest_reference_id == seeds[1].track_id
-    assert alternative.requires_listening is False
+    assert not build_cluster_map(captured["background"], opposing, shown=captured["shown"]).summary.shifts
 
-    # Missing measured evidence is unavailable, never an imputed safe match.
-    single = [captured["tracks"][0], captured["tracks"][len(seeds)]]
-    single[1] = replace(single[1], sonara={**matching, "tempo_variability": None})
-    incomplete = build_cluster_map(single, captured["library"])
-    validation = incomplete.points[1].sonara
-    assert not validation.available
-    assert validation.distance is None
-    assert validation.percentile is None
-    assert validation.requires_listening is None
-    assert any(not item.available for item in validation.deviations)
+    # A missing measurement stays unknown instead of becoming a safe match.
+    first = next(item for item in captured["tracks"] if item.track.track_id in {t.track_id for t in ordinary})
+    single = [*(item for item in captured["tracks"] if item.seed),
+              replace(first, rank=1, core={**first.core, "spectral_centroid_hz": None, "detected_bpm": None})]
+    unknown = next(point for point in build_cluster_map(captured["background"], single, shown=1).points if not point.seed)
+    assert unknown.evidence.delta[DESCRIPTOR_KEYS.index("centroid")] is None
+    assert unknown.evidence.facet_distance[FACET_KEYS.index("tempo")] is None
+    assert unknown.evidence.facet_distance[spectrum] == pytest.approx(0.0)
 
 
 def test_sonara_search_endpoint_accepts_mixer_and_modifiers(

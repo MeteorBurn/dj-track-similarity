@@ -983,92 +983,145 @@ class SimilaritySearchResultResponse(_ResponseModel):
     score_breakdown: dict[str, float] | None = None
 
 
-class ClusterMapDeviationResponse(_ResponseModel):
-    descriptor: str
-    group: str
-    value: float | None
-    reference_min: float | None
-    reference_max: float | None
-    delta_iqr: float | None
-    distance: float | None
-    envelope_distance: float | None
-    percentile: float | None = Field(ge=0, le=100)
-    available: bool
-    departure: bool | None
+class ClusterMapFacetResponse(_ResponseModel):
+    key: str
+    label: str
+    weight: float = Field(ge=0)
+    description: str
+    explained_variance: list[float]
 
 
-class ClusterMapSonaraResponse(_ResponseModel):
-    available: bool
+class ClusterMapDescriptorResponse(_ResponseModel):
+    key: str
+    facet: int = Field(ge=0)
+    label: str
+    unit: str
+    note: str
+    weight: float = Field(ge=0, le=1)
+    library_quantiles: list[float | None]
+
+
+class ClusterMapRingResponse(_ResponseModel):
+    percentile: int
+    distance: float
+
+
+class ClusterMapReferenceResponse(_ResponseModel):
+    centre: list[float | None]
+    core_distance: float = Field(ge=0)
+    rings: list[ClusterMapRingResponse]
+    facet_rings: list[list[ClusterMapRingResponse]]
+    facet_correlation: list[list[float]]
+
+
+class ClusterMapEvidenceResponse(_ResponseModel):
     distance: float | None
     percentile: float | None = Field(ge=0, le=100)
+    facet_distance: list[float | None]
+    facet_percentile: list[float | None]
+    facet_share: list[float]
+    contribution: list[float]
+    delta: list[float | None]
+    rarity: list[float | None]
+    angle: float
+    focus: float = Field(ge=0)
     nearest_reference_id: int | None
-    descriptor_count: int = Field(ge=0)
-    requires_listening: bool | None
-    deviations: list[ClusterMapDeviationResponse]
+    nearest_distance: float | None
 
 
-class ClusterMapReferenceSimilarityResponse(_ResponseModel):
-    track_id: int
-    similarity: float
+class ClusterMapCurvesResponse(_ResponseModel):
+    duration: float | None
+    energy: list[float]
+    energy_hop: float
+    loudness: list[float]
+    loudness_hop: float
+    tempo_times: list[float]
+    tempo_values: list[float]
+    segments: list[tuple[float, float, float]]
+    mode_runs: list[tuple[float, float, bool]]
 
 
 class ClusterMapPointResponse(_ResponseModel):
     track: TrackSummaryResponse
     seed: bool
+    rank: int | None
     # Unbounded: float error can push a cosine past 1 by about 1e-10.
-    similarity: float
-    reference_similarities: list[ClusterMapReferenceSimilarityResponse]
-    sonara: ClusterMapSonaraResponse
+    similarity: float | None
+    values: list[float | None]
+    scores: list[float | None]
+    evidence: ClusterMapEvidenceResponse
+    tonic: str
+    tonic_mode: str
+    key_camelot: str | None
+    key_confidence: float | None
+    bpm_confidence: float | None
+    curves: ClusterMapCurvesResponse | None
 
 
-class ClusterMapCalibrationResponse(_ResponseModel):
-    library_count: int = Field(ge=0)
-    complete_library_count: int = Field(ge=0)
-    descriptor_count: int = Field(ge=0)
-    total_descriptors: int = Field(ge=0)
-    departure_threshold: float = Field(ge=0)
-    drift_threshold: float = Field(ge=0)
+class ClusterMapPreservationResponse(_ResponseModel):
+    median: float | None
+    mean: float | None
+    p: float | None
+    q: float | None
 
 
-class ClusterMapDescriptorSummaryResponse(_ResponseModel):
-    descriptor: str
-    group: str
-    compared_count: int = Field(ge=0)
-    median_distance: float | None
-    median_envelope_distance: float | None
-    median_delta_iqr: float | None
-    above_count: int | None
-    below_count: int | None
-    departure_count: int = Field(ge=0)
-    direction_count: int = Field(ge=0)
-    coherent_shift_distance: float | None
-    coherent_drift: bool
+class ClusterMapGradientBinResponse(_ResponseModel):
+    first: int
+    last: int
+    facet_percentile: list[float | None]
+    percentile: float | None
+
+
+class ClusterMapShiftResponse(_ResponseModel):
+    descriptor: int
+    median: float
+    same_side: float
+    p: float
+    toward_library: bool
 
 
 class ClusterMapSummaryResponse(_ResponseModel):
     candidate_count: int = Field(ge=0)
-    compared_count: int = Field(ge=0)
-    requires_listening_count: int = Field(ge=0)
-    median_distance: float | None
-    median_percentile: float | None = Field(ge=0, le=100)
-    coherent_drift: bool
-    descriptors: list[ClusterMapDescriptorSummaryResponse]
+    depth: int = Field(ge=0)
+    preservation: list[ClusterMapPreservationResponse]
+    gradient: list[ClusterMapGradientBinResponse]
+    shifts: list[ClusterMapShiftResponse]
+    rank_correlation: float | None
+    facet_rank_correlation: list[float | None]
 
 
 class ClusterMapResponse(_ResponseModel):
-    """Unchanged model ranking with an independent reference-anchored SONARA check.
+    """The exact model ranking explained by SONARA alone around its references.
 
-    Library percentiles describe acoustic distance, never genre probabilities.
-    Missing SONARA comparisons remain explicit rather than becoming zero gaps.
+    Scales come from a fixed library sample, never from the returned tracks.
+    Percentiles describe the library distribution, never a probability of a
+    musical match; unmeasured descriptors stay null.
     """
 
     catalog_uuid: str
     analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
     layer: int | None
     library_similarity: float
+    background_count: int = Field(ge=0)
+    library_count: int = Field(ge=0)
+    facets: list[ClusterMapFacetResponse]
+    descriptors: list[ClusterMapDescriptorResponse]
+    reference: ClusterMapReferenceResponse
     points: list[ClusterMapPointResponse]
-    calibration: ClusterMapCalibrationResponse
     summary: ClusterMapSummaryResponse
+
+
+class ClusterMapBandsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1, max_length=16)
+
+
+class ClusterMapBandsResponse(_ResponseModel):
+    track_id: int
+    track_uuid: str
+    hop_seconds: float
+    bands: list[list[float]]
 
 
 class EmbeddingLayerCountResponse(_ResponseModel):

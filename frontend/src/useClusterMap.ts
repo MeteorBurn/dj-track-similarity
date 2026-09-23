@@ -119,9 +119,9 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
 }
 
 function responseMismatch(response: ClusterMapResponse, payload: EmbeddingSearchPayload, seedCatalogs: string[]) {
-  if (!response?.calibration || !response.summary || !Array.isArray(response.summary.descriptors)
+  if (!response?.reference || !response.summary || !Array.isArray(response.facets) || !Array.isArray(response.descriptors)
     || !Array.isArray(response.points)
-    || response.points.some((point) => !point.sonara || !Array.isArray(point.sonara.deviations) || !Array.isArray(point.reference_similarities))) {
+    || response.points.some((point) => !point.evidence || !Array.isArray(point.evidence.contribution) || !Array.isArray(point.values))) {
     return "Сервер использует прежний формат карты. Перезапустите приложение через run_server.cmd.";
   }
   if (!seedCatalogs.every((catalog) => catalog === response.catalog_uuid)) {

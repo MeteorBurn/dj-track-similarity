@@ -261,10 +261,10 @@ export function SimilaritySearchTab({
 }
 
 function clusterMapButtonTitle({ status, entry }: ClusterMapState, label: string, layer: number | null) {
-  if (status === "loading") return "Проверяем выдачу модели по физическим признакам SONARA. Откройте, чтобы следить за ходом.";
-  if (status === "ready") return "Открыть сохранённую проверку выдачи. Внутри можно пересчитать по текущим данным библиотеки.";
-  if (status === "error") return `Проверка не завершилась: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Нажмите, чтобы попробовать снова.`;
-  return `Проверить выдачу ${label}${layer !== null ? ` L${layer}` : ""} по SONARA: сравнение с референсами и общий сдвиг.`;
+  if (status === "loading") return "Строим карту выдачи по измерениям SONARA. Откройте, чтобы следить за ходом.";
+  if (status === "ready") return "Открыть построенную карту выдачи; она живёт, пока не сменятся модель, слой или референсы.";
+  if (status === "error") return `Карта не построилась: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Нажмите, чтобы попробовать снова.`;
+  return `Карта выдачи ${label}${layer !== null ? ` L${layer}` : ""}: какие свойства SONARA она сохраняет и чем кандидаты отличаются от референсов.`;
 }
 
 function formatSigned(value: number) {

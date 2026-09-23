@@ -225,78 +225,107 @@ export type EmbeddingSearchPayload = {
   noise?: number;
 };
 
-/** One physical descriptor, scaled against the same library for every model/layer. */
-export type ClusterMapDeviation = {
-  descriptor: string;
-  group: string;
-  value: number | null;
-  reference_min: number | null;
-  reference_max: number | null;
-  delta_iqr: number | null;
+export type ClusterMapFacet = {
+  key: string;
+  label: string;
+  weight: number;
+  description: string;
+  explained_variance: number[];
+};
+
+/** One SONARA descriptor; `facet` indexes `ClusterMapResponse.facets`. */
+export type ClusterMapDescriptor = {
+  key: string;
+  facet: number;
+  label: string;
+  unit: string;
+  note: string;
+  weight: number;
+  /** Library p5, p25, p50, p75, p95 of the raw value. */
+  library_quantiles: (number | null)[];
+};
+
+export type ClusterMapRing = { percentile: number; distance: number };
+
+/** The same D that places a point, split exactly into descriptor contributions. */
+export type ClusterMapEvidence = {
   distance: number | null;
-  envelope_distance: number | null;
   percentile: number | null;
-  available: boolean;
-  departure: boolean | null;
+  facet_distance: (number | null)[];
+  facet_percentile: (number | null)[];
+  facet_share: number[];
+  contribution: number[];
+  delta: (number | null)[];
+  rarity: (number | null)[];
+  angle: number;
+  focus: number;
+  nearest_reference_id: number | null;
+  nearest_distance: number | null;
+};
+
+export type ClusterMapCurves = {
+  duration: number | null;
+  energy: number[];
+  energy_hop: number;
+  loudness: number[];
+  loudness_hop: number;
+  tempo_times: number[];
+  tempo_values: number[];
+  segments: [number, number, number][];
+  mode_runs: [number, number, boolean][];
 };
 
 export type ClusterMapPoint = {
   track: Track;
   seed: boolean;
-  similarity: number;
-  reference_similarities: { track_id: number; similarity: number }[];
-  sonara: {
-    available: boolean;
-    distance: number | null;
-    percentile: number | null;
-    nearest_reference_id: number | null;
-    descriptor_count: number;
-    requires_listening: boolean | null;
-    deviations: ClusterMapDeviation[];
-  };
+  rank: number | null;
+  similarity: number | null;
+  values: (number | null)[];
+  scores: (number | null)[];
+  evidence: ClusterMapEvidence;
+  tonic: string;
+  tonic_mode: string;
+  key_camelot: string | null;
+  key_confidence: number | null;
+  bpm_confidence: number | null;
+  curves: ClusterMapCurves | null;
 };
 
-export type ClusterMapDescriptorSummary = {
-  descriptor: string;
-  group: string;
-  compared_count: number;
-  median_distance: number | null;
-  median_envelope_distance: number | null;
-  median_delta_iqr: number | null;
-  above_count: number | null;
-  below_count: number | null;
-  departure_count: number;
-  coherent_shift_distance: number | null;
-  direction_count: number;
-  coherent_drift: boolean;
-};
+export type ClusterMapPreservation = { median: number | null; mean: number | null; p: number | null; q: number | null };
 
-/** Exact model rank and independent, reference-anchored SONARA measurements.
- * Percentiles describe the library distribution, never confidence of a match. */
+/** The exact model ranking explained by SONARA alone around its references.
+ * Scales come from a fixed library sample; percentiles describe the library,
+ * never a probability of a musical match. */
 export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
   layer: number | null;
   library_similarity: number;
-  points: ClusterMapPoint[];
-  calibration: {
-    library_count: number;
-    complete_library_count: number;
-    descriptor_count: number;
-    total_descriptors: number;
-    departure_threshold: number;
-    drift_threshold: number;
+  background_count: number;
+  library_count: number;
+  facets: ClusterMapFacet[];
+  descriptors: ClusterMapDescriptor[];
+  reference: {
+    centre: (number | null)[];
+    core_distance: number;
+    rings: ClusterMapRing[];
+    facet_rings: ClusterMapRing[][];
+    facet_correlation: number[][];
   };
+  points: ClusterMapPoint[];
   summary: {
     candidate_count: number;
-    compared_count: number;
-    requires_listening_count: number;
-    median_distance: number | null;
-    median_percentile: number | null;
-    coherent_drift: boolean;
-    descriptors: ClusterMapDescriptorSummary[];
+    depth: number;
+    preservation: ClusterMapPreservation[];
+    gradient: { first: number; last: number; facet_percentile: (number | null)[]; percentile: number | null }[];
+    shifts: { descriptor: number; median: number; same_side: number; p: number; toward_library: boolean }[];
+    rank_correlation: number | null;
+    facet_rank_correlation: (number | null)[];
   };
 };
+
+/** Band energy over time decoded from the audio; evidence only, never part of D. */
+export type ClusterMapBands = { track_id: number; track_uuid: string; hop_seconds: number; bands: number[][] };
 
 export type EmbeddingRandomTrackPayload = {
   analysis_family: EmbeddingSource;

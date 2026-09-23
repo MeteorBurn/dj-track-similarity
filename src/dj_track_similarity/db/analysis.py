@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import secrets
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import closing
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -1070,6 +1070,55 @@ class AnalysisRepository:
                         )
                     )
                 return tuple(result)
+
+    def sonara_analysis_stamp(self) -> tuple[str, int, str | None, str | None]:
+        """Catalog, SONARA track count and newest Core/Timeline write: changes on any reanalysis."""
+
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                count, core_at = connection.execute(
+                    """
+                    SELECT count(*), max(s.analyzed_at)
+                    FROM sonara_features s JOIN tracks t USING(track_id)
+                    WHERE t.missing_since IS NULL
+                    """
+                ).fetchone()
+                require_sonara_timeline(connection)
+                (timeline_at,) = connection.execute(
+                    "SELECT max(analyzed_at) FROM sonara_timeline"
+                ).fetchone()
+                return _catalog_uuid(connection), int(count), core_at, timeline_at
+
+    def load_sonara_timelines(
+        self,
+        targets: Sequence[AnalysisTarget],
+    ) -> dict[AnalysisTarget, Mapping[str, object]]:
+        """Stored Timeline objects of current *targets*; a stale or absent row is left out."""
+
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                catalog_uuid = _catalog_uuid(connection)
+                require_sonara_timeline(connection)
+                selected = {
+                    target.track_id: target
+                    for target in _selected_targets(
+                        connection, catalog_uuid=catalog_uuid, targets=targets
+                    )
+                }
+                rows = connection.execute(
+                    """
+                    SELECT track_id, track_uuid, timeline_json
+                    FROM sonara_timeline
+                    WHERE track_id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
+                    """,
+                    (json.dumps(list(selected), separators=(",", ":")),),
+                ).fetchall()
+        result: dict[AnalysisTarget, Mapping[str, object]] = {}
+        for row in rows:
+            target = selected.get(int(row["track_id"]))
+            if target is not None and row["track_uuid"] == target.track_uuid:
+                result[target] = json.loads(row["timeline_json"])
+        return result
 
     def random_sonara_target(
         self,

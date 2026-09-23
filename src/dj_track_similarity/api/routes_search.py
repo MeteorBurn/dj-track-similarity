@@ -4,8 +4,10 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from threading import Lock
 from uuid import uuid4
 import time
+import uuid
 
 from fastapi import FastAPI, HTTPException
 import numpy as np
@@ -17,6 +19,8 @@ from ..analysis.model_runners import (
     _adapter_identity,
 )
 from .schemas import (
+    ClusterMapBandsRequest,
+    ClusterMapBandsResponse,
     ClusterMapResponse,
     EmbeddingRandomTrackRequest,
     SearchRequest,
@@ -42,13 +46,19 @@ from ..db.embedding_layers import validate_embedding_layer
 from ..db.text_feedback import TextFeedbackSchemaError, TextFeedbackConflict
 from ..database import LibraryDatabase
 from ..embedding.contracts import TextEmbeddingAdapter
-from ..search.cluster_map import ClusterMapTrack, build_cluster_map
+from ..search.cluster_map import (
+    BACKGROUND_SIZE,
+    GRADIENT_DEPTH,
+    ClusterMapBackground,
+    ClusterMapTrack,
+    band_curves,
+    build_cluster_map,
+)
 from ..search.engine import (
     CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
     SearchFilters,
     SimilaritySearch,
     SimilaritySearchResult,
-    _ranking_score,
 )
 from ..search.sonara import (
     SonaraSearchUnavailable,
@@ -59,7 +69,6 @@ from ..search.vector_index import VectorIndexUnavailable
 # One short prompt is enough to force the deserialization and the first forward
 # pass; nothing is kept, so the wording carries no meaning of its own.
 _WARMUP_PROMPT = "warmup"
-_CLUSTER_MAP_CHANGED = "Embeddings changed while the cluster map was built"
 
 
 @dataclass(frozen=True)
@@ -126,12 +135,36 @@ def register_search_routes(
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
+    background_lock = Lock()
+    background_cache: dict[str, object] = {}
+
+    def cluster_map_background(database: LibraryDatabase) -> ClusterMapBackground:
+        """Library scales from a fixed sample, rebuilt only when SONARA data changes."""
+
+        stamp = database.sonara_analysis_stamp()
+        with background_lock:
+            if background_cache.get("stamp") == stamp:
+                return background_cache["background"]  # type: ignore[return-value]
+            rows = database.load_sonara_feature_rows(database.active_analysis_output("sonara", "core"))
+            # The sample depends on the library alone, never on a search.
+            rng = np.random.default_rng(int(uuid.UUID(stamp[0]).int % 2**63))
+            picked = sorted(rng.choice(len(rows), min(BACKGROUND_SIZE, len(rows)), replace=False))
+            sample = [rows[index] for index in picked]
+            timelines: dict[AnalysisTarget, object] = {}
+            for start in range(0, len(sample), 500):
+                timelines.update(database.load_sonara_timelines([row.target for row in sample[start:start + 500]]))
+            background = ClusterMapBackground(
+                [(row.values, timelines.get(row.target)) for row in sample], library_count=len(rows),
+            )
+            background_cache.update(stamp=stamp, background=background)
+            return background
+
     @app.post(
         "/api/search/cluster-map",
         response_model=ClusterMapResponse,
     )
     def search_cluster_map(request: SearchRequest):
-        """Map exactly what ``/api/search`` returns for the request; nothing is written."""
+        """Explain exactly what /api/search returns by SONARA alone; nothing is written."""
 
         filters = SearchFilters(
             min_similarity=request.min_similarity,
@@ -151,63 +184,42 @@ def register_search_routes(
                 layer=request.layer,
             )
             seeds = searcher.resolve_targets(request.seed_track_ids)
-            results = searcher.search(seeds, filters=filters, limit=request.limit)
+            # The shown candidates are the prefix /api/search returns; the
+            # deeper ranks only measure whether the order keeps a property.
+            results = searcher.search(
+                seeds, filters=filters, limit=max(request.limit, GRADIENT_DEPTH)
+            )
             library_similarity = searcher.typical_similarity(seeds)
-            targets = (*seeds, *(result.target for result in results))
-            vectors = {
-                row.target: row.vector
-                for row in database.load_analysis_vectors(
-                    analysis_output,
-                    targets=targets,
-                    layer=request.layer,
+            background = cluster_map_background(database)
+            targets = [*seeds, *(result.target for result in results)]
+            core = {
+                row.target: row.values
+                for row in database.load_sonara_feature_rows(
+                    database.active_analysis_output("sonara", "core"), targets=targets
                 )
             }
-            if vectors.keys() != set(targets):
-                raise RuntimeError(_CLUSTER_MAP_CHANGED)
-            library_sonara = database.load_sonara_feature_rows(
-                database.active_analysis_output("sonara", "core")
-            )
-            sonara_by_target = {row.target: row.values for row in library_sonara}
+            timelines = database.load_sonara_timelines(targets)
             with state.captured_db(database, generation):
                 seed_tracks = [
                     _hydrate_search_target(database, target) for target in seeds
                 ]
                 candidates = _hydrate_similarity_results(database, results)
+            missing = [target.track_id for target in seeds if target not in core]
+            if missing:
+                raise ValueError(f"References have no SONARA analysis: {missing}")
             tracks = [
-                ClusterMapTrack(
-                    track=track,
-                    seed=True,
-                    vector=vectors[target],
-                    sonara=sonara_by_target.get(target, {}),
-                )
+                ClusterMapTrack(track=track, seed=True, core=core[target], timeline=timelines.get(target))
                 for target, track in zip(seeds, seed_tracks, strict=True)
             ]
             tracks.extend(
                 ClusterMapTrack(
-                    track=candidate["track"],
-                    seed=False,
-                    vector=vectors[result.target],
-                    sonara=sonara_by_target.get(result.target, {}),
-                    similarity=result.score,
+                    track=candidate["track"], seed=False, core=core[result.target],
+                    timeline=timelines.get(result.target), similarity=result.score, rank=rank,
                 )
-                for result, candidate in zip(results, candidates, strict=True)
+                for rank, (result, candidate) in enumerate(zip(results, candidates, strict=True), start=1)
+                if result.target in core
             )
-            # Recheck that vectors loaded after the search still produce its ranking scores.
-            seed_mean = np.mean([vectors[target] for target in seeds], axis=0)
-            seed_norm = np.linalg.norm(seed_mean)
-            if not np.isfinite(seed_norm) or seed_norm <= 0 or any(
-                abs(_ranking_score(
-                    result.target,
-                    float(vectors[result.target] @ (seed_mean / seed_norm)),
-                    request.noise,
-                ) - result.score) > 1e-4
-                for result in results
-            ):
-                raise RuntimeError(_CLUSTER_MAP_CHANGED)
-            cluster_map = build_cluster_map(
-                tracks,
-                [row.values for row in library_sonara],
-            )
+            cluster_map = build_cluster_map(background, tracks, shown=request.limit)
         except (DatabaseBusy, KeyError) as error:
             # The selected library was replaced or busy, or a track vanished.
             raise HTTPException(
@@ -225,10 +237,32 @@ def register_search_routes(
             analysis_family=request.analysis_family,
             layer=validate_embedding_layer(request.analysis_family, request.layer),
             library_similarity=library_similarity,
+            background_count=cluster_map.background_count,
+            library_count=cluster_map.library_count,
+            facets=cluster_map.facets,
+            descriptors=cluster_map.descriptors,
+            reference=cluster_map.reference,
             points=cluster_map.points,
-            calibration=cluster_map.calibration,
             summary=cluster_map.summary,
         )
+
+    @app.post(
+        "/api/search/cluster-map/bands",
+        response_model=list[ClusterMapBandsResponse],
+    )
+    def cluster_map_bands(request: ClusterMapBandsRequest):
+        """Band energy over time decoded read-only from the source audio; evidence, not a measure."""
+
+        database = state.require_db()
+        response = []
+        for track in database.get_track_summaries(request.track_ids):
+            try:
+                bands = band_curves(track.file_path)
+            except (OSError, RuntimeError, ValueError):
+                # An unreadable file only removes this evidence.
+                continue
+            response.append({"track_id": track.track_id, "track_uuid": track.track_uuid, **bands})
+        return response
 
     @app.post(
         "/api/search/random-track",

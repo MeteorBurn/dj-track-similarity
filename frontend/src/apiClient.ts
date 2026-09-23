@@ -12,6 +12,7 @@ import type {
   AudioDedupReportSummary,
   AudioDedupScanRequest,
   ClassifierResetResult,
+  ClusterMapBands,
   ClusterMapResponse,
   DatabaseClearResult,
   DatabaseDialogResult,
@@ -366,6 +367,12 @@ const searchApi = {
     request<ClusterMapResponse>("/api/search/cluster-map", {
       method: "POST",
       body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
+  clusterMapBands: (trackIds: number[], options?: { signal?: AbortSignal }) =>
+    request<ClusterMapBands[]>("/api/search/cluster-map/bands", {
+      method: "POST",
+      body: JSON.stringify({ track_ids: trackIds }),
       signal: options?.signal,
     }),
   sonaraSearch: (payload: SonaraSearchPayload, options?: { signal?: AbortSignal }) =>

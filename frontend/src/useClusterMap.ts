@@ -119,7 +119,8 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
 }
 
 function responseMismatch(response: ClusterMapResponse, payload: EmbeddingSearchPayload, seedCatalogs: string[]) {
-  if (!response?.reference || !response.summary || !Array.isArray(response.facets) || !Array.isArray(response.descriptors)
+  if (!response?.reference || !response.summary || !Array.isArray(response.summary.pool_preservation)
+    || !Array.isArray(response.facets) || !Array.isArray(response.descriptors)
     || !Array.isArray(response.points)
     || response.points.some((point) => !point.evidence || !Array.isArray(point.evidence.contribution) || !Array.isArray(point.values))) {
     return "Сервер использует прежний формат карты. Перезапустите приложение через run_server.cmd.";

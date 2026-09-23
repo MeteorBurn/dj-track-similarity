@@ -152,7 +152,7 @@ def test_cluster_map_explains_the_current_search_by_sonara_alone(
     import dj_track_similarity.api.routes_search as routes_search
     from dj_track_similarity.analysis_models import SonaraFeatureRow
     from dj_track_similarity.search.cluster_map import build_cluster_map
-    from dj_track_similarity.search.sonara_descriptors import DESCRIPTOR_KEYS, FACET_KEYS
+    from dj_track_similarity.search.sonara_descriptors import DESCRIPTOR_KEYS, FACET_KEYS, describe
 
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
@@ -256,9 +256,9 @@ def test_cluster_map_explains_the_current_search_by_sonara_alone(
                         lambda self, targets: {target: timeline for target in targets})
     captured = {}
 
-    def record_map(background_scales, tracks, *, shown):
+    def record_map(background_scales, tracks, *, shown, **pool):
         captured.update(background=background_scales, tracks=tracks, shown=shown)
-        return build_cluster_map(background_scales, tracks, shown=shown)
+        return build_cluster_map(background_scales, tracks, shown=shown, **pool)
 
     monkeypatch.setattr(routes_search, "build_cluster_map", record_map)
     request = {
@@ -282,6 +282,8 @@ def test_cluster_map_explains_the_current_search_by_sonara_alone(
     assert {point["track"]["track_id"] for point in payload["points"] if point["seed"]} == {s.track_id for s in seeds}
     assert payload["catalog_uuid"] == db.catalog_uuid and payload["layer"] == 5
     assert payload["background_count"] == len(rows)
+    # The pool is every track the model could have returned, references aside.
+    assert payload["summary"]["pool_size"] == payload["summary"]["pool_count"] == len(ordinary) + 3
 
     points = {point["track"]["track_id"]: point["evidence"] for point in candidates}
     spectrum = FACET_KEYS.index("spectrum")
@@ -323,6 +325,21 @@ def test_cluster_map_explains_the_current_search_by_sonara_alone(
     assert unknown.evidence.delta[DESCRIPTOR_KEYS.index("centroid")] is None
     assert unknown.evidence.facet_distance[FACET_KEYS.index("tempo")] is None
     assert unknown.evidence.facet_distance[spectrum] == pytest.approx(0.0)
+
+    # The model's own pool is the fair null for its picks: against a pool that
+    # already sits on the references, a candidate the library calls close is far.
+    nudged = [
+        item if item.seed else replace(item, core={
+            **item.core, **{name: scalars[name][0] + scalars[name][1] for name in spectral}
+        })
+        for item in captured["tracks"]
+    ]
+    on_references = np.vstack([describe(matching, timeline)[0]] * 50)
+    judged = build_cluster_map(captured["background"], nudged, shown=captured["shown"], pool=on_references, pool_size=50)
+    near = next(point for point in judged.points if not point.seed)
+    assert near.evidence.percentile < 50
+    assert near.evidence.pool_percentile == pytest.approx(100.0)
+    assert judged.summary.pool_preservation[spectrum].median == pytest.approx(100.0)
 
 
 def test_sonara_search_endpoint_accepts_mixer_and_modifiers(

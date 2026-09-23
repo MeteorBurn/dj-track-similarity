@@ -10,6 +10,8 @@ import type { ClusterMapEntry } from "./useClusterMap";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 
 type RailTab = "candidate" | "output" | "method";
+/** What a percentile counts against: the library, or the model's own pool. */
+type Background = "library" | "pool";
 const railTabs: readonly RailTab[] = ["candidate", "output", "method"];
 const railLabels: Record<RailTab, string> = { candidate: "Кандидат", output: "Выдача", method: "Метод" };
 const bandLabels = ["Бас и бочка, 20–150 Гц", "Низкая середина, 150–600 Гц", "Середина, 0,6–3 кГц", "Верх, 3–11 кГц"];
@@ -38,6 +40,7 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPr
   const [facet, setFacet] = useState<number | null>(null);
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
   const [sort, setSort] = useState<"rank" | "distance">("rank");
+  const [background, setBackground] = useState<Background>("library");
   const { payload, response } = entry;
   const candidates = useMemo(() => response?.points.filter((point) => !point.seed) ?? [], [response]);
   const seeds = useMemo(() => response?.points.filter((point) => point.seed) ?? [], [response]);
@@ -144,6 +147,7 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPr
                 <ClusterMapPlot response={response} facet={facet} selectedTrackId={selected?.track.track_id ?? null} onSelect={selectCandidate} />
                 <MapLegend response={response} facet={facet} />
                 <FacetTable response={response} seeds={seeds} candidates={candidates} sort={sort} onSort={setSort}
+                  background={background} onBackground={setBackground}
                   selectedTrackId={selected?.track.track_id ?? null} onSelect={selectCandidate} />
               </figure>
               <aside className="cluster-map-rail" aria-label="Подробности">
@@ -193,6 +197,10 @@ function verdict(value: number | null | undefined): [string, "kept" | "differs" 
   return ["отличается", "differs"];
 }
 
+function qText(value: number | null | undefined) {
+  return value === null || value === undefined ? "—" : value < 0.001 ? "<0,001" : value.toFixed(3);
+}
+
 function signed(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined) return "—";
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}`;
@@ -239,28 +247,38 @@ function MapLegend({ response, facet }: { response: ClusterMapResponse; facet: n
   </figcaption>;
 }
 
-function FacetTable({ response, seeds, candidates, sort, onSort, selectedTrackId, onSelect }: {
+function FacetTable({ response, seeds, candidates, sort, onSort, background, onBackground, selectedTrackId, onSelect }: {
   response: ClusterMapResponse;
   seeds: ClusterMapPoint[];
   candidates: ClusterMapPoint[];
   sort: "rank" | "distance";
   onSort: (sort: "rank" | "distance") => void;
+  background: Background;
+  onBackground: (background: Background) => void;
   selectedTrackId: number | null;
   onSelect: (trackId: number) => void;
 }) {
+  const pool = background === "pool" && response.summary.pool_count > 0;
   const rows = sort === "rank" ? candidates : [...candidates].sort((a, b) => (a.evidence.distance ?? Infinity) - (b.evidence.distance ?? Infinity));
   const row = (point: ClusterMapPoint) => <tr key={point.track.track_id} data-seed={point.seed || undefined}
     data-selected={point.track.track_id === selectedTrackId || undefined} onClick={point.seed ? undefined : () => onSelect(point.track.track_id)}>
     <td className="cluster-map-cell-rank">{point.seed ? "★" : point.rank}</td>
     <td className="cluster-map-cell-name" title={displayTrack(point.track)}>{displayTrack(point.track)}</td>
-    {point.evidence.facet_percentile.map((value, index) => <PercentCell key={index} value={value} />)}
-    <PercentCell value={point.evidence.percentile} />
+    {(pool ? point.evidence.pool_facet_percentile : point.evidence.facet_percentile).map((value, index) => <PercentCell key={index} value={value} />)}
+    <PercentCell value={pool ? point.evidence.pool_percentile : point.evidence.percentile} />
   </tr>;
   return <section className="cluster-map-facet-table">
     <div className="cluster-map-facet-table-head">
       <h3>Грани по кандидатам</h3>
-      <span className="cluster-map-status">сколько библиотеки ближе к референсам, %</span>
+      <span className="cluster-map-status">сколько {pool ? "треков из пула модели" : "библиотеки"} ближе к референсам, %</span>
       <span className="cluster-map-table-controls">
+        <span className="cluster-map-sort-field"><span className="cluster-map-sort-label" aria-hidden="true">фон</span>
+          <span className="cluster-map-sort" role="group" aria-label="Фон сравнения">
+            <button type="button" aria-pressed={!pool} onClick={() => onBackground("library")} title="Против всей библиотеки: насколько кандидат близок">библиотека</button>
+            <button type="button" aria-pressed={pool} disabled={!response.summary.pool_count} onClick={() => onBackground("pool")}
+              title={`Против треков, которые модель могла вернуть (${response.summary.pool_size.toLocaleString("ru-RU")}): выбрала ли его модель`}>пул модели</button>
+          </span>
+        </span>
         <span className="cluster-map-sort-field"><span className="cluster-map-sort-label" aria-hidden="true">порядок</span>
           <span className="cluster-map-sort" role="group" aria-label="Порядок строк">
             <button type="button" aria-pressed={sort === "rank"} onClick={() => onSort("rank")} title="Порядок модели">ранг</button>
@@ -364,13 +382,15 @@ function CandidatePanel({ response, point, seeds, playingTrackId, onPreview }: {
   const top = evidence.contribution.map((value, index) => [value, index] as const).sort((a, b) => b[0] - a[0]).slice(0, 8);
   const byShare = evidence.facet_share.map((value, index) => [value, index] as const).sort((a, b) => b[0] - a[0]);
   const facetChips = (indexes: number[], kind: string) => indexes.length
-    ? indexes.map((index) => <span key={index} className="cluster-map-reason" data-kind={kind || undefined}><FacetDot index={index} />{response.facets[index].label} · {percent(evidence.facet_percentile[index])}</span>)
+    ? indexes.map((index) => <span key={index} className="cluster-map-reason" data-kind={kind || undefined}
+      title="Доля библиотеки и доля пула модели, которые ближе к референсам по этой грани">
+      <FacetDot index={index} />{response.facets[index].label} · {percent(evidence.facet_percentile[index])} · пул {percent(evidence.pool_facet_percentile[index])}</span>)
     : <span className="cluster-map-note">—</span>;
   return <div className="cluster-map-candidate-panel">
     <header className="cluster-map-card-head"><PlayButton track={point.track} playingTrackId={playingTrackId} onPreview={onPreview} />
       <h3>#{point.rank} · {displayTrack(point.track)}</h3></header>
     <dl className="cluster-map-kpis">
-      <div className="cluster-map-kpi"><dt>Библиотеки ближе</dt><dd className="cluster-map-kpi-value">{percent(evidence.percentile, 1)}</dd><dd className="cluster-map-kpi-note">к референсам, чем этот трек</dd></div>
+      <div className="cluster-map-kpi"><dt>Библиотеки ближе</dt><dd className="cluster-map-kpi-value">{percent(evidence.percentile, 1)}</dd><dd className="cluster-map-kpi-note">к референсам, чем этот трек; из пула модели — {percent(evidence.pool_percentile, 1)}</dd></div>
       <div className="cluster-map-kpi"><dt>Расстояние D</dt><dd className="cluster-map-kpi-value">{evidence.distance?.toFixed(2) ?? "—"}</dd><dd className="cluster-map-kpi-note">типичный референс {response.reference.core_distance.toFixed(2)} · обычный трек {response.reference.rings.find((ring) => ring.percentile === 50)?.distance.toFixed(2)}</dd></div>
       <div className="cluster-map-kpi"><dt>Модель</dt><dd className="cluster-map-kpi-value">{point.similarity?.toFixed(3) ?? "—"}</dd><dd className="cluster-map-kpi-note">сходство, медиана библиотеки {response.library_similarity.toFixed(3)} — только происхождение</dd></div>
     </dl>
@@ -612,26 +632,36 @@ function OutputPanel({ response, seeds, candidates, onSelect }: {
 }) {
   const { summary, facets, descriptors, reference } = response;
   const order = summary.preservation.map((item, index) => ({ ...item, index })).sort((a, b) => (a.median ?? 999) - (b.median ?? 999));
-  const reading = (item: (typeof order)[number]): [string, string] => item.median === null ? ["нет данных", ""]
-    : item.median <= KEPT && (item.q ?? 1) < 0.01 ? ["сильно сохраняется", "kept"]
-      : item.median <= 25 && (item.q ?? 1) < 0.01 ? ["сохраняется", "kept"]
-        : (item.p ?? 0) > 0.99 ? ["дальше случайного", "differs"]
-          : (item.q ?? 1) < 0.05 ? ["слабо сохраняется", ""] : ["как случайный трек", "random"];
+  const reading = (item: (typeof order)[number]): [string, string] => {
+    if (item.median === null) return ["нет данных", ""];
+    const pool = summary.pool_count > 0 ? summary.pool_preservation[item.index] : null;
+    const kept = item.median <= 25 && (item.q ?? 1) < 0.01;
+    // Close to the references, yet no closer than random picks from the
+    // model's own pool: the pool pulls the output there, not the model's choice.
+    if (kept && pool && pool.median !== null && (pool.q ?? 1) >= 0.05) return ["за счёт пула модели", "random"];
+    if (kept) return item.median <= KEPT ? ["сильно сохраняется", "kept"] : ["сохраняется", "kept"];
+    if ((item.p ?? 0) > 0.99) return ["дальше случайного", "differs"];
+    return (item.q ?? 1) < 0.05 ? ["слабо сохраняется", ""] : ["как случайный трек", "random"];
+  };
   const outside = [...candidates].filter((point) => (point.evidence.percentile ?? 0) > KEPT)
     .sort((a, b) => (b.evidence.distance ?? 0) - (a.evidence.distance ?? 0));
   return <div className="cluster-map-output">
     <section className="cluster-map-section"><h4>Какие свойства сохраняет выдача <small>— медиана по {summary.candidate_count} {pluralRu(summary.candidate_count, "кандидату", "кандидатам", "кандидатам")}; 50% — как у случайного трека</small></h4>
       <div className="cluster-map-table-scroll"><table className="cluster-map-descriptor-table">
-        <thead><tr><th>Грань</th><th>библиотеки ближе (медиана)</th><th>q</th><th>вывод</th></tr></thead>
+        <thead><tr><th>Грань</th><th>библиотеки ближе (медиана)</th><th>q</th><th>пула ближе</th><th>q</th><th>вывод</th></tr></thead>
         <tbody>{order.map((item) => {
           const [label, kind] = reading(item);
+          const pool = summary.pool_preservation[item.index];
           return <tr key={item.index}><td><FacetDot index={item.index} />{facets[item.index].label}</td>
             <td><div className="cluster-map-meter"><i style={{ width: `${item.median ?? 0}%`, background: `var(--cluster-f${item.index})` }} /><b /></div><small>{percent(item.median, 1)}</small></td>
-            <td className="cluster-map-number">{item.q === null ? "—" : item.q < 0.001 ? "<0,001" : item.q.toFixed(3)}</td>
+            <td className="cluster-map-number">{qText(item.q)}</td>
+            <td className="cluster-map-number">{summary.pool_count ? percent(pool?.median, 1) : "—"}</td>
+            <td className="cluster-map-number">{summary.pool_count ? qText(pool?.q) : "—"}</td>
             <td><span className="cluster-map-reason" data-kind={kind || undefined}>{label}</span></td></tr>;
         })}</tbody>
       </table></div>
-      <p className="cluster-map-note">Случайная выборка легла бы равномерно по 0–100%. Малая доля — модель по этой грани действительно тянет к референсам. q — поправка Бенджамини–Хохберга по граням. Грани коррелируют (см. «Метод»): сохранение тембра частично тянет за собой спектр.</p>
+      <p className="cluster-map-note">Случайная выборка легла бы равномерно по 0–100%. Малая доля — выдача по этой грани действительно тянет к референсам. q — поправка Бенджамини–Хохберга по граням. Грани коррелируют (см. «Метод»): сохранение тембра частично тянет за собой спектр.</p>
+      <p className="cluster-map-note">Пул модели — {summary.pool_size.toLocaleString("ru-RU")} {pluralRu(summary.pool_size, "трек", "трека", "треков")}, у которых есть эмбеддинг этой модели и слоя (референсы не в счёт){summary.pool_count && summary.pool_count < summary.pool_size ? `; сравнение идёт по фиксированной выборке ${summary.pool_count.toLocaleString("ru-RU")}` : ""}. Библиотека отвечает, насколько кандидаты близки; пул — выбрала ли их модель. «За счёт пула модели» значит: к референсам тянет сам набор треков модели, а случайный трек из него лёг бы так же близко.</p>
     </section>
 
     <section className="cluster-map-section"><h4>Держит ли порядок модели свойство глубже <small>— топ-{summary.depth} той же выдачи</small></h4>
@@ -686,6 +716,7 @@ function MethodPanel({ response }: { response: ClusterMapResponse }) {
         <li><strong>Объяснение</strong> — точное разложение того же D² на вклады признаков; радиус точки — тот же D. «Библиотеки ближе» — перцентиль D среди выборки библиотеки для этих же референсов.</li>
         <li><strong>Угол</strong> — доли вклада граней (RadViz) с фиксированными секторами. Это единственное условное место карты.</li>
         <li><strong>Сохранение грани</strong> — медиана перцентилей кандидатов против равномерного распределения, z-тест среднего, поправка Бенджамини–Хохберга.</li>
+        <li><strong>Пул модели</strong> — второй фон тех же перцентилей: фиксированная выборка треков, у которых есть эмбеддинг этой модели и слоя, без референсов. Шкалы, центр и расстояние остаются библиотечными; пул отделяет выбор модели от состава её пула.</li>
       </ol>
     </section>
     <section className="cluster-map-section"><h4>Структура граней в библиотеке <small>— PCA, доля дисперсии</small></h4>

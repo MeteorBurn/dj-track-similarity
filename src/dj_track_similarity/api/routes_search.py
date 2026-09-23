@@ -8,6 +8,7 @@ from threading import Lock
 from uuid import uuid4
 import time
 import uuid
+import zlib
 
 from fastapi import FastAPI, HTTPException
 import numpy as np
@@ -48,10 +49,12 @@ from ..database import LibraryDatabase
 from ..embedding.contracts import TextEmbeddingAdapter
 from ..search.cluster_map import (
     BACKGROUND_SIZE,
+    POOL_SAMPLE,
     GRADIENT_DEPTH,
     ClusterMapBackground,
     ClusterMapTrack,
     band_curves,
+    descriptor_matrix,
     build_cluster_map,
 )
 from ..search.engine import (
@@ -159,6 +162,48 @@ def register_search_routes(
             background_cache.update(stamp=stamp, background=background)
             return background
 
+    # One sample per family: switching models or references reuses it.
+    pool_cache: dict[str, tuple[object, tuple[int, ...], np.ndarray | None]] = {}
+
+    def cluster_map_pool(
+        database: LibraryDatabase,
+        family: str,
+        targets: Sequence[AnalysisTarget],
+    ) -> tuple[tuple[int, ...], np.ndarray | None]:
+        """Track ids and descriptors of a fixed sample of one model's pool.
+
+        The sample depends on the library and the model's pool alone, never on
+        a search; it is rebuilt only when that pool or SONARA data changes.
+        """
+
+        if not targets:
+            return (), None
+        stamp = database.sonara_analysis_stamp()
+        ordered = sorted(targets, key=lambda target: target.track_id)
+        identity = ",".join(f"{target.track_id}:{target.track_uuid}" for target in ordered)
+        key = (stamp, zlib.crc32(identity.encode()))
+        with background_lock:
+            cached = pool_cache.get(family)
+            if cached is not None and cached[0] == key:
+                return cached[1], cached[2]
+            rng = np.random.default_rng([int(uuid.UUID(stamp[0]).int % 2**63), zlib.crc32(family.encode())])
+            picked = [ordered[index] for index in sorted(
+                rng.choice(len(ordered), min(POOL_SAMPLE, len(ordered)), replace=False)
+            )]
+            core = {
+                row.target: row.values
+                for row in database.load_sonara_feature_rows(
+                    database.active_analysis_output("sonara", "core"), targets=picked
+                )
+            }
+            timelines: dict[AnalysisTarget, object] = {}
+            for start in range(0, len(picked), 500):
+                timelines.update(database.load_sonara_timelines(picked[start:start + 500]))
+            present = [target for target in picked if target in core]
+            pool = descriptor_matrix([(core[target], timelines.get(target)) for target in present]) if present else None
+            pool_cache[family] = (key, tuple(target.track_id for target in present), pool)
+            return pool_cache[family][1], pool
+
     @app.post(
         "/api/search/cluster-map",
         response_model=ClusterMapResponse,
@@ -191,6 +236,14 @@ def register_search_routes(
             )
             library_similarity = searcher.typical_similarity(seeds)
             background = cluster_map_background(database)
+            # The model's pool: every track this family and layer could have
+            # returned. The references are no candidates, so they leave it here.
+            seed_ids = {target.track_id for target in seeds}
+            pool_targets = searcher.current_targets()
+            pool_ids, pool = cluster_map_pool(database, request.analysis_family, pool_targets)
+            if pool is not None:
+                pool = pool[[track_id not in seed_ids for track_id in pool_ids]]
+            pool_size = sum(target.track_id not in seed_ids for target in pool_targets)
             targets = [*seeds, *(result.target for result in results)]
             core = {
                 row.target: row.values
@@ -219,7 +272,9 @@ def register_search_routes(
                 for rank, (result, candidate) in enumerate(zip(results, candidates, strict=True), start=1)
                 if result.target in core
             )
-            cluster_map = build_cluster_map(background, tracks, shown=request.limit)
+            cluster_map = build_cluster_map(
+                background, tracks, shown=request.limit, pool=pool, pool_size=pool_size
+            )
         except (DatabaseBusy, KeyError) as error:
             # The selected library was replaced or busy, or a track vanished.
             raise HTTPException(

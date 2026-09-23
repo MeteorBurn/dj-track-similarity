@@ -219,6 +219,11 @@ class SimilaritySearch:
             )
         return tuple(target_by_id[track_id] for track_id in requested)
 
+    def current_targets(self) -> tuple[AnalysisTarget, ...]:
+        """Every current, search-ready target: the pool a search ranks from."""
+
+        return tuple(row.target for row in self._load_full_rows(self.active_output()))
+
     def random_target(
         self,
         *,

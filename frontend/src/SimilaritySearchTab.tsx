@@ -262,7 +262,7 @@ export function SimilaritySearchTab({
 
 function clusterMapButtonTitle({ status, entry }: ClusterMapState, label: string, layer: number | null) {
   if (status === "loading") return "Строим карту выдачи по измерениям SONARA. Откройте, чтобы следить за ходом.";
-  if (status === "ready") return "Открыть построенную карту выдачи; она живёт, пока не сменятся модель, слой или референсы.";
+  if (status === "ready") return "Открыть построенную карту выдачи; она живёт, пока не сменятся библиотека, модель, слой, референсы или лимит.";
   if (status === "error") return `Карта не построилась: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Нажмите, чтобы попробовать снова.`;
   return `Карта выдачи ${label}${layer !== null ? ` L${layer}` : ""}: какие свойства SONARA она сохраняет и чем кандидаты отличаются от референсов.`;
 }

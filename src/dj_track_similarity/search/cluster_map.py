@@ -1,10 +1,11 @@
 """Reference-centred SONARA evidence for one model ranking.
 
-The model supplies only the candidates and their order. Everything measured
-here comes from SONARA and from scales fitted on a fixed background sample of
-the library, never on the returned tracks, so one output cannot calibrate its
-own agreement and every model and layer is judged on the same scale for the
-same references.
+The model supplies only the candidates, their order and its pool (the tracks
+it could have returned, a second percentile background by membership alone).
+Everything measured here comes from SONARA and from scales fitted on a fixed
+background sample of the library, never on the returned tracks or the pool, so
+one output cannot calibrate its own agreement and every model and layer is
+judged on the same scale for the same references.
 
 The distance of a track is D = sqrt(sum_f W_f * d_f^2 / sum_f W_f): d_f is the
 facet's weighted RMS of per-descriptor z-differences from the median reference,
@@ -27,6 +28,9 @@ from .sonara_descriptors import (
 )
 
 BACKGROUND_SIZE = 6000
+# The model's pool — every track it could have returned — is compared through
+# a fixed sample of this size, so a small pool is used whole.
+POOL_SAMPLE = 2000
 RING_PERCENTILES = (1, 5, 10, 25, 50)
 GRADIENT_BINS = ((1, 20), (21, 50), (51, 100), (101, 200))
 GRADIENT_DEPTH = 200
@@ -87,8 +91,10 @@ class ClusterMapReference:
 class ClusterMapEvidence:
     distance: float | None
     percentile: float | None
+    pool_percentile: float | None
     facet_distance: tuple[float | None, ...]
     facet_percentile: tuple[float | None, ...]
+    pool_facet_percentile: tuple[float | None, ...]
     facet_share: tuple[float, ...]
     contribution: tuple[float, ...]
     delta: tuple[float | None, ...]
@@ -159,6 +165,9 @@ class ClusterMapSummary:
     candidate_count: int
     depth: int
     preservation: tuple[ClusterMapPreservation, ...]
+    pool_size: int
+    pool_count: int
+    pool_preservation: tuple[ClusterMapPreservation, ...]
     gradient: tuple[ClusterMapGradientBin, ...]
     shifts: tuple[ClusterMapShift, ...]
     rank_correlation: float | None
@@ -176,6 +185,14 @@ class ClusterMap:
     summary: ClusterMapSummary
 
 
+def descriptor_matrix(
+    rows: Sequence[tuple[Mapping[str, object], Mapping[str, object] | None]],
+) -> np.ndarray:
+    """Descriptor rows of (SONARA Core values, Timeline) pairs, in ``DESCRIPTORS`` order."""
+
+    return np.vstack([describe(core, timeline)[0] for core, timeline in rows])
+
+
 class ClusterMapBackground:
     """Library scales fitted once on a fixed sample; reused for every search."""
 
@@ -185,7 +202,7 @@ class ClusterMapBackground:
 
         if len(rows) < 50:
             raise ValueError("The cluster map needs at least 50 library tracks with SONARA")
-        X = np.vstack([describe(core, timeline)[0] for core, timeline in rows])
+        X = descriptor_matrix(rows)
         # Normal scores against the library: 1 unit = one library standard
         # deviation for any skewed or bounded descriptor.
         self.transform = QuantileTransformer(
@@ -225,8 +242,16 @@ def build_cluster_map(
     tracks: Sequence[ClusterMapTrack],
     *,
     shown: int,
+    pool: np.ndarray | None = None,
+    pool_size: int = 0,
 ) -> ClusterMap:
-    """Explain the first *shown* candidates; the rest of *tracks* only feed the rank gradient."""
+    """Explain the first *shown* candidates; the rest of *tracks* only feed the rank gradient.
+
+    *pool* holds descriptor rows of a fixed sample of the tracks the model could
+    have returned. Library percentiles say how close a candidate is; pool
+    percentiles say whether the model chose it, since a pool that already sits
+    near the references makes any random pick look close to the library.
+    """
 
     from scipy.stats import binomtest, norm, spearmanr
 
@@ -259,6 +284,20 @@ def build_cluster_map(
         for i in range(len(tracks))
     ])
     D_percentiles = np.array([_percentile(sorted_D, value) for value in track_D])
+    # The pool is read with the same library scales, centre and facet scale:
+    # only the background a percentile counts against changes.
+    if pool is not None and len(pool):
+        pool_facets = _facet_squares(background.scores(pool), centre, w)
+        pool_D = _combine(pool_facets, scale)
+        sorted_pool_D = np.sort(pool_D[np.isfinite(pool_D)])
+        sorted_pool_facets = [np.sort(column[np.isfinite(column)]) for column in pool_facets.T]
+    else:
+        sorted_pool_D, sorted_pool_facets = np.empty(0), [np.empty(0)] * len(FACETS)
+    pool_facet_percentiles = np.array([
+        [_percentile(sorted_pool_facets[f], track_facets[i, f]) for f in range(len(FACETS))]
+        for i in range(len(tracks))
+    ])
+    pool_D_percentiles = np.array([_percentile(sorted_pool_D, value) for value in track_D])
 
     def evidence(index: int) -> ClusterMapEvidence:
         delta = Z[index] - centre
@@ -286,9 +325,11 @@ def build_cluster_map(
         return ClusterMapEvidence(
             distance=_finite(track_D[index]),
             percentile=_finite(D_percentiles[index]),
+            pool_percentile=_finite(pool_D_percentiles[index]),
             facet_distance=tuple(_finite(math.sqrt(v / s)) if np.isfinite(v) else None
                                  for v, s in zip(track_facets[index], scale, strict=True)),
             facet_percentile=tuple(_finite(v) for v in facet_percentiles[index]),
+            pool_facet_percentile=tuple(_finite(v) for v in pool_facet_percentiles[index]),
             facet_share=tuple(float(v) for v in share),
             contribution=tuple(float(v) for v in contribution),
             delta=tuple(_finite(v) for v in delta),
@@ -318,16 +359,23 @@ def build_cluster_map(
 
     ranked = sorted((i for i, item in enumerate(tracks) if not item.seed), key=lambda i: tracks[i].rank or 0)
     top = [i for i in ranked if (tracks[i].rank or 0) <= shown]
-    preservation = []
-    for f in range(len(FACETS)):
-        finite = facet_percentiles[top, f][np.isfinite(facet_percentiles[top, f])] / 100.0
-        if not len(finite):
-            preservation.append((None, None, None))
-            continue
-        # A random library sample would spread uniformly over 0..100.
-        z = (finite.mean() - 0.5) / math.sqrt(1 / (12 * len(finite)))
-        preservation.append((float(np.median(finite) * 100), float(finite.mean() * 100), float(norm.cdf(z))))
-    q = _benjamini_hochberg([p for _, _, p in preservation])
+
+    def preservation(percentiles: np.ndarray) -> tuple[ClusterMapPreservation, ...]:
+        rows: list[tuple[float | None, float | None, float | None]] = []
+        for f in range(len(FACETS)):
+            finite = percentiles[top, f][np.isfinite(percentiles[top, f])] / 100.0
+            if not len(finite):
+                rows.append((None, None, None))
+                continue
+            # Random picks from the background would spread uniformly over 0..100.
+            z = (finite.mean() - 0.5) / math.sqrt(1 / (12 * len(finite)))
+            rows.append((float(np.median(finite) * 100), float(finite.mean() * 100), float(norm.cdf(z))))
+        q = _benjamini_hochberg([p for _, _, p in rows])
+        return tuple(
+            ClusterMapPreservation(median, mean, p, q_value)
+            for (median, mean, p), q_value in zip(rows, q, strict=True)
+        )
+
     gradient = []
     for first, last in GRADIENT_BINS:
         members = [i for i in ranked if first <= (tracks[i].rank or 0) <= last]
@@ -386,10 +434,10 @@ def build_cluster_map(
         points=points,
         summary=ClusterMapSummary(
             candidate_count=len(top), depth=len(ranked),
-            preservation=tuple(
-                ClusterMapPreservation(median, mean, p, q_value)
-                for (median, mean, p), q_value in zip(preservation, q, strict=True)
-            ),
+            preservation=preservation(facet_percentiles),
+            pool_size=pool_size,
+            pool_count=0 if pool is None else len(pool),
+            pool_preservation=preservation(pool_facet_percentiles),
             gradient=tuple(gradient),
             shifts=tuple(sorted(shifts, key=lambda item: -abs(item.median))),
             rank_correlation=rank_rho(D_percentiles[ranked]),

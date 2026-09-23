@@ -1017,8 +1017,11 @@ class ClusterMapReferenceResponse(_ResponseModel):
 class ClusterMapEvidenceResponse(_ResponseModel):
     distance: float | None
     percentile: float | None = Field(ge=0, le=100)
+    # Against a fixed sample of the tracks the model could have returned.
+    pool_percentile: float | None = Field(ge=0, le=100)
     facet_distance: list[float | None]
     facet_percentile: list[float | None]
+    pool_facet_percentile: list[float | None]
     facet_share: list[float]
     contribution: list[float]
     delta: list[float | None]
@@ -1084,6 +1087,9 @@ class ClusterMapSummaryResponse(_ResponseModel):
     candidate_count: int = Field(ge=0)
     depth: int = Field(ge=0)
     preservation: list[ClusterMapPreservationResponse]
+    pool_size: int = Field(ge=0)
+    pool_count: int = Field(ge=0)
+    pool_preservation: list[ClusterMapPreservationResponse]
     gradient: list[ClusterMapGradientBinResponse]
     shifts: list[ClusterMapShiftResponse]
     rank_correlation: float | None
@@ -1094,8 +1100,8 @@ class ClusterMapResponse(_ResponseModel):
     """The exact model ranking explained by SONARA alone around its references.
 
     Scales come from a fixed library sample, never from the returned tracks.
-    Percentiles describe the library distribution, never a probability of a
-    musical match; unmeasured descriptors stay null.
+    Percentiles describe the library or the model's pool, never a probability
+    of a musical match; unmeasured descriptors stay null.
     """
 
     catalog_uuid: str

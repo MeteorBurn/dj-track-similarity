@@ -251,8 +251,11 @@ export type ClusterMapRing = { percentile: number; distance: number };
 export type ClusterMapEvidence = {
   distance: number | null;
   percentile: number | null;
+  /** Against a fixed sample of the tracks the model could have returned. */
+  pool_percentile: number | null;
   facet_distance: (number | null)[];
   facet_percentile: (number | null)[];
+  pool_facet_percentile: (number | null)[];
   facet_share: number[];
   contribution: number[];
   delta: (number | null)[];
@@ -294,8 +297,8 @@ export type ClusterMapPoint = {
 export type ClusterMapPreservation = { median: number | null; mean: number | null; p: number | null; q: number | null };
 
 /** The exact model ranking explained by SONARA alone around its references.
- * Scales come from a fixed library sample; percentiles describe the library,
- * never a probability of a musical match. */
+ * Scales come from a fixed library sample; percentiles describe the library
+ * or the model's pool, never a probability of a musical match. */
 export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
@@ -317,6 +320,10 @@ export type ClusterMapResponse = {
     candidate_count: number;
     depth: number;
     preservation: ClusterMapPreservation[];
+    /** Tracks the model could have returned, references aside, and the sample compared. */
+    pool_size: number;
+    pool_count: number;
+    pool_preservation: ClusterMapPreservation[];
     gradient: { first: number; last: number; facet_percentile: (number | null)[]; percentile: number | null }[];
     shifts: { descriptor: number; median: number; same_side: number; p: number; toward_library: boolean }[];
     rank_correlation: number | null;

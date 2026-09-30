@@ -138,8 +138,9 @@ test("track changes, database changes, stop and unmount invalidate pending previ
   assert.equal(secondAudio.src, undefined);
   assert.equal(h.infos[1].signal.aborted, true);
   h.ui.togglePreview({ track_id: 2 }); h.render();
-  h.infos[1].resolve({ duration_seconds: 888 }); await flush();
+  h.infos[1].reject(new Error("stale metadata failure")); await flush();
   assert.equal(h.position().duration, 0, "same numeric id in another catalog is a new selection");
+  assert.deepEqual(h.errors, [], "stale metadata errors cannot affect the new selection");
   h.ui.stopPreview(); h.render();
   assert.equal(h.infos[2].signal.aborted, true);
   h.infos[2].resolve({ duration_seconds: 777 }); await flush();
@@ -178,4 +179,35 @@ test("actual end advances once, terminal seeks avoid empty streams, and play fai
   assert.equal(h.errors.length, 1);
   assert.match(h.errors[0], /playback rejected/);
   h.unmount();
+
+  const sourceError = "Audio file not found: M:/Volumes/unavailable.wav";
+  const mediaError = "MEDIA_ELEMENT_ERROR: Format error";
+  for (const metadataFirst of [false, true]) {
+    const failed = playbackHarness();
+    failed.ui.togglePreview(track); failed.render();
+    const rejectMetadata = async () => {
+      failed.infos[0].reject(new Error(sourceError)); await flush(); failed.render();
+    };
+    const failMedia = () => {
+      failed.audio.error = { message: mediaError };
+      failed.audio.emit("error"); failed.render();
+    };
+    if (metadataFirst) {
+      await rejectMetadata();
+      assert.equal(failed.ui.playingTrackId, 7, "a metadata failure alone must not stop playback");
+      assert.equal(failed.audio.paused, false);
+      assert.equal(failed.audio.src, "/media/7?start=0");
+      failMedia();
+    } else {
+      failMedia();
+      assert.equal(failed.ui.playingTrackId, null);
+      assert.ok(failed.errors.at(-1).includes(mediaError), "media errors must not wait for metadata");
+      await rejectMetadata();
+    }
+    assert.equal(failed.ui.playingTrackId, null);
+    assert.ok(failed.errors.at(-1).includes(sourceError), "the server diagnostic must survive either response order");
+    assert.ok(!failed.errors.at(-1).includes(mediaError));
+    assert.deepEqual(failed.ended, []);
+    failed.unmount();
+  }
 });

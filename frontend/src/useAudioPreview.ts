@@ -8,6 +8,7 @@ type Selection = {
   track: PreviewTarget;
   databaseKey: string | null;
   duration: number;
+  metadataError: string | null;
   controller: AbortController;
 };
 
@@ -72,7 +73,7 @@ export function useAudioPreview(options: {
     const audio = value.audio;
     value.audio = null;
     releaseAudio(audio);
-    latest.current.onError(`Не удалось воспроизвести трек: ${errorText(error)}`);
+    latest.current.onError(`Не удалось воспроизвести трек: ${value.selection.metadataError ?? errorText(error)}`);
   }
 
   function play(value: Stream) {
@@ -129,7 +130,7 @@ export function useAudioPreview(options: {
     }
     value?.selection.controller.abort();
     const selection: Selection = {
-      track, databaseKey: latest.current.databaseKey, duration: 0,
+      track, databaseKey: latest.current.databaseKey, duration: 0, metadataError: null,
       controller: new AbortController(),
     };
     startStream(selection, 0, true);
@@ -143,7 +144,10 @@ export function useAudioPreview(options: {
     }).catch((error: unknown) => {
       const active = current.current;
       if (!active || !isCurrent(active) || active.selection !== selection || isAbortError(error)) return;
-      latest.current.onError(`Не удалось определить длительность трека: ${errorText(error)}`);
+      selection.metadataError = errorText(error);
+      const message = active.failed
+        ? "Не удалось воспроизвести трек" : "Не удалось определить длительность трека";
+      latest.current.onError(`${message}: ${selection.metadataError}`);
     });
   }
 

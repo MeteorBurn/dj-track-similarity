@@ -229,9 +229,7 @@ def _order_sql(
     *,
     has_primary_classifier: bool,
 ) -> str:
-    order = [
-        "liked DESC",
-    ]
+    order = []
     if has_primary_classifier:
         order.append("primary_cs.score DESC")
     order.extend(

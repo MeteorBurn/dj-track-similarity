@@ -47,7 +47,7 @@ def test_public_library_order_is_deterministic_by_artist_title_and_path(
     tmp_path: Path,
 ) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
-    _add_track(
+    liked_track = _add_track(
         database,
         tmp_path / "z.wav",
         title="Second",
@@ -65,6 +65,8 @@ def test_public_library_order_is_deterministic_by_artist_title_and_path(
         title="First",
         artist="Alpha",
     )
+
+    database.set_track_liked(expected=liked_track, liked=True)
 
     rows = database.list_track_summaries()
 

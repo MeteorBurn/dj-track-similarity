@@ -42,9 +42,15 @@ are relative to this file. These guides are read by task, not imported as a batc
   that scope after plugin installation or refresh. Claude uses project scope.
   Do not add standalone skill copies or register a Graphify MCP server.
   Project PreToolUse hooks call the local CLI directly using Graphify's own
-  definitions: Claude `hook-guard search/read`, Codex `hook-check`. In 0.9.65,
-  `hook-check` is a no-op; Codex's query-first rule comes from `AGENTS.md` and
-  the Graphify guide. Do not add a custom SessionStart script for this.
+  commands: Claude `hook-guard search/read`, Codex `hook-guard search` with the
+  `Bash` matcher. Codex's guard adds a reminder for recognized shell searches;
+  it does not force a query or cover `Get-Content` reads. Keep `AGENTS.md` and
+  the [Graphify guide](graphify.md) as the query-first baseline. Do not restore
+  the upstream `hook-check` no-op or add a custom wrapper or SessionStart script.
+  Graphify's automatic skill refresh covers upstream-managed installation
+  paths, not `.djts/skills/graphify/` or this plugin's cached copies. After a
+  package upgrade, review upstream skill changes against our project overrides,
+  update the shared source, and refresh both plugin installations as above.
   New or changed Codex hooks require native trust review; configuration alone
   does not prove activation.
 - Keep `.workspace/` scoped as listed in [STRUCTURE](architecture.md#structure). Optional AgentProof/Superpowers

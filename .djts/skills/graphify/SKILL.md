@@ -14,6 +14,9 @@ that repository root and read `docs/agent-guides/graphify.md` before graph work.
 Its project rules override the generic reference examples, including automatic
 reflection, saved results, rebuilds, installation, and shell syntax.
 
+Based on Graphify 0.9.73's Windows skill and references, with the project-local
+runtime and plugin scope preserved for both Codex and Claude.
+
 Use `& .\.tools\graphify\bin\graphify.exe` wherever this skill or a reference
 shows a bare `graphify` shell command. Python helpers use only
 `.tools/graphify/graphifyy/Scripts/python.exe`. Do not search global environments,
@@ -89,7 +92,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Project Graphify import failed.' }
 New-Item -ItemType Directory -Force -Path graphify-out | Out-Null
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText((Join-Path $PWD 'graphify-out\.graphify_python'), $GRAPHIFY_PYTHON, $Utf8NoBom)
-[IO.File]::WriteAllText((Join-Path $PWD 'graphify-out\.graphify_root'), (Resolve-Path INPUT_PATH).Path, $Utf8NoBom)
+$InputPathRaw = @'
+INPUT_PATH
+'@
+[IO.File]::WriteAllText((Join-Path $PWD 'graphify-out\.graphify_root'), (Resolve-Path -LiteralPath $InputPathRaw.Trim()).Path, $Utf8NoBom)
 ```
 
 If the import succeeds, print nothing and move straight to Step 2.

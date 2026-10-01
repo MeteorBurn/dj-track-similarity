@@ -17,8 +17,15 @@ scripts. Tests, project documentation, and media are excluded; notes under
 `*.test.mjs`) with direct search. Read cited `source_file`/`source_location`; graph
 edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
 `AGENTS.md` routes code work through this guide and the plugin skill. Claude's
-upstream PreToolUse guards add query-first reminders. Codex's upstream
-`hook-check` is a no-op in 0.9.65; its standing rule comes from these instructions.
+PreToolUse guards add query-first reminders. The project Codex hook uses
+`hook-guard search` with the `Bash` matcher to remind the agent before recognized
+shell searches such as `rg`. It does not force a graph query or cover shell reads
+such as `Get-Content`; these instructions remain the query-first baseline.
+Graphify 0.9.73's upstream `hook-check` remains a legacy no-op. Its historical
+compatibility comment does not describe the current
+[Codex PreToolUse contract](https://learn.chatgpt.com/docs/hooks#pretooluse),
+which accepts `hookSpecificOutput.additionalContext`. Hook activation still
+requires native trust review; configuration alone is not proof that it ran.
 Tasks confined to `AGENTS.md`, configuration, locks, Git state, or the excluded
 agent layer use direct inspection; those files are outside the code graph.
 
@@ -54,7 +61,7 @@ unavailable graph data and verify findings directly in source.
 | Trace a connection | Inspect exact-node neighbors and the cited source; see the path limitation below |
 | Orient in unfamiliar architecture | `graphify god-nodes`, then `explain` |
 
-This project uses the CLI without a Graphify MCP server. In Graphify 0.9.65,
+This project uses the CLI without a Graphify MCP server. In Graphify 0.9.73,
 `path` picks endpoints by token scoring, not exact-ID lookup: it splits a full
 node ID into tokens, does not recognize `path::Symbol`, and often resolves an
 endpoint to a module, parent class, or other code node. Do not treat `No path`
@@ -120,13 +127,17 @@ if ($LASTEXITCODE -ne 0) { throw 'Graph vocabulary refresh failed' }
 `docs/dj-track-similarity/` tree is excluded: it is not maintained as current
 documentation. Fix corpus scope there, not by hiding unwanted hits.
 
-For a full re-extraction after corpus-rule changes or substantial deletions, use
+For a full re-extraction after corpus-rule changes, substantial deletions, or an
+authorized extractor upgrade, use
 `& .\.tools\graphify\bin\graphify.exe extract . --code-only`. This skips
 document/media semantic extraction and preserves the existing semantic layer.
 Add `--force` after corpus-exclusion changes so newly excluded sources are
-pruned instead of kept fail-closed. Set `$env:PYTHONHASHSEED = '0'` for every
-`extract`/`update`/`label` run: the Git hooks pin it, and community numbering
+pruned instead of kept fail-closed, and after extractor upgrades so unchanged
+files are re-extracted with the new implementation.
+Set `$env:PYTHONHASHSEED = '0'` for every `extract`/`update`/`label` run: the Git hooks pin it, and community numbering
 only stays comparable between hook and agent rebuilds under the same seed.
+The CLI also defaults an unset seed to `0`; retain the explicit setting so an
+inherited value cannot change the project convention.
 Community names are deterministic hub names; skip the skill's Step 5 and
 `label`, since any topology change renumbers communities and drops curated
 names.
@@ -140,10 +151,14 @@ documentation site is not current evidence.
 
 The local post-commit hook starts code rebuilds in the background
 and skips linked worktrees and some Git operations; a commit does not prove the
-graph is current. Check hook output/freshness when it matters.
+graph is current. Check hook output/freshness when it matters. During authorized
+package maintenance, run `hook status`: it detects outdated Git hook templates.
+Refresh those with `hook install`, preserving unrelated hook content, then check
+status again. A package upgrade alone does not rewrite installed Git hooks.
 
 Routine freshness is `update .` under the maintenance policy above; a full
-`extract` is only for corpus-rule changes or substantial code deletions.
+`extract` is only for corpus-rule changes, substantial code deletions, or an
+authorized extractor upgrade.
 If the graph/tool is unavailable, report that limit and inspect source
 without assuming permission to install. Read `GRAPH_REPORT.md` only
 when needed; preserve unrelated generated changes.

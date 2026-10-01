@@ -500,7 +500,7 @@ export function TextSearchTab({
             <option value="mulan">MuQ-MuLan</option>
           </select>
         </label>
-        <label title={limitHelp}>Limit<input name="text-search-limit" type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
+        <label title={limitHelp}>Limit<input name="text-search-limit" type="number" value={limit} min={1} max={1000} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
       {!hasStoredTextEmbeddings ? <span className="text-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
       {textModelLoadingLabel ? (

@@ -331,7 +331,7 @@ class SearchRequest(BaseModel):
     # None reads the family's default layer.
     layer: int | None = Field(default=None, strict=True)
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1)
-    limit: int = Field(default=10, ge=1, le=500)
+    limit: int = Field(default=10, ge=1, le=1000)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     epsilon: float | None = Field(default=None, ge=0.0)
     noise: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -380,7 +380,7 @@ class SonaraSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1, max_length=5)
-    limit: int = Field(default=10, ge=1, le=500)
+    limit: int = Field(default=10, ge=1, le=1000)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     mixer_weights: SonaraMixerWeights | None = None
     modifiers: SonaraModifiers | None = None
@@ -406,7 +406,7 @@ class TextSearchRequest(BaseModel):
     analysis_family: Literal["clap", "mulan"] = "clap"
     negative_queries: list[str] = Field(default_factory=list)
     negative_weight: float | None = Field(default=None, ge=0.0, le=2.0)
-    limit: int = Field(default=10, ge=1, le=500)
+    limit: int = Field(default=10, ge=1, le=1000)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     device: str = Field(
         default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN

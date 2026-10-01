@@ -138,11 +138,11 @@ export function SimilaritySearchTab({
             type="number"
             value={filters.limit}
             min={1}
-            max={500}
+            max={1000}
             title={helpText.limit}
             onChange={(event) => {
               if (Number.isFinite(event.currentTarget.valueAsNumber)) {
-                const limit = Math.round(Math.max(1, Math.min(500, event.currentTarget.valueAsNumber)));
+                const limit = Math.round(Math.max(1, Math.min(1000, event.currentTarget.valueAsNumber)));
                 setFilters((current) => ({ ...current, limit }));
               }
             }}

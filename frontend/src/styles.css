@@ -3004,13 +3004,12 @@ h2 {
   text-align: left;
 }
 
-/* Up to five seeds in one row, each no wider than the Add Random Track cell below;
-   the clear button keeps the last column so it never jumps as seeds come and go. */
+/* Wide seed tiles wrap when the panel cannot fit another track. */
 .seed-strip {
   align-items: center;
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  grid-template-columns: repeat(5, minmax(0, 200px)) auto;
 }
 
 .seed-controls {
@@ -4288,9 +4287,11 @@ h2 {
   border-radius: var(--workbench-radius);
   color: var(--accent-active-text);
   display: flex;
+  flex: 0 1 auto;
   font-size: 9px;
   gap: 2px;
   height: 22px;
+  max-width: 100%;
   min-width: 0;
   padding: 0 1px;
 }
@@ -4320,7 +4321,7 @@ h2 {
 }
 
 .seed-strip button.seed-clear-button {
-  grid-column: 6;
+  flex: none;
   height: 22px;
   min-height: 22px;
   width: 22px;

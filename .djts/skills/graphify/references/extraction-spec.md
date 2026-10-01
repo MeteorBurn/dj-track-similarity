@@ -1,5 +1,9 @@
 # graphify reference: extraction subagent prompt
 
+> Inactive upstream reference retained from Graphify 0.9.73 for maintenance
+> comparison. Do not execute this workflow in the project. Follow the active
+> procedures in [the project skill](../SKILL.md).
+
 Load this in Step 3 Part B when the corpus has at least one doc, paper, or image chunk. A pure-code corpus skips Part B and never reads this file. Each semantic subagent receives the prompt below verbatim (substitute FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH).
 
 ```

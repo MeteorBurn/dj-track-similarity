@@ -21,6 +21,9 @@ are relative to this file. These guides are read by task, not imported as a batc
 - For a requested plugin refresh, inspect its registered source and installation
   scope first. Preserve the version unless the user requests a version change.
   Refresh Codex with `codex plugin add dj-track-similarity@dj-track-similarity`.
+  This command enables the plugin globally: restore its global `enabled = false`,
+  retain `enabled = true` in this checkout's `.codex/config.toml`, and verify
+  both scopes afterward.
   For Claude, set `$pluginScope` to the verified existing scope (this checkout
   uses `project`), then run
   `claude plugin update dj-track-similarity@dj-track-similarity --scope $pluginScope --yes`.
@@ -50,7 +53,11 @@ are relative to this file. These guides are read by task, not imported as a batc
   Graphify's automatic skill refresh covers upstream-managed installation
   paths, not `.djts/skills/graphify/` or this plugin's cached copies. After a
   package upgrade, review upstream skill changes against our project overrides,
-  update the shared source, and refresh both plugin installations as above.
+  update the shared source and its `.graphify_version` together, and refresh
+  both plugin installations as above. Compare the CLI/package version, marker,
+  skill version statement, and cached skill contents; a successful refresh
+  message alone is insufficient. The containing project plugin has its own
+  version: do not replace it with Graphify's package version.
   New or changed Codex hooks require native trust review; configuration alone
   does not prove activation.
 - Keep `.workspace/` scoped as listed in [STRUCTURE](architecture.md#structure). Optional AgentProof/Superpowers

@@ -1,5 +1,9 @@
 # graphify reference: GitHub clone and cross-repo merge
 
+> Inactive upstream reference retained from Graphify 0.9.73 for maintenance
+> comparison. Do not execute this workflow in the project. Follow the active
+> procedures in [the project skill](../SKILL.md).
+
 Load this when the user passed one or more `https://github.com/...` URLs, or named several local subfolders to merge into one graph.
 
 ### Step 0 - Clone GitHub repo(s) (only if a GitHub URL was given)

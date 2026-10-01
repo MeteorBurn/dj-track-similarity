@@ -1,5 +1,9 @@
 # graphify reference: extra exports and benchmark
 
+> Inactive upstream reference retained from Graphify 0.9.73 for maintenance
+> comparison. Do not execute this workflow in the project. Follow the active
+> procedures in [the project skill](../SKILL.md).
+
 Load this when the user passed one of the export flags (`--wiki`, `--neo4j`, `--neo4j-push`, `--falkordb`, `--falkordb-push`, `--svg`, `--graphml`, `--mcp`), or when the corpus is large enough for the token-reduction benchmark. Each step runs only for its own flag.
 
 ### Step 6b - Wiki (only if --wiki flag)

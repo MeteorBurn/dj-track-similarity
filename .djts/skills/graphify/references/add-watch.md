@@ -1,5 +1,9 @@
 # graphify reference: add a URL and watch a folder
 
+> Inactive upstream reference retained from Graphify 0.9.73 for maintenance
+> comparison. Do not execute this workflow in the project. Follow the active
+> procedures in [the project skill](../SKILL.md).
+
 Load this when the user ran `/graphify add <url>` or passed `--watch`. Neither is part of the default build.
 
 ## For /graphify add

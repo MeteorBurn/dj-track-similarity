@@ -56,6 +56,7 @@ unavailable graph data and verify findings directly in source.
 | Navigation task | Tool |
 |---|---|
 | Locate an unfamiliar area | `graphify query "<expanded tokens>" --budget 8000` |
+| Narrow a query to call relationships | `graphify query "<expanded tokens>" --context call --budget 8000` |
 | Inspect a graph node and its neighbors | `graphify explain "<path::Symbol>"`; inspect exact IDs in `graph.json` when ambiguous |
 | Inspect affected callers | `graphify affected "<node_id>" --relation calls --depth 1` (use depth `2` for the next caller level) |
 | Trace a connection | Inspect exact-node neighbors and the cited source; see the path limitation below |
@@ -73,9 +74,11 @@ verify the source. For incoming call relationships, use `affected` as above.
 Follow `.djts/skills/graphify/references/query.md` with these project rules:
 
 1. Use `.\.tools\graphify\bin\graphify.exe` for the
-   CLI commands below. For Python helpers, read and validate the interpreter in
-   `graphify-out/.graphify_python`; it must point into `.tools/graphify/` in this
-   repository. Keep the package separate from the application environment.
+   CLI commands below. Python helpers use the verified
+   `.tools/graphify/graphifyy/Scripts/python.exe`. If
+   `graphify-out/.graphify_python` exists, validate that it resolves to this
+   interpreter; an absent marker does not require a write during inspection.
+   Keep the package separate from the application environment.
    Never register Graphify globally or add it to user/system PATH. Do not blindly
    run `graphify install`, which can overwrite project instructions/hooks.
 2. Read `graphify-out/reflections/LESSONS.md` when prior query lessons are useful.
@@ -85,11 +88,15 @@ Follow `.djts/skills/graphify/references/query.md` with these project rules:
    synonyms, or cross-language translation. If none fit, stop that graph search
    and use direct source inspection; do not submit a misleading query.
 4. Pass `--budget 8000` on every query unless the user specifies another budget;
-   use the same budget for the inline fallback. This overrides the CLI and skill
-   reference defaults of 2000. Allow at least 12000 output tokens in the calling
-   tool so it does not truncate Graphify's response before the agent reads it.
-   Use `--dfs` for a chain. Treat `TRUNCATED` as incomplete: narrow the query,
-   use `explain`, or increase `--budget`. Disambiguate repeated labels with the
+   use the same budget when invoking the CLI through the project Python module.
+   This overrides the CLI default of 2000. Allow at least 12000 output tokens
+   in the calling tool. The budget is an approximate target: `Complete answer
+   over budget` means all nodes fit and Graphify retained every connecting
+   edge, so the response can still exceed the tool's output limit. Narrow call
+   queries with `--context call` or use `explain`; increasing the budget will
+   not shrink that result. Use `--dfs` for a deeper traversal. Treat `TRUNCATED`
+   and tool-level truncation as incomplete: narrow the query, use `explain`, or
+   increase the output allowance when appropriate. Disambiguate labels with the
    exact node ID in `graph.json`. Open the named source
    before drawing conclusions.
 5. Save source-grounded code findings (memory policy above)
@@ -104,8 +111,13 @@ Follow `.djts/skills/graphify/references/query.md` with these project rules:
 PowerShell vocabulary refresh (run when `.vocab.txt` is older than `graph.json`):
 
 ```powershell
-$graphPython = (Get-Content -LiteralPath 'graphify-out\.graphify_python' -Raw).Trim()
-if (-not (Test-Path -LiteralPath $graphPython -PathType Leaf)) { throw 'Graphify interpreter missing' }
+$graphPython = (Resolve-Path -LiteralPath '.tools/graphify/graphifyy/Scripts/python.exe' -ErrorAction Stop).Path
+if (Test-Path -LiteralPath 'graphify-out/.graphify_python' -PathType Leaf) {
+    $savedGraphPython = (Get-Content -LiteralPath 'graphify-out/.graphify_python' -Raw).Trim()
+    if ((Resolve-Path -LiteralPath $savedGraphPython -ErrorAction Stop).Path -ne $graphPython) {
+        throw 'Graphify interpreter marker does not match the project runtime'
+    }
+}
 @'
 import json, re
 from pathlib import Path
@@ -138,9 +150,8 @@ Set `$env:PYTHONHASHSEED = '0'` for every `extract`/`update`/`label` run: the Gi
 only stays comparable between hook and agent rebuilds under the same seed.
 The CLI also defaults an unset seed to `0`; retain the explicit setting so an
 inherited value cannot change the project convention.
-Community names are deterministic hub names; skip the skill's Step 5 and
-`label`, since any topology change renumbers communities and drops curated
-names.
+Community names are deterministic hub names; do not run `label` or replay
+upstream community-labeling steps.
 Saved Q&A lives in `.workspace/graphify/memory/`, outside the scan corpus:
 Graphify force-scans its default `graphify-out/memory/`, and the post-commit
 `update` path would index those notes as `document` nodes. Do not recreate that
@@ -155,6 +166,10 @@ graph is current. Check hook output/freshness when it matters. During authorized
 package maintenance, run `hook status`: it detects outdated Git hook templates.
 Refresh those with `hook install`, preserving unrelated hook content, then check
 status again. A package upgrade alone does not rewrite installed Git hooks.
+Compare the CLI and installed package version with the canonical skill's
+`.graphify_version`; review upstream changes before updating that marker.
+Refresh and compare both plugin caches after skill changes, following the
+agent-layer guide. The project plugin's version is independent of Graphify's.
 
 Routine freshness is `update .` under the maintenance policy above; a full
 `extract` is only for corpus-rule changes, substantial code deletions, or an

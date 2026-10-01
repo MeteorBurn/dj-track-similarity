@@ -1,33 +1,48 @@
-# graphify reference: commit hook and native CLAUDE.md integration
+# Graphify reference: project Git and agent hooks
 
-Load this when the user asked to install the post-commit hook or wire graphify into a project's CLAUDE.md.
+Project adaptation for Graphify 0.9.73. Read `docs/agent-guides/agent-layer.md`
+and `docs/agent-guides/graphify.md` before changing integrations. Use the local
+CLI from the repository root in PowerShell 7.
 
-## For git commit hook
+## Git hooks
 
-Install a post-commit hook that auto-rebuilds the graph after every commit. No background process needed - triggers once per commit, works with any editor.
+Inspect the installed hooks before changing them:
 
-```bash
-graphify hook install    # install
-graphify hook uninstall  # remove
-graphify hook status     # check
+```powershell
+& .\.tools\graphify\bin\graphify.exe hook status
+if ($LASTEXITCODE -ne 0) { throw 'Graphify hook status failed.' }
 ```
 
-After every `git commit`, the hook detects which code files changed (via `git diff HEAD~1`), re-runs AST extraction on those files, and rebuilds `graph.json` and `GRAPH_REPORT.md`. Doc/image changes are ignored by the hook - run `/graphify --update` manually for those.
+During authorized installation or package maintenance, refresh outdated native
+templates with the command below, then inspect status and the hook files again:
 
-If a post-commit hook already exists, graphify appends to it rather than replacing it.
-
----
-
-## For native CLAUDE.md integration
-
-Run once per project to make graphify always-on in Claude Code sessions:
-
-```bash
-graphify claude install
+```powershell
+& .\.tools\graphify\bin\graphify.exe hook install
+if ($LASTEXITCODE -ne 0) { throw 'Graphify hook installation failed.' }
+& .\.tools\graphify\bin\graphify.exe hook status
+if ($LASTEXITCODE -ne 0) { throw 'Graphify hook status failed.' }
 ```
 
-This writes a `## graphify` section to the local `CLAUDE.md` that instructs Claude to check the graph before answering codebase questions and rebuild it after code changes. No manual `/graphify` needed in future sessions.
+The installer preserves unrelated hook content. Verify that preservation when
+changing an existing hook. A package upgrade alone does not refresh templates.
+The post-commit hook starts a background code rebuild and skips linked
+worktrees and some Git operations. A commit does not prove that it ran or that
+the graph is current; inspect output and freshness when relevant. Do not make
+a commit solely to test a hook.
 
-```bash
-graphify claude uninstall  # remove the section
-```
+## Agent integration
+
+The project plugin and `AGENTS.md` already provide the instruction boundary.
+Do not run `graphify claude install` or `graphify install`: they can add a
+`CLAUDE.md` or overwrite the project's hook and skill arrangement. Do not add
+standalone skills, global Graphify configuration, or an MCP server.
+
+Use the agent-layer guide's existing native `hook-guard` commands and matchers.
+`hook-check` is a legacy no-op in 0.9.73. Configuration and a successful manual
+guard invocation do not prove activation in a host session; new or changed
+Codex hooks require the host's native trust review.
+
+For a package/skill refresh, compare the local CLI, package metadata, canonical
+`.graphify_version`, and both plugin caches after reviewing upstream changes.
+Preserve the containing project plugin's independent version and project-only
+enabled scope. An already open session can retain older skill instructions.

@@ -15,7 +15,7 @@ import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
 import { ClusterMapDialog } from "./ClusterMapDialog";
 import { useClusterMap } from "./useClusterMap";
-import { MAX_SEED_TRACKS } from "./useSearchPlaylist";
+import { MAX_SEED_TRACKS, type PreviewTarget } from "./useSearchPlaylist";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
@@ -164,6 +164,8 @@ export function SearchPlaylistPanel({
   togglePlaylist,
   onAddSearchCandidates,
   playingTrackId,
+  preview,
+  onSeek,
   setPreview,
   setMetadataTrack
 }: {
@@ -246,7 +248,9 @@ export function SearchPlaylistPanel({
   togglePlaylist: (track: Track) => void;
   onAddSearchCandidates: (tracks: Track[], modelLabel: string) => void;
   playingTrackId: number | null;
-  setPreview: (track: Track, candidates?: Track[]) => void;
+  preview: PreviewTarget | null;
+  onSeek: (track: PreviewTarget, seconds: number) => void;
+  setPreview: (track: PreviewTarget, candidates?: Track[]) => void;
   setMetadataTrack: (track: Track) => void;
 }) {
   const [embeddingSearchPending, setEmbeddingSearchPending] = useState<Partial<Record<EmbeddingSource, boolean>>>({});
@@ -682,6 +686,8 @@ export function SearchPlaylistPanel({
           open={clusterMap.open}
           layerState={embeddingLayers}
           playingTrackId={playingTrackId}
+          preview={preview}
+          onSeek={onSeek}
           onPreview={setPreview}
           onClose={clusterMap.close}
           onRetry={clusterMap.retry}

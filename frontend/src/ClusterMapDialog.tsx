@@ -4,10 +4,12 @@ import { api, type ClusterMapBands, type ClusterMapPoint, type ClusterMapRespons
 import { pluralRu } from "./audioDedupView";
 import { ClusterMapPlot, DIFFUSE_FOCUS, percent } from "./ClusterMapPlot";
 import { isAbortError } from "./errors";
+import { previewPositionForTrack, usePreviewPosition } from "./previewPosition";
 import { seedSearchModelPresentation, tabAfterKey } from "./searchSurfaceState";
 import { displayTrack } from "./trackDisplay";
 import type { ClusterMapEntry } from "./useClusterMap";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
+import type { PreviewTarget } from "./useSearchPlaylist";
 
 type RailTab = "candidate" | "output" | "method";
 /** What a percentile counts against: the library, or the model's own pool. */
@@ -22,12 +24,14 @@ const DIFFERS = 50;
 const FOCUSABLE = "button:not([disabled]):not([tabindex='-1']), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 /** One in-memory model ranking, explained by SONARA alone around its references. */
-export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPreview, onClose, onRetry }: {
+export function ClusterMapDialog({ entry, open, layerState, playingTrackId, preview, onSeek, onPreview, onClose, onRetry }: {
   entry: ClusterMapEntry;
   open: boolean;
   layerState: EmbeddingLayerState;
   playingTrackId: number | null;
-  onPreview: (track: Track) => void;
+  preview: PreviewTarget | null;
+  onSeek: (track: PreviewTarget, seconds: number) => void;
+  onPreview: (track: PreviewTarget) => void;
   onClose: () => void;
   onRetry: () => void;
 }) {
@@ -170,8 +174,34 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPr
             </div>
           </div>
         ) : null}
+        <MapPlayer preview={preview} playing={preview != null && playingTrackId === preview.track_id} onToggle={onPreview} onSeek={onSeek} />
         <footer className="cluster-map-footer">Карта считается только по измерениям SONARA; модель задаёт лишь состав и порядок выдачи. Музыкальный смысл закономерностей подтверждает слух.</footer>
       </section>
+    </div>
+  );
+}
+
+function MapPlayer({ preview, playing, onToggle, onSeek }: {
+  preview: PreviewTarget | null;
+  playing: boolean;
+  onToggle: (track: PreviewTarget) => void;
+  onSeek: (track: PreviewTarget, seconds: number) => void;
+}) {
+  const position = usePreviewPosition();
+  const { currentTime, duration } = previewPositionForTrack(position, preview?.track_id ?? -1);
+  const title = preview && "file_path" in preview ? displayTrack(preview as Track) : preview ? `Трек ${preview.track_id}` : "Выберите трек для прослушивания";
+  const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+  return (
+    <div className="cluster-map-player" role="group" aria-label="Плеер карты">
+      <button type="button" className="icon-button" disabled={!preview} onClick={() => preview && onToggle(preview)}
+        title={playing ? "Приостановить" : "Воспроизвести"} aria-label={playing ? "Приостановить" : "Воспроизвести"}>
+        {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+      </button>
+      <strong className="cluster-map-player-title" title={title}>{title}</strong>
+      <input name="cluster-map-position" type="range" min={0} max={duration || 1} step={0.1}
+        value={duration > 0 ? currentTime : 0} disabled={!preview || !duration}
+        onChange={(event) => preview && onSeek(preview, Number(event.target.value))} aria-label="Позиция воспроизведения на карте" />
+      <span className="cluster-map-player-time">{time(currentTime)} / {duration > 0 ? time(duration) : "—"}</span>
     </div>
   );
 }

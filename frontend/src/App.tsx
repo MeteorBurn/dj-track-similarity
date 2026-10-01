@@ -1634,6 +1634,8 @@ export function App() {
           togglePlaylist={togglePlaylist}
           onAddSearchCandidates={addSearchCandidatesToPlaylist}
           playingTrackId={playingTrackId}
+          preview={preview}
+          onSeek={seekPreview}
           setPreview={togglePreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
         />

@@ -125,6 +125,7 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, onPr
           <div className="cluster-map-body cluster-map-loading" role="status">
             <strong>Подождите…</strong>
             <p className="cluster-map-status">Измеряем выдачу по SONARA. Первая карта в библиотеке сначала калибрует шкалы по выборке библиотеки — это до минуты.</p>
+            <div className="cluster-map-loading-progress" role="progressbar" aria-label="Построение карты SONARA" />
           </div>
         ) : entry.status === "error" ? (
           <div className="cluster-map-body"><div className="cluster-map-error" role="alert">

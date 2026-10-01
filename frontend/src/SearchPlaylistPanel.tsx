@@ -246,7 +246,7 @@ export function SearchPlaylistPanel({
   togglePlaylist: (track: Track) => void;
   onAddSearchCandidates: (tracks: Track[], modelLabel: string) => void;
   playingTrackId: number | null;
-  setPreview: (track: Track) => void;
+  setPreview: (track: Track, candidates?: Track[]) => void;
   setMetadataTrack: (track: Track) => void;
 }) {
   const [embeddingSearchPending, setEmbeddingSearchPending] = useState<Partial<Record<EmbeddingSource, boolean>>>({});
@@ -614,7 +614,7 @@ export function SearchPlaylistPanel({
                         onSeed={addSeed}
                         onToggleLiked={toggleLiked}
                         onTogglePlaylist={togglePlaylist}
-                        onPreview={setPreview}
+                        onPreview={(selected) => setPreview(selected, column.results.map(({ track }) => track))}
                         onDetails={setMetadataTrack}
                         feedbackVerdict={column.verdicts[track.track_uuid] ?? null}
                         onFeedback={column.pending[track.track_uuid] ? undefined : column.onVerdict}
@@ -661,7 +661,7 @@ export function SearchPlaylistPanel({
                   onSeed={addSeed}
                   onToggleLiked={toggleLiked}
                   onTogglePlaylist={togglePlaylist}
-                  onPreview={setPreview}
+                  onPreview={(selected) => setPreview(selected, results.map(({ track }) => track))}
                   onDetails={setMetadataTrack}
                   feedbackVerdict={textFeedback ? textFeedback.verdicts[track.track_uuid] ?? null : null}
                   onFeedback={textFeedback && !textFeedback.pending[track.track_uuid] ? textFeedback.onVerdict : undefined}

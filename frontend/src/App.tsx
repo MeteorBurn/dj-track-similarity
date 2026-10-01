@@ -329,12 +329,16 @@ export function App() {
 
   const {
     preview, playingTrackId, previewAudioRef, sourceKey, sourceUrl,
-    togglePreview, seekPreview, stopPreview, updatePreviewTrack,
+    togglePreview: toggleAudioPreview, seekPreview, stopPreview, updatePreviewTrack,
   } = useAudioPreview({
     databaseKey: databaseCatalogUuid,
-    onEnded: handleLibraryPreviewEnded,
+    onEnded: handlePreviewEnded,
     onError: (text) => setNotice({ kind: "error", text }),
   });
+  const [candidatePlayback, setCandidatePlayback] = useState<{ databaseKey: string | null; tracks: Track[] } | null>(null);
+  const candidateTracks = candidatePlayback?.databaseKey === databaseCatalogUuid ? candidatePlayback.tracks : null;
+  const playbackTracks = candidateTracks ?? orderedTracks;
+  const playbackShuffle = candidateTracks === null && libraryPlaybackShuffle;
   const trackDetailRequestGuard = useRef(createRequestTokenGuard());
   const trackDetailAbortController = useRef<AbortController | null>(null);
 
@@ -568,29 +572,36 @@ export function App() {
     setMetadataTrack(null);
   }
 
-  function handleLibraryPreviewEnded(track: PreviewTarget) {
+  function togglePreview(track: PreviewTarget, candidates?: Track[] | null) {
+    if (candidates !== undefined || preview?.track_id !== track.track_id) {
+      setCandidatePlayback(candidates ? { databaseKey: databaseCatalogUuid, tracks: candidates } : null);
+    }
+    toggleAudioPreview(track);
+  }
+
+  function handlePreviewEnded(track: PreviewTarget) {
     if (repeatTrack) {
-      togglePreview(track);
+      toggleAudioPreview(track);
       return;
     }
     const nextTrack = nextLibraryPlaybackTrack(
-      orderedTracks,
+      playbackTracks,
       track.track_id,
-      libraryPlaybackShuffle
+      playbackShuffle
     );
     if (nextTrack) {
-      togglePreview(nextTrack);
+      toggleAudioPreview(nextTrack);
     }
   }
 
-  // The dock's skip buttons walk the same visible library list as auto-advance;
+  // The dock's skip buttons walk the same playback list as auto-advance;
   // "next" is exactly the track that would follow on its own, shuffle included.
   function playLibraryNeighbour(direction: "previous" | "next") {
     if (!preview) return;
     const neighbour = direction === "previous"
-      ? previousLibraryPlaybackTrack(orderedTracks, preview.track_id)
-      : nextLibraryPlaybackTrack(orderedTracks, preview.track_id, libraryPlaybackShuffle);
-    if (neighbour) togglePreview(neighbour);
+      ? previousLibraryPlaybackTrack(playbackTracks, preview.track_id)
+      : nextLibraryPlaybackTrack(playbackTracks, preview.track_id, playbackShuffle);
+    if (neighbour) toggleAudioPreview(neighbour);
   }
 
   async function handleTrackDetails(track: Track) {
@@ -1525,7 +1536,7 @@ export function App() {
           onSeed={addSeed}
           onToggleLiked={(track) => void handleToggleTrackLiked(track)}
           onTogglePlaylist={togglePlaylist}
-          onPreview={togglePreview}
+          onPreview={(track) => togglePreview(track, null)}
           onDetails={(track) => void handleTrackDetails(track)}
         />
 
@@ -1644,7 +1655,7 @@ export function App() {
           />
         ) : null}
       </section>
-      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} onPrevious={preview && previousLibraryPlaybackTrack(orderedTracks, preview.track_id) ? () => playLibraryNeighbour("previous") : null} onNext={preview && nextLibraryPlaybackTrack(orderedTracks, preview.track_id, libraryPlaybackShuffle, () => 0) ? () => playLibraryNeighbour("next") : null} />
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} onPrevious={preview && previousLibraryPlaybackTrack(playbackTracks, preview.track_id) ? () => playLibraryNeighbour("previous") : null} onNext={preview && nextLibraryPlaybackTrack(playbackTracks, preview.track_id, playbackShuffle, () => 0) ? () => playLibraryNeighbour("next") : null} />
       {sourceUrl ? (
         <audio
           key={sourceKey}

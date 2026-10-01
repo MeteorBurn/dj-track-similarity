@@ -1657,7 +1657,7 @@ export function App() {
           />
         ) : null}
       </section>
-      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} onPrevious={preview && previousLibraryPlaybackTrack(playbackTracks, preview.track_id) ? () => playLibraryNeighbour("previous") : null} onNext={preview && nextLibraryPlaybackTrack(playbackTracks, preview.track_id, playbackShuffle, () => 0) ? () => playLibraryNeighbour("next") : null} />
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} onSeed={addSeed} isSeed={preview != null && seedSet.has(preview.track_id)} onPrevious={preview && previousLibraryPlaybackTrack(playbackTracks, preview.track_id) ? () => playLibraryNeighbour("previous") : null} onNext={preview && nextLibraryPlaybackTrack(playbackTracks, preview.track_id, playbackShuffle, () => 0) ? () => playLibraryNeighbour("next") : null} />
       {sourceUrl ? (
         <audio
           key={sourceKey}

@@ -1,4 +1,4 @@
-import { AudioLines, Heart, Pause, Play, Repeat1, SkipBack, SkipForward, Tags, Volume2 } from "lucide-react";
+import { AudioLines, Heart, Pause, Play, Repeat1, Search, SkipBack, SkipForward, Tags, Volume2 } from "lucide-react";
 import type { RefObject } from "react";
 import { useEffect, useState } from "react";
 import type { Track } from "./api";
@@ -8,7 +8,7 @@ import type { PreviewTarget } from "./useSearchPlaylist";
 
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
-export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, repeat, onToggleRepeat, onToggleLiked, onDetails, onPrevious, onNext }: {
+export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, repeat, onToggleRepeat, onToggleLiked, onDetails, onSeed, isSeed, onPrevious, onNext }: {
   preview: PreviewTarget | null;
   playing: boolean;
   audioRef: RefObject<HTMLAudioElement | null>;
@@ -19,6 +19,8 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
   onToggleRepeat: () => void;
   onToggleLiked: (track: Track) => void;
   onDetails: (track: Track) => void;
+  onSeed: (track: Track) => void;
+  isSeed: boolean;
   /** Null when the visible library list has no track on that side. */
   onPrevious: (() => void) | null;
   onNext: (() => void) | null;
@@ -81,6 +83,16 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
         onClick={() => track && onDetails(track)}
       >
         <Tags size={21} />
+      </button>
+      <button
+        type="button"
+        className={`icon-button track-seed-button ${isSeed ? "active" : ""}`}
+        disabled={!track}
+        title="Добавить в Seed"
+        aria-label="Добавить текущий трек в Seed"
+        onClick={() => track && onSeed(track)}
+      >
+        <Search size={21} />
       </button>
       <div className="player-bpm"><strong>{track?.sonara_bpm?.toFixed(2) ?? "—"}</strong><span>BPM</span></div>
       <div className="player-key"><strong>{track?.sonara_key_camelot || "—"}</strong><span>KEY</span></div>

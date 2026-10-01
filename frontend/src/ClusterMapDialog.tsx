@@ -48,7 +48,7 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, prev
   const { payload, response } = entry;
   const candidates = useMemo(() => response?.points.filter((point) => !point.seed) ?? [], [response]);
   const seeds = useMemo(() => response?.points.filter((point) => point.seed) ?? [], [response]);
-  const selected = candidates.find((point) => point.track.track_id === selectedTrackId) ?? null;
+  const selected = response?.points.find((point) => point.track.track_id === selectedTrackId) ?? null;
   const layer = payload.layer ?? null;
   const layerRow = layerState.layers?.find((row) => row.layer === layer);
   const seedCount = payload.seed_track_ids.length;
@@ -95,7 +95,7 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, prev
     document.getElementById(`cluster-map-tab-${target}`)?.focus();
   }
 
-  function selectCandidate(trackId: number) {
+  function selectTrack(trackId: number) {
     setSelectedTrackId(trackId);
     setTab("candidate");
     // In the one-column layout the evidence sits below the map.
@@ -149,25 +149,28 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, prev
                   </label>
                   <span className="cluster-map-status">дальше {KEPT}% ближайших треков библиотеки: {candidates.filter((point) => (point.evidence.percentile ?? 0) > KEPT).length} из {candidates.length}</span>
                 </div>
-                <ClusterMapPlot response={response} facet={facet} selectedTrackId={selected?.track.track_id ?? null} onSelect={selectCandidate} />
+                <ClusterMapPlot response={response} facet={facet} selectedTrackId={selected?.track.track_id ?? null} onSelect={selectTrack} />
                 <MapLegend response={response} facet={facet} />
                 <FacetTable response={response} seeds={seeds} candidates={candidates} sort={sort} onSort={setSort}
                   background={background} onBackground={setBackground}
-                  selectedTrackId={selected?.track.track_id ?? null} onSelect={selectCandidate} />
+                  selectedTrackId={selected?.track.track_id ?? null} onSelect={selectTrack} />
               </figure>
               <aside className="cluster-map-rail" aria-label="Подробности">
                 <div className="search-tabs cluster-map-tabs" role="tablist" aria-label="Разделы карты">
                   {railTabs.map((name) => <button key={name} id={`cluster-map-tab-${name}`} className={`model-search-tab ${tab === name ? "active" : ""}`}
                     role="tab" aria-selected={tab === name} aria-controls={`cluster-map-panel-${name}`} tabIndex={tab === name ? 0 : -1}
-                    type="button" onClick={() => setTab(name)} onKeyDown={selectTabByKey}>{railLabels[name]}</button>)}
+                    type="button" onClick={() => setTab(name)} onKeyDown={selectTabByKey}>{name === "candidate" && selected?.seed ? "Референс" : railLabels[name]}</button>)}
                 </div>
                 <div ref={panelRef} id={`cluster-map-panel-${tab}`} className="cluster-map-tab-panel" role="tabpanel" aria-labelledby={`cluster-map-tab-${tab}`}>
                   {tab === "candidate"
                     ? selected
-                      ? <CandidatePanel key={selected.track.track_id} response={response} point={selected} seeds={seeds} playingTrackId={playingTrackId} onPreview={onPreview} />
-                      : <EmptyCandidate candidates={candidates} onSelect={selectCandidate} />
+                      ? selected.seed
+                        ? <header className="cluster-map-card-head"><PlayButton track={selected.track} playingTrackId={playingTrackId} onPreview={onPreview} />
+                          <h3>★ Референс · {displayTrack(selected.track)}</h3></header>
+                        : <CandidatePanel key={selected.track.track_id} response={response} point={selected} seeds={seeds} playingTrackId={playingTrackId} onPreview={onPreview} />
+                      : <EmptyCandidate candidates={candidates} onSelect={selectTrack} />
                     : tab === "output"
-                      ? <OutputPanel response={response} seeds={seeds} candidates={candidates} onSelect={selectCandidate} />
+                      ? <OutputPanel response={response} seeds={seeds} candidates={candidates} onSelect={selectTrack} />
                       : <MethodPanel response={response} />}
                 </div>
               </aside>
@@ -292,9 +295,12 @@ function FacetTable({ response, seeds, candidates, sort, onSort, background, onB
   const pool = background === "pool" && response.summary.pool_count > 0;
   const rows = sort === "rank" ? candidates : [...candidates].sort((a, b) => (a.evidence.distance ?? Infinity) - (b.evidence.distance ?? Infinity));
   const row = (point: ClusterMapPoint) => <tr key={point.track.track_id} data-seed={point.seed || undefined}
-    data-selected={point.track.track_id === selectedTrackId || undefined} onClick={point.seed ? undefined : () => onSelect(point.track.track_id)}>
+    data-selected={point.track.track_id === selectedTrackId || undefined} onClick={() => onSelect(point.track.track_id)}>
     <td className="cluster-map-cell-rank">{point.seed ? "★" : point.rank}</td>
-    <td className="cluster-map-cell-name" title={displayTrack(point.track)}>{displayTrack(point.track)}</td>
+    <td className="cluster-map-cell-name" title={displayTrack(point.track)}>{point.seed
+      ? <button type="button" className="cluster-map-reference-name" aria-pressed={point.track.track_id === selectedTrackId}
+        onClick={(event) => { event.stopPropagation(); onSelect(point.track.track_id); }}>{displayTrack(point.track)}</button>
+      : displayTrack(point.track)}</td>
     {(pool ? point.evidence.pool_facet_percentile : point.evidence.facet_percentile).map((value, index) => <PercentCell key={index} value={value} />)}
     <PercentCell value={pool ? point.evidence.pool_percentile : point.evidence.percentile} />
   </tr>;

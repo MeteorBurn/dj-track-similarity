@@ -6521,7 +6521,9 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
 .cluster-map-ring-label[data-typical] { fill: var(--text); font-weight: 650; }
 .cluster-map-core { fill: var(--blue-bg); fill-opacity: 0.55; stroke: var(--blue-border); stroke-width: 1.25; stroke-dasharray: 3 3; }
 /* Stars and dots carry a face-coloured stroke that knocks them out of the lines and marks beneath. */
-.cluster-map-reference { fill: var(--cluster-reference); stroke: var(--surface-muted); stroke-width: 2; }
+.cluster-map-reference { fill: var(--cluster-reference); stroke: var(--surface-muted); stroke-width: 2; cursor: pointer; outline: none; }
+.cluster-map-reference:is(:hover, :focus-visible) { stroke: var(--text-strong); stroke-width: 3; }
+.cluster-map-reference[data-selected] { fill: var(--cluster-selected); stroke: var(--text-strong); }
 .cluster-map-candidate { cursor: pointer; outline: none; }
 .cluster-map-dot { fill: var(--cluster-candidate); stroke: var(--surface-muted); stroke-width: 2; transition: r 160ms cubic-bezier(0.23, 1, 0.32, 1), fill 160ms; }
 .cluster-map-candidate[data-diffuse] .cluster-map-dot { stroke-dasharray: 3 2; }
@@ -6580,8 +6582,9 @@ html:has(.cluster-map-backdrop[data-open="true"]) { overflow: hidden; }
 .cluster-map-table-scroll table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
 .cluster-map-table-scroll th { padding: 3px 4px; color: var(--text-muted); font-weight: 600; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border-soft); }
 .cluster-map-table-scroll td { padding: 3px 4px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
-.cluster-map-facet-table tbody tr:not([data-seed]) { cursor: pointer; }
-.cluster-map-facet-table tbody tr:not([data-seed]):hover td { background: var(--surface-subtle); }
+.cluster-map-facet-table tbody tr { cursor: pointer; }
+.cluster-map-facet-table tbody tr:hover td { background: var(--surface-subtle); }
+.cluster-map-reference-name { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
 .cluster-map-facet-table tr[data-selected] .cluster-map-cell-name { color: var(--cluster-selected); font-weight: 700; }
 .cluster-map-facet-table tr[data-selected] .cluster-map-cell-rank { box-shadow: inset 3px 0 var(--cluster-selected); }
 td.cluster-map-cell { min-width: 34px; padding: 0 4px; border: 1px solid var(--surface); text-align: center; line-height: 22px; }

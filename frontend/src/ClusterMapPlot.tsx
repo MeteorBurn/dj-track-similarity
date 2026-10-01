@@ -83,11 +83,6 @@ export function ClusterMapPlot({ response, facet, selectedTrackId, onSelect }: {
           ? <circle cx={CENTRE} cy={CENTRE} r={radius(response.reference.core_distance)} className="cluster-map-core" /> : null}
         {ringLabels.map((label) => <text key={label.percentile} x={label.side === "start" ? CENTRE + 3 : CENTRE - 3} y={label.y}
           textAnchor={label.side} className="cluster-map-ring-label" data-typical={label.percentile === 50 || undefined}>{label.percentile}%</text>)}
-        {seeds.map((point) => {
-          const [x, y] = at(radius(value(point) ?? 0), point.evidence.angle);
-          return <path key={point.track.track_id} className="cluster-map-reference" d={star(x, y, 12)}
-            onMouseEnter={() => setHover({ point, x, y })} onMouseLeave={() => setHover(null)} />;
-        })}
         {candidates.map((point) => {
           const [x, y] = at(radius(value(point) ?? 0), point.evidence.angle);
           const selected = point.track.track_id === selectedTrackId;
@@ -101,6 +96,15 @@ export function ClusterMapPlot({ response, facet, selectedTrackId, onSelect }: {
             <circle cx={x} cy={y} r={selected ? 14 : 11.5} className="cluster-map-dot" />
             <text x={x} y={y + 3.5} textAnchor="middle">{point.rank}</text>
           </g>;
+        })}
+        {seeds.map((point) => {
+          const [x, y] = at(radius(value(point) ?? 0), point.evidence.angle);
+          const selected = point.track.track_id === selectedTrackId;
+          return <path key={point.track.track_id} className="cluster-map-reference" d={star(x, y, 12)}
+            data-selected={selected || undefined} role="button" tabIndex={0} aria-pressed={selected}
+            aria-label={`Референс: ${displayTrack(point.track)}`} onClick={() => onSelect(point.track.track_id)}
+            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(point.track.track_id); } }}
+            onMouseEnter={() => setHover({ point, x, y })} onMouseLeave={() => setHover(null)} />;
         })}
       </svg>
       {hover ? <HoverCard response={response} point={hover.point} x={hover.x} y={hover.y} /> : null}

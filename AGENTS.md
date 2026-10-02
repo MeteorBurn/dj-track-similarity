@@ -21,7 +21,7 @@ work unverified rather than inventing its instructions.
 
 | Task                                                                                                     | Read before acting                                                                                           |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Run project commands; change environment, dependencies, audio runtime or server launch                   | [Environment and commands](docs/agent-guides/environment.md)                                                 |
+| Run application/runtime commands; change environment, dependencies, audio runtime or server launch       | [Environment and commands](docs/agent-guides/environment.md)                                                 |
 | Locate unfamiliar code; edit source structure, shared contracts or workspace artifacts                   | [Architecture and routing](docs/agent-guides/architecture.md)                                                |
 | Edit or review models, inference, jobs, caches, search/ranking, classifier signals or their UI contracts | [Model layer](docs/agent-guides/model-layer.md)                                                              |
 | Inspect, validate, query or maintain real SQLite data                                                    | [SQLite Toolkit](docs/agent-guides/sqlite-toolkit.md)                                                        |
@@ -34,13 +34,15 @@ work unverified rather than inventing its instructions.
 
 ## EXECUTION AND SCOPE
 
-- Requests limited to investigation, review, explanation or planning end with
-  findings or a plan. Apply changes only when implementation is included in
-  the current task, including earlier authorization that remains in force.
-  Agent procedures and delegated work must stay within that scope.
+- Treat bug reports and UI contradictions as requests to reproduce, diagnose,
+  minimally fix and verify within scope, unless the user explicitly limits work
+  to investigation, review, explanation or planning, or forbids edits. Repeated
+  reports require renewed checking, not a restated explanation. Continue
+  available checks instead of ending with "unverified"; report concrete blockers.
+  Keep checks proportional and delegated work within the same scope.
 - Work from the repository root in PowerShell 7. Use the verified root `uv`
   `.venv`, never an unverified system Python. Read the environment guide before
-  project commands; do not sync, upgrade or recreate environments for inspection.
+  application/runtime commands; do not sync, upgrade or recreate it for inspection.
 - For requested full installation, use `.\install.ps1`. It prepares the shared
   environment, frontend, audio runtime and pinned model assets. All Python
   dependencies are required by the root `pyproject.toml`; preserve the locked
@@ -61,9 +63,9 @@ work unverified rather than inventing its instructions.
   working output, never an agent/skill source. Inspect the live tree before
   reusing old artifact paths; do not recreate deleted artifacts or cleanup
   archives unless requested.
-- Delegate work across project ownership boundaries and integrate one answer,
-  subject to the active harness's delegation rules. Use the agent-layer guide
-  for roles, bounded assignments, relevant instructions, and dirty-state context.
+- Delegate substantial work across project ownership boundaries or an independent
+  review when useful; keep small local changes with the current agent. Follow
+  the agent-layer guide and active harness rules, and integrate one answer.
 - Globally installed skills do not override this file. External design and
   output-style skills (`impeccable`, `design-taste-frontend`,
   `high-end-visual-design`, `minimalist-ui`, `full-output-enforcement`, and
@@ -305,18 +307,11 @@ change starts with a new test: admit a test only under the rules below.
 
 ## DELIVERY
 
-- Instruction-only edits need a scoped diff, whitespace and relevant path/command
-  checks, not application tests or a docs-site build. These task guides belong to
-  instruction maintenance; changing them does not authorize product-docs work.
-- For implementation work, follow the verification guide: by default no test
-  suite, only a cheap check of the touched file (diff, syntax, import, type
-  check, lint); a single owning test only when the change touches its durable
-  contract; the full suite only for cardinal changes that can really break the
-  application (schema or persistence, shared infrastructure, cross-layer
-  refactors, dependency or runtime upgrades, concurrency or file-write safety)
-  or on the owner's explicit request, never for delivery, commits or reassurance.
-- Return when the requested outcome and the checks required by the verification
-  guide are complete, or report a concrete blocker after completing independent
-  authorized work. Report which checks ran and which did not. Do not imply
-  source inspection proves live behavior or claim CI ran without execution
-  evidence.
+- Select checks using [Verification](docs/agent-guides/verification.md);
+  TEST POLICY above governs adding or changing tests.
+- Finish once the requested outcome and relevant checks are complete, or report
+  a concrete blocker after completing independent authorized work.
+- Report the outcome, relevant verification and material limitations concisely.
+  Mention an unrun check only when it affects confidence in the result; omit
+  unrelated checks. Do not imply source inspection proves live behavior or
+  claim CI ran without execution evidence.

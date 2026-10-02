@@ -1,6 +1,6 @@
 # Environment and server commands
 
-Read before running project commands or changing dependencies, interpreters, decoders, external tools, or server launch behavior.
+Read before running application commands or changing dependencies, interpreters, decoders, external tools, or server launch behavior. Git and text-only instruction edits do not require this guide.
 
 Project instructions: [AGENTS.md](../../AGENTS.md). Commands and inline code paths
 are relative to the repository root unless explicitly absolute; Markdown links
@@ -77,7 +77,7 @@ are relative to this file. These guides are read by task, not imported as a batc
   is unnecessary; GPU inference needs a compatible NVIDIA GPU and driver.
   The installer reports CUDA availability without installing a graphics driver.
 - Ruff is external: invoke `C:\Utils\tools\ruff\ruff.exe` directly, without an
-  update check, and report its version when used. Keep `[tool.ruff]` and the
+  update check; report its version only when relevant to the result. Keep `[tool.ruff]` and the
   native root `.ruff_cache/`; do not add Ruff as a Python dependency or invoke
   `python -m ruff`. SQLite Toolkit uses its own external installation.
 - Graphify is installed only for this repository in `.tools/graphify/`, separate

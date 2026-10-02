@@ -29,16 +29,16 @@ contract, not a routine or a delivery ritual.
   Audio Online runs `node --test tools/audio-online/workbook_bridge.test.mjs`
   with its existing runtime and dependencies, including
   `METADATA_ENRICHMENT_NODE_MODULES`; report unavailable dependencies rather than
-  creating another environment. Inspect and report skips.
+  creating another environment. Report skips that leave a relevant contract unchecked.
 - **Full suite: exceptional cases only.** Run root `tests/`, the four
   `tools/*/tests` suites and `npm --prefix .\frontend test`, plus
   `npm --prefix .\frontend run build`, only for a cardinal change that can
   really break the application (schema or persistence, shared infrastructure,
   cross-layer refactors, dependency or runtime upgrades, concurrency or
   file-write safety) or on the owner's explicit request. Broad `ml`, `slow` and
-  `evaluation` selections count as full runs. Never run the full suite, a build,
-  the docs check or `graphify update .` between edits or merely for delivery, a
-  commit or reassurance.
+  `evaluation` selections count as full runs. Do not repeat broad checks between
+  edits or run the full suite, a build, the docs check or `graphify update .`
+  merely for delivery, a commit or reassurance.
 - A passed check stays valid until relevant code, configuration or dependencies
   change; delivery adds no checks.
 - While the docs site is paused (see
@@ -51,8 +51,8 @@ contract, not a routine or a delivery ritual.
   about failure handling: browser, HTTP request, CLI, or minimal import driver.
   Follow the temporary-fixture and user-data safety rules in
   [AGENTS.md](../../AGENTS.md#safety-invariants).
-- Diagnose from source first, then confirm the hypothesis on the running
-  surface. For browser layout, use DOM geometry, overflow and computed styles
+- Start with evidence closest to the reported defect, then trace its cause and
+  verify the fix on that surface. For browser layout, use DOM geometry and styles
   where supported; use screenshots when visual inspection is needed. Prefer
   semantic locators or element references supported by the active browser tool.
 - Before testing database startup or persistence-sensitive refactors, inspect
@@ -64,6 +64,3 @@ contract, not a routine or a delivery ritual.
   a unique workspace `--basetemp`; redirect process `TEMP`/`TMP` and application
   logs there when subprocesses or tools bypass pytest fixtures. Never point test
   temporary paths at user libraries or remove shared temp directories to retry.
-- There is no tracked CI workflow. Always report which checks ran, which did
-  not and why, and any blocked verification; do not imply CI or source
-  inspection proves live behavior.

@@ -44,12 +44,10 @@ are relative to this file. These guides are read by task, not imported as a batc
   configuration and enabled in this checkout's `.codex/config.toml`; preserve
   that scope after plugin installation or refresh. Claude uses project scope.
   Do not add standalone skill copies or register a Graphify MCP server.
-  Project PreToolUse hooks call the local CLI directly using Graphify's own
-  commands: Claude `hook-guard search/read`, Codex `hook-guard search` with the
-  `Bash` matcher. Codex's guard adds a reminder for recognized shell searches;
-  it does not force a query or cover `Get-Content` reads. Keep `AGENTS.md` and
-  the [Graphify guide](graphify.md) as the query-first baseline. Do not restore
-  the upstream `hook-check` no-op or add a custom wrapper or SessionStart script.
+  Claude's PreToolUse hooks call native `hook-guard search/read`. Codex follows
+  the [Graphify guide](graphify.md) without a search hook: the native reminder
+  cannot honor the guide's excluded-file exceptions. Do not restore that
+  reminder, the `hook-check` no-op, or a custom wrapper/SessionStart script.
   Graphify's automatic skill refresh covers upstream-managed installation
   paths, not `.djts/skills/graphify/` or this plugin's cached copies. After a
   package upgrade, review upstream skill changes against our project overrides,
@@ -85,6 +83,7 @@ configuration and source instead of duplicating model lists, paths, or threshold
 | `code-refactor-master` | Behavior-preserving splits, moves, deduplication, reference updates |
 | `codebase-pruner-expert` | Evidence-backed dead-code audits and scoped removal, preserving live behavior and persisted contracts |
 
-Delegate work across these ownership boundaries and integrate it into one answer.
-Give each worker a bounded scope, relevant instructions, and dirty-state context;
-workers must preserve others' edits. Honor the active harness's delegation rules.
+Delegate substantial work across these ownership boundaries or for independent
+review; handle small local changes directly. Give workers a bounded scope,
+relevant instructions and dirty-state context, preserve others' edits, and
+integrate one answer. Honor the active harness's delegation rules.

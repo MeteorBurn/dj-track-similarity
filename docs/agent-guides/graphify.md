@@ -16,18 +16,13 @@ scripts. Tests, project documentation, and media are excluded; notes under
 `explain` overlay). Locate tests by naming convention (`tests/test_<module>.py`,
 `*.test.mjs`) with direct search. Read cited `source_file`/`source_location`; graph
 edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
-`AGENTS.md` routes code work through this guide and the plugin skill. Claude's
-PreToolUse guards add query-first reminders. The project Codex hook uses
-`hook-guard search` with the `Bash` matcher to remind the agent before recognized
-shell searches such as `rg`. It does not force a graph query or cover shell reads
-such as `Get-Content`; these instructions remain the query-first baseline.
-Graphify 0.9.73's upstream `hook-check` remains a legacy no-op. Its historical
-compatibility comment does not describe the current
-[Codex PreToolUse contract](https://learn.chatgpt.com/docs/hooks#pretooluse),
-which accepts `hookSpecificOutput.additionalContext`. Hook activation still
-requires native trust review; configuration alone is not proof that it ran.
-Tasks confined to `AGENTS.md`, configuration, locks, Git state, or the excluded
+`AGENTS.md` and this guide own the query-first rule for source discovery.
+Tasks confined to instructions, configuration, locks, Git state, or the excluded
 agent layer use direct inspection; those files are outside the code graph.
+Codex's `.codex/hooks.json` has no Graphify search reminder: the native guard
+cannot distinguish these exceptions and emits an unconditional instruction.
+Claude retains its native search/read guards. Hook setup belongs to the
+[agent-layer guide](agent-layer.md); do not add a wrapper or duplicate rules.
 
 The agent maintains the graph while using it; the owner runs nothing by hand.
 Maintenance writes only `graphify-out/` and `.workspace/graphify/`, both local
@@ -50,8 +45,8 @@ and ignored, so they are allowed in read-only tasks:
   not already list the cited source; then run
   `reflect --if-stale --memory-dir .workspace/graphify/memory`.
 
-Missing lessons or vocabulary never block inspection. Report stale or
-unavailable graph data and verify findings directly in source.
+Missing lessons or vocabulary never block inspection. Verify findings directly
+in source; mention graph limitations only when they affect the result.
 
 | Navigation task | Tool |
 |---|---|
@@ -174,6 +169,6 @@ agent-layer guide. The project plugin's version is independent of Graphify's.
 Routine freshness is `update .` under the maintenance policy above; a full
 `extract` is only for corpus-rule changes, substantial code deletions, or an
 authorized extractor upgrade.
-If the graph/tool is unavailable, report that limit and inspect source
-without assuming permission to install. Read `GRAPH_REPORT.md` only
+If the graph/tool is unavailable, inspect source without installing a replacement;
+report the limit only if it affects the result. Read `GRAPH_REPORT.md` only
 when needed; preserve unrelated generated changes.

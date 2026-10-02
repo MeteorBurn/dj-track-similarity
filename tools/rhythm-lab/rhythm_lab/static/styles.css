@@ -19,6 +19,8 @@
   --cyan: #38d7e6;
   --rose: #ef719b;
   --green: #55dda1;
+  --success-bg: color-mix(in srgb, var(--green) 9%, var(--surface));
+  --success-border: color-mix(in srgb, var(--green) 40%, var(--border));
   --violet: #b39bea;
   --blue: #77c9f6;
   --orange: #ffa474;
@@ -88,6 +90,9 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .brand { display: inline-flex; align-items: center; gap: .8rem; color: var(--text); text-decoration: none; flex-shrink: 0; }
 .brand strong { font-size: 1.65rem; letter-spacing: -.03em; }
 .brand svg { width: 2.65rem; height: 2rem; color: var(--accent); stroke-width: 1.5; }
+.global-status { display: flex; align-items: center; gap: .6rem; flex: 0 1 9rem; min-width: 6rem; margin-right: auto; color: var(--green); font-size: .95rem; overflow: hidden; white-space: nowrap; }
+.global-status::before { content: ""; width: .8rem; height: .8rem; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+.global-status[data-state="error"] { color: var(--danger); }
 .profile-controls { display: flex; align-items: center; gap: .85rem; height: 100%; }
 #profileSelect { width: 18rem; flex-shrink: 0; }
 .header-button { height: 2.55rem; background: transparent; border-color: transparent; border-left-color: var(--border); border-radius: 0; box-shadow: none; }
@@ -114,7 +119,6 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .tabs button svg { width: 1.3rem; height: 1.3rem; }
 .summary-strip, #summaryCoverage { display: flex; align-items: center; gap: 1.2rem; color: var(--text); font-size: .9rem; }
 .summary-liked { padding-left: 1rem; border-left: 1px solid var(--border); }
-.global-status { padding: .7rem 1rem; color: var(--danger); border-bottom: 1px solid var(--danger); background: var(--danger-bg); font-size: .88rem; overflow-wrap: anywhere; }
 .page-heading { flex: 0 0 auto; padding: 1.35rem 1.1rem .75rem; }
 .page-heading p { margin-top: .4rem; font-size: 1rem; }
 .page-heading p:empty { display: none; }
@@ -398,7 +402,9 @@ td, th { padding: .65rem .65rem; text-align: left; border-bottom: 1px solid var(
 .training-info-heading { margin-top: .7rem; }
 .training-info-heading .meta { display: block; font-size: .75rem; }
 .training-info-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); }
-.training-workflow-feedback { color: var(--text-muted); padding: .5rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
+.training-workflow-feedback { color: var(--green); padding: .7rem 1rem; border: 1px solid var(--success-border); border-radius: var(--radius); background: var(--success-bg); overflow-wrap: anywhere; }
+.training-workflow-feedback .meta { color: inherit; }
+.training-workflow-feedback[data-state="error"] { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
 .training-progress { padding: .6rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); }
 .training-progress-header { display: flex; justify-content: space-between; font-size: .85rem; }
 .training-progress-track { height: .4rem; margin-top: .5rem; background: var(--meter-track); border-radius: .3rem; overflow: hidden; }
@@ -598,7 +604,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
 @media (max-width: 1000px) {
   :root { --header-height: 7.5rem; --player-height: 8.5rem; }
   .top-bar { flex-wrap: wrap; justify-content: flex-start; align-content: center; gap: .5rem; padding: .6rem 1rem; }
-  .brand { width: 100%; }
+  .global-status { margin-right: 0; margin-left: auto; }
   .profile-controls { width: 100%; height: auto; }
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(30rem, 1fr) auto; overflow: auto; }
   .contextual-sidebar { border-left: 0; border-top: 1px solid var(--border); overflow: visible; }

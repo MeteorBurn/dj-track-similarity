@@ -100,6 +100,7 @@ let trainingProgressPollGeneration = 0;
 let trainingProgressHasStarted = false;
 let latestWorkflowProgress = { status: "idle" };
 let workflowStatusText = "";
+let workflowStatusState = "idle";
 const player = createRhythmPlayer({ onChange: updatePlayingRows });
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
@@ -339,16 +340,23 @@ function setWorkflowBusy(disabled) {
   trainingPanelEl.querySelectorAll("button[data-training-action]").forEach(button => { button.disabled = Boolean(disabled); });
 }
 
-function setWorkflowStatus(message) {
-  workflowStatusText = String(message || "");
+function setGlobalStatus(message, state = "idle") {
   const globalStatus = document.getElementById("globalStatus");
   if (globalStatus) {
-    globalStatus.textContent = workflowStatusText;
-    globalStatus.hidden = !workflowStatusText;
+    globalStatus.textContent = String(message || "Ready");
+    globalStatus.title = globalStatus.textContent;
+    globalStatus.dataset.state = state;
   }
+}
+
+function setWorkflowStatus(message, state = "busy") {
+  workflowStatusState = state;
+  workflowStatusText = String(message || "");
+  setGlobalStatus(state === "busy" ? "Working" : state === "error" ? "Error" : "Ready", state);
   const statusEl = document.getElementById("refreshCandidatesStatus");
   if (!statusEl) return;
   statusEl.textContent = workflowStatusText;
+  statusEl.parentElement.dataset.state = state;
   statusEl.parentElement.hidden = !workflowStatusText;
 }
 
@@ -566,14 +574,14 @@ function appendRecipeParam(params) {
 async function shutdownLab() {
   shutdownLabEl.disabled = true;
   shutdownLabEl.classList.add("stopping");
-  setWorkflowStatus("Stopping Rhythm Lab…");
+  setGlobalStatus("Stopping Rhythm Lab…", "busy");
   const response = await fetch("/api/shutdown", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({})
   });
   await parseJsonResponse(response);
-  setWorkflowStatus("Rhythm Lab is stopping…");
+  setGlobalStatus("Rhythm Lab is stopping…", "busy");
   window.setTimeout(() => window.close(), 300);
 }
 
@@ -1046,7 +1054,7 @@ async function trainRefresh() {
       body: JSON.stringify(recipeBody(selectedTrainingFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Training complete. Trained on ${formatLabelCounts(data.training_counts)}; updated ${data.predicted}, skipped ${data.skipped}.`);
+    setWorkflowStatus(`Training complete. Trained on ${formatLabelCounts(data.training_counts)}; updated ${data.predicted}, skipped ${data.skipped}.`, "success");
     stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "train-refresh", stage: "Training complete", percent: 100 });
   } catch (error) {
@@ -1080,7 +1088,7 @@ async function runBenchmark() {
     const data = await parseRefreshResponse(response);
     latestBenchmarkReport = data;
     const winner = data.winner?.feature_set ? ` Best recipe: ${data.winner.feature_set}.` : "";
-    setWorkflowStatus(`Benchmark complete.${winner}`);
+    setWorkflowStatus(`Benchmark complete.${winner}`, "success");
     stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "benchmark", stage: "Benchmark complete", percent: 100 });
   } catch (error) {
@@ -1124,7 +1132,7 @@ async function calibrateClassifier() {
       body: JSON.stringify(recipeBody(selectedFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Calibration complete. ${data.feature_set}: ${fileName(data.artifact)}.`);
+    setWorkflowStatus(`Calibration complete. ${data.feature_set}: ${fileName(data.artifact)}.`, "success");
     stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "calibrate", stage: "Calibration complete", percent: 100 });
   } catch (error) {
@@ -1149,7 +1157,7 @@ async function refreshCandidates() {
       body: JSON.stringify(recipeBody(selectedFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Candidate refresh complete. ${data.feature_set}: updated ${data.predicted}, skipped ${data.skipped}.`);
+    setWorkflowStatus(`Candidate refresh complete. ${data.feature_set}: updated ${data.predicted}, skipped ${data.skipped}.`, "success");
     stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "refresh", stage: "Candidate refresh complete", percent: 100 });
   } catch (error) {
@@ -1177,7 +1185,7 @@ async function promoteClassifier() {
       body: JSON.stringify(recipeBody(selectedFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Promotion complete. Model ${fileName(data.model_path)}, metadata ${fileName(data.metadata_path)}.`);
+    setWorkflowStatus(`Promotion complete. Model ${fileName(data.model_path)}, metadata ${fileName(data.metadata_path)}.`, "success");
     stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "promote", stage: "Promotion complete", percent: 100 });
   } catch (error) {
@@ -1202,7 +1210,7 @@ async function loadTrainingReadiness() {
   if (requestId !== readinessRequestId || !activeProfile || activeProfile.classifier_key !== profileKey) return null;
   if (!response.ok) {
     // Keep the last readiness on screen; the server says why this request failed.
-    setWorkflowStatus(data.detail || response.statusText);
+    showError(new Error(data.detail || response.statusText));
     return null;
   }
   latestTrainingReadiness = data;
@@ -1311,7 +1319,7 @@ function renderTrainingSkeleton() {
   return `<div class="classifier-workflow-card">
     <div class="training-heading"><h1>Training</h1><span class="meta">Classifier workflow / ${escapeHtml(activeProfile.name)} · ${isMulticlassProfile() ? "Multiclass" : "Binary"}</span></div>
     <div id="trainingCoverage" class="training-coverage"></div>
-    <div class="training-workflow-feedback"${workflowStatusText ? "" : " hidden"}><span id="refreshCandidatesStatus" class="meta source-status-line">${escapeHtml(workflowStatusText)}</span></div>
+    <div class="training-workflow-feedback" data-state="${workflowStatusState}" role="status" aria-live="polite"${workflowStatusText ? "" : " hidden"}><span id="refreshCandidatesStatus" class="meta source-status-line">${escapeHtml(workflowStatusText)}</span></div>
     <div id="trainingProgress" class="training-progress" role="status" aria-live="polite" hidden><div class="training-progress-header"><span id="trainingProgressStage"></span><b id="trainingProgressPercent">0%</b></div><div class="training-progress-track"><span id="trainingProgressBar"></span></div></div>
     <div class="training-columns">
       <section class="training-workflow tool-panel"><h2 class="section-kicker">Workflow</h2><div id="workflowSteps" class="workflow-steps"></div></section>
@@ -2441,7 +2449,7 @@ async function updateProfile(event) {
   const profile = await parseJsonResponse(response);
   await loadProfiles();
   await setActiveProfile(profile.classifier_key, { skipLoad: true });
-  setWorkflowStatus("Profile saved");
+  setGlobalStatus("Profile saved", "success");
 }
 
 async function renameLabel(event) {
@@ -2474,7 +2482,7 @@ async function deleteActiveProfile() {
   });
   const data = await parseJsonResponse(response);
   const deletedFiles = data.artifact_cleanup?.deleted_files || 0;
-  setWorkflowStatus(`Deleted ${data.name} and ${deletedFiles} artifact ${plural(deletedFiles, "file", "files")}`);
+  setGlobalStatus(`Deleted ${data.name} and ${deletedFiles} artifact ${plural(deletedFiles, "file", "files")}`, "success");
   activeProfile = null;
   await loadProfiles();
   await loadActive({ reset: true });
@@ -2483,7 +2491,6 @@ async function deleteActiveProfile() {
 async function parseRefreshResponse(response) {
   const data = await response.json();
   if (!response.ok) {
-    setWorkflowStatus(data.detail || response.statusText);
     throw new Error(data.detail || response.statusText);
   }
   return data;
@@ -2694,7 +2701,11 @@ function showError(error) {
     dialogError.textContent = message;
     dialogError.hidden = false;
   }
-  setWorkflowStatus(message);
+  if (workflowStatusState === "busy") {
+    setWorkflowStatus(message, "error");
+  } else {
+    setGlobalStatus(message, "error");
+  }
 }
 
 function escapeHtml(value) {

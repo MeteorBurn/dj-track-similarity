@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg?v=20260915" />
-  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-workbench-20260921-2" />
+  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-status-20261002" />
   <script src="/static/player.js?v=rhythm-lab-streaming-20261002" defer></script>
-  <script src="/static/app.js?v=rhythm-lab-workbench-20260921-1" defer></script>
+  <script src="/static/app.js?v=rhythm-lab-status-20261002" defer></script>
   <title>Rhythm Lab</title>
 </head>
 <body data-view="library">
@@ -37,6 +37,7 @@
   </svg>
   <header class="top-bar">
     <a class="brand" href="/" aria-label="Rhythm Lab home"><svg aria-hidden="true"><use href="#icon-pulse"/></svg><strong>Rhythm Lab</strong></a>
+    <div id="globalStatus" class="global-status" data-state="idle" role="status" aria-live="polite" aria-atomic="true">Ready</div>
     <div class="profile-controls">
       <select id="profileSelect" title="Active classifier profile" aria-label="Classifier profile"></select>
       <button id="newProfile" type="button" class="header-button"><svg aria-hidden="true"><use href="#icon-plus"/></svg>New profile</button>
@@ -71,7 +72,6 @@
           <span id="summary" class="summary-strip"><span id="summaryCoverage"></span><span id="summaryLabels" hidden></span></span>
         </div>
       </section>
-      <div id="globalStatus" class="global-status" role="alert" hidden></div>
       <header class="page-heading"><h1 id="pageTitle"></h1><p id="pageSubtitle" class="meta"></p></header>
       <section id="trackWorkspace" class="track-workspace">
         <div id="collectionControls" class="collection-controls" hidden>

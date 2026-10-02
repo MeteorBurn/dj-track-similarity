@@ -343,7 +343,7 @@ details[open] > summary { margin-bottom: .65rem; }
 .recipe-rack { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: .65rem; }
 .recipe-slot { display: flex; align-items: center; gap: .45rem; }
 .recipe-slot label { display: inline-flex; align-items: center; gap: .7rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); padding: .55rem .65rem; font-size: .78rem; min-height: 2.45rem; }
-.recipe-slot select { min-height: 2.45rem; font-size: .78rem; max-width: 7rem; }
+.recipe-slot select { min-height: 2.45rem; font-size: .78rem; min-width: 8rem; max-width: 8rem; }
 .recipe-details { margin-top: .6rem; }
 .recipe-details summary { font-size: .68rem; }
 .recipe-line { display: flex; flex-wrap: wrap; gap: .45rem; margin: .45rem 0; }

@@ -1552,7 +1552,8 @@ function recipeTokenFamily(token) {
 }
 
 function recipeTokenLabel(token) {
-  const [family, layer] = String(token || "").split("@");
+  const [family, explicitLayer] = String(token || "").split("@");
+  const layer = explicitLayer || defaultLayer(family);
   return layer ? `${familyLabel(family)} layer ${layer}` : familyLabel(family);
 }
 

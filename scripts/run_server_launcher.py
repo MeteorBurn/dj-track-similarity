@@ -7,6 +7,9 @@ import shutil
 import subprocess
 import sys
 
+from dj_track_similarity._shutdown import defer_keyboard_interrupt
+from dj_track_similarity.windows_process_job import bind_process_to_job
+
 
 _MODE_ALIASES = frozenset(
     {
@@ -26,6 +29,9 @@ _DATABASE_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE"
 _CREATE_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_CREATE"
 _FRONTEND_DEV_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV"
 _FRONTEND_HOST_ENV = "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_HOST"
+# Never close this handle in Python: the launcher itself belongs to the job.
+# Windows closes it on process exit and stops all remaining owned descendants.
+_launcher_lifetime_job: int | None = None
 
 
 def build_server_command(
@@ -70,19 +76,6 @@ def frontend_directory() -> Path:
 def stop_process(process: subprocess.Popen[object]) -> None:
     if process.poll() is not None:
         return
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
-        return
     process.terminate()
     try:
         process.wait(timeout=5)
@@ -92,6 +85,7 @@ def stop_process(process: subprocess.Popen[object]) -> None:
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
+    global _launcher_lifetime_job
     host = os.environ.get(_HOST_ENV)
     port = os.environ.get(_PORT_ENV)
     if not host or not port:
@@ -109,23 +103,33 @@ def main(arguments: Sequence[str] | None = None) -> int:
     if os.environ.get(_FRONTEND_DEV_ENV) == "1":
         frontend_host = os.environ.get(_FRONTEND_HOST_ENV, "127.0.0.1")
         try:
+            if os.name == "nt" and _launcher_lifetime_job is None:
+                # Bind before Popen so even very short-lived npm wrappers cannot
+                # create descendants outside the launcher's lifetime.
+                _launcher_lifetime_job = bind_process_to_job(-1)
             frontend_process = subprocess.Popen(
                 build_frontend_command(host=frontend_host),
                 cwd=frontend_directory(),
                 shell=False,
             )
         except OSError as error:
-            print(f"Cannot start Vite frontend: {error}", file=sys.stderr)
+            print(f"Cannot start managed Vite frontend: {error}", file=sys.stderr)
             return 1
     try:
-        completed = subprocess.run(command, check=False, shell=False)
+        with subprocess.Popen(command, shell=False) as server_process:
+            # Ctrl+C reaches the API through the same console. Keep the owner
+            # alive while the API drains jobs and closes its database resources.
+            with defer_keyboard_interrupt() as finish:
+                finish(server_process.wait)
+            return server_process.returncode
+    except KeyboardInterrupt:
+        return 130
     except OSError as error:
         print(f"Cannot start dj-sim: {error}", file=sys.stderr)
         return 1
     finally:
         if frontend_process is not None:
             stop_process(frontend_process)
-    return completed.returncode
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ctypes
 from dataclasses import dataclass
 import json
 import logging
@@ -17,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .rhythm_lab_collections import default_rhythm_lab_labels_path
+from .windows_process_job import bind_process_to_job
 
 
 LOGGER = logging.getLogger(__name__)
@@ -28,39 +28,12 @@ LIVE_SOURCE_TIMEOUT_SECONDS = 1.0
 SOURCE_SWITCH_TIMEOUT_SECONDS = 120.0
 _LOG_MIRROR_LOCK = threading.Lock()
 _LOG_MIRROR_THREADS: dict[Path, threading.Thread] = {}
-_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
-_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 _SERVER_LIFETIME_LOCK = threading.Lock()
 # Windows job handle, created on first launch and never closed: see
 # _bind_to_server_lifetime.
 _server_lifetime_job: int | None = None
 # Rhythm Lab launched by this process; the shutdown hook stops only this one.
 _launched_pid: int | None = None
-
-
-class _JobBasicLimitInformation(ctypes.Structure):
-    _fields_ = [
-        ("PerProcessUserTimeLimit", ctypes.c_int64),
-        ("PerJobUserTimeLimit", ctypes.c_int64),
-        ("LimitFlags", ctypes.c_uint32),
-        ("MinimumWorkingSetSize", ctypes.c_size_t),
-        ("MaximumWorkingSetSize", ctypes.c_size_t),
-        ("ActiveProcessLimit", ctypes.c_uint32),
-        ("Affinity", ctypes.c_size_t),
-        ("PriorityClass", ctypes.c_uint32),
-        ("SchedulingClass", ctypes.c_uint32),
-    ]
-
-
-class _JobExtendedLimitInformation(ctypes.Structure):
-    _fields_ = [
-        ("BasicLimitInformation", _JobBasicLimitInformation),
-        ("IoInfo", ctypes.c_uint64 * 6),
-        ("ProcessMemoryLimit", ctypes.c_size_t),
-        ("JobMemoryLimit", ctypes.c_size_t),
-        ("PeakProcessMemoryUsed", ctypes.c_size_t),
-        ("PeakJobMemoryUsed", ctypes.c_size_t),
-    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,41 +275,12 @@ def _bind_to_server_lifetime(process: subprocess.Popen[bytes]) -> None:
     _launched_pid = process.pid
     if sys.platform != "win32":
         return
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p)
-    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
-    kernel32.SetInformationJobObject.argtypes = (
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-    )
-    kernel32.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
-    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
     with _SERVER_LIFETIME_LOCK:
         try:
-            if _server_lifetime_job is None:
-                job = kernel32.CreateJobObjectW(None, None)
-                if not job:
-                    raise ctypes.WinError(ctypes.get_last_error())
-                limits = _JobExtendedLimitInformation()
-                limits.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-                if not kernel32.SetInformationJobObject(
-                    job,
-                    _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-                    ctypes.byref(limits),
-                    ctypes.sizeof(limits),
-                ):
-                    error = ctypes.WinError(ctypes.get_last_error())
-                    kernel32.CloseHandle(job)
-                    raise error
-                _server_lifetime_job = job
             # A job nested in one the server already runs in needs Windows 8+.
-            if not kernel32.AssignProcessToJobObject(
-                _server_lifetime_job,
-                int(process._handle),
-            ):
-                raise ctypes.WinError(ctypes.get_last_error())
+            _server_lifetime_job = bind_process_to_job(
+                int(process._handle), job_handle=_server_lifetime_job
+            )
         except OSError as error:
             LOGGER.warning(
                 "Rhythm Lab pid=%s is not bound to this server's lifetime "
@@ -581,6 +525,8 @@ def _listener_process_id(host: str, port: int) -> int | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            encoding="ascii",
+            errors="replace",
             timeout=3,
         )
     except (OSError, subprocess.TimeoutExpired):

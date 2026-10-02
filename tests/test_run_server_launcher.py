@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+import textwrap
+import time
 
 import pytest
 
@@ -244,20 +247,26 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
 
     captured_run: dict[str, object] = {}
 
-    def fake_run(
-        command: list[str],
-        *,
-        check: bool,
-        shell: bool,
-    ) -> subprocess.CompletedProcess[str]:
-        captured_run.update(command=command, check=check, shell=shell)
-        return subprocess.CompletedProcess(command, 23)
+    class FakeServer:
+        returncode = 23
+
+        def __init__(self, command: list[str], *, shell: bool) -> None:
+            captured_run.update(command=command, shell=shell)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def wait(self) -> int:
+            return self.returncode
 
     monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_HOST", "0.0.0.0")
     monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_PORT", "8765")
     monkeypatch.delenv("DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE", raising=False)
     monkeypatch.delenv("DJ_TRACK_SIMILARITY_LAUNCHER_CREATE", raising=False)
-    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module.subprocess, "Popen", FakeServer)
 
     assert module.main(("lan", "--db", explicit_path)) == 23
     assert captured_run == {
@@ -271,7 +280,6 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
             "--port",
             "8765",
         ],
-        "check": False,
         "shell": False,
     }
 
@@ -292,3 +300,84 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         new_path,
         "--create",
     ]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree lifetime")
+def test_launcher_shutdown_ends_frontend_descendants_when_taskkill_fails(
+    tmp_path: Path,
+) -> None:
+    import _winapi
+
+    root = Path(__file__).resolve().parents[1]
+    ready = tmp_path / "frontend.json"
+    release = tmp_path / "backend-exit"
+    frontend = textwrap.dedent("""
+        import json, os, subprocess, sys, time
+        from pathlib import Path
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        ready = Path(sys.argv[1])
+        pending = ready.with_suffix(".tmp")
+        pending.write_text(json.dumps([os.getpid(), child.pid]))
+        pending.replace(ready)
+        time.sleep(60)
+    """)
+    backend = textwrap.dedent("""
+        import sys, time
+        from pathlib import Path
+        while not Path(sys.argv[1]).exists():
+            time.sleep(0.02)
+        sys.exit(23)
+    """)
+    driver = textwrap.dedent("""
+        import importlib.util, os, subprocess, sys
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location("launcher", sys.argv[1])
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        os.environ["DJ_TRACK_SIMILARITY_LAUNCHER_HOST"] = "127.0.0.1"
+        os.environ["DJ_TRACK_SIMILARITY_LAUNCHER_PORT"] = "8765"
+        os.environ["DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV"] = "1"
+        launcher.build_frontend_command = lambda **_: [sys._base_executable, "-c", sys.argv[2], sys.argv[3]]
+        launcher.frontend_directory = lambda: Path(sys.argv[3]).parent
+        launcher.build_server_command = lambda *_, **__: [sys._base_executable, "-c", sys.argv[4], sys.argv[5]]
+        real_run = subprocess.run
+        def run(command, **kwargs):
+            if command[0] == "taskkill":
+                return subprocess.CompletedProcess(command, 1)
+            return real_run(command, **kwargs)
+        subprocess.run = run
+        sys.exit(launcher.main([]))
+    """)
+    # A sibling must remain alive: ownership must not become a global kill.
+    with subprocess.Popen(
+        [sys._base_executable, "-c", "import time; time.sleep(60)"],
+    ) as sibling, (tmp_path / "launcher.log").open("w+") as log, subprocess.Popen(
+        [sys.executable, "-c", driver, str(root / "scripts/run_server_launcher.py"),
+         frontend, str(ready), backend, str(release)],
+        stdout=log,
+        stderr=log,
+    ) as owner:
+        handles: list[int] = []
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists() and owner.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            log.flush()
+            log.seek(0)
+            assert ready.exists(), log.read()
+            for pid in json.loads(ready.read_text()):
+                handles.append(_winapi.OpenProcess(_winapi.PROCESS_ALL_ACCESS, False, pid))
+            release.touch()
+            assert owner.wait(timeout=15) == 23
+            assert [
+                _winapi.WaitForSingleObject(handle, 5000) for handle in handles
+            ] == [_winapi.WAIT_OBJECT_0] * len(handles)
+            assert sibling.poll() is None
+        finally:
+            release.touch()
+            for handle in handles:
+                if _winapi.WaitForSingleObject(handle, 0) != _winapi.WAIT_OBJECT_0:
+                    _winapi.TerminateProcess(handle, 1)
+                _winapi.CloseHandle(handle)
+            owner.kill()
+            sibling.kill()

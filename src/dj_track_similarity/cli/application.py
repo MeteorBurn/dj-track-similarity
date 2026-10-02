@@ -189,4 +189,7 @@ def serve(
         host=host,
         port=port,
         log_config=uvicorn_log_config(log_level),
+        # Paused previews can keep HTTP responses open indefinitely. Cancel
+        # those requests after a short drain; lifespan cleanup still runs.
+        timeout_graceful_shutdown=5,
     )

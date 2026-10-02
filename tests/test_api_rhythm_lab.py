@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import textwrap
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -345,7 +346,21 @@ def test_rhythm_lab_launcher_stops_valid_listener_when_pid_file_is_stale(monkeyp
 
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", fake_port_is_open)
-    monkeypatch.setattr(rhythm_lab_launcher, "_listener_process_id", lambda *_: 29280, raising=False)
+    # Netstat headers use the Windows console encoding, even with PYTHONUTF8.
+    # Exercise decoding and listener matching instead of stubbing the result.
+    real_run = subprocess.run
+
+    def localized_netstat(_command, **kwargs):
+        kwargs.setdefault("encoding", "utf-8")
+        return real_run(
+            [sys.executable, "-c",
+             "import os; os.write(1, b'\\x80\\xe1\\xe2\\xa8\\xa2\\xad\\xeb\\xa5\\n"
+             "  TCP  127.0.0.1:8777  0.0.0.0:0  LISTENING  29280\\n')"],
+            **kwargs,
+        )
+
+    monkeypatch.setattr(rhythm_lab_launcher, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(rhythm_lab_launcher.subprocess, "run", localized_netstat)
     monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 29280, raising=False)
     monkeypatch.setattr(rhythm_lab_launcher, "_terminate_process", lambda pid: terminated.append(pid))
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)

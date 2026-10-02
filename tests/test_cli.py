@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import _thread
 import sys
 import threading
@@ -220,6 +221,9 @@ def test_serve_creates_a_missing_database_only_with_create_and_passes_log_config
     assert captured["db_path"] == db_path.resolve()
     kwargs = captured["kwargs"]
     assert kwargs["port"] == 8877
+    # A paused streaming response must not keep server shutdown open forever.
+    drain_timeout = kwargs["timeout_graceful_shutdown"]
+    assert math.isfinite(drain_timeout) and drain_timeout > 0
     log_config = kwargs["log_config"]
     assert log_config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
     assert log_config["loggers"]["uvicorn"]["level"] == "WARNING"

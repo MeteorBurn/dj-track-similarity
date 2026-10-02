@@ -93,12 +93,13 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .global-status { display: flex; align-items: center; gap: .6rem; flex: 0 1 9rem; min-width: 6rem; margin-right: auto; color: var(--green); font-size: .95rem; overflow: hidden; white-space: nowrap; }
 .global-status::before { content: ""; width: .8rem; height: .8rem; flex-shrink: 0; border-radius: 50%; background: currentColor; }
 .global-status[data-state="error"] { color: var(--danger); }
-.profile-controls { display: flex; align-items: center; gap: .85rem; height: 100%; }
+.profile-controls { display: flex; align-items: center; gap: .5rem; width: calc(18rem + 21vw + var(--gutter) - 1.45rem); min-width: max-content; flex-shrink: 0; height: 100%; }
 #profileSelect { width: 18rem; flex-shrink: 0; }
-.header-button { height: 2.55rem; background: transparent; border-color: transparent; border-left-color: var(--border); border-radius: 0; box-shadow: none; }
+.header-button { flex-grow: 1; height: 2.55rem; background: transparent; border-color: transparent; border-left-color: var(--border); border-radius: 0; box-shadow: none; }
 #settingsTab { border-color: transparent; border-left-color: var(--border); border-radius: 0; }
 .header-button.active { color: var(--accent); border-color: transparent; border-bottom: 2px solid var(--accent); border-radius: 0; }
-.rhythm-lab-stop-button { margin-left: .7rem; }
+.rhythm-lab-stop-button { --control-height: 2rem; height: var(--control-height); padding: .3rem; }
+.rhythm-lab-stop-button svg { width: 1.15rem; height: 1.15rem; }
 
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 21%; min-height: 0; overflow: hidden; }
 .workspace-primary { display: flex; flex-direction: column; min-width: 0; min-height: 0; margin: .75rem var(--gutter); border: 1px solid var(--border-soft); border-radius: var(--radius); overflow: hidden; }
@@ -543,10 +544,11 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
 @media (max-width: 1400px) {
   :root { --header-height: 4.5rem; }
   .workspace { grid-template-columns: minmax(0, 1fr) 24%; }
-  .profile-controls { gap: .35rem; }
+  .profile-controls { gap: .35rem; width: calc(18rem + 24vw + var(--gutter) - 1.45rem); }
   .header-button { padding-right: .65rem; padding-left: .65rem; }
   .brand { gap: .4rem; }
   .brand strong { font-size: 1.3rem; }
+  .rhythm-lab-stop-button { --control-height: 1.8rem; }
   .brand svg { width: 2.1rem; }
   .summary-strip, #summaryCoverage { gap: .55rem; font-size: .75rem; }
   .summary-liked { padding-left: .55rem; }
@@ -605,7 +607,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   :root { --header-height: 7.5rem; --player-height: 8.5rem; }
   .top-bar { flex-wrap: wrap; justify-content: flex-start; align-content: center; gap: .5rem; padding: .6rem 1rem; }
   .global-status { margin-right: 0; margin-left: auto; }
-  .profile-controls { width: 100%; height: auto; }
+  .profile-controls { width: 100%; min-width: 0; height: auto; }
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(30rem, 1fr) auto; overflow: auto; }
   .contextual-sidebar { border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
   .source-row { flex-wrap: wrap; gap: .65rem; }

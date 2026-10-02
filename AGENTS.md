@@ -34,6 +34,10 @@ work unverified rather than inventing its instructions.
 
 ## EXECUTION AND SCOPE
 
+- Requests limited to investigation, review, explanation or planning end with
+  findings or a plan. Apply changes only when implementation is included in
+  the current task, including earlier authorization that remains in force.
+  Agent procedures and delegated work must stay within that scope.
 - Work from the repository root in PowerShell 7. Use the verified root `uv`
   `.venv`, never an unverified system Python. Read the environment guide before
   project commands; do not sync, upgrade or recreate environments for inspection.
@@ -311,5 +315,8 @@ change starts with a new test: admit a test only under the rules below.
   application (schema or persistence, shared infrastructure, cross-layer
   refactors, dependency or runtime upgrades, concurrency or file-write safety)
   or on the owner's explicit request, never for delivery, commits or reassurance.
-- Report which checks ran and which did not. Do not imply source inspection
-  proves live behavior or claim CI ran without execution evidence.
+- Return when the requested outcome and the checks required by the verification
+  guide are complete, or report a concrete blocker after completing independent
+  authorized work. Report which checks ran and which did not. Do not imply
+  source inspection proves live behavior or claim CI ran without execution
+  evidence.

@@ -62,6 +62,15 @@ const BENCHMARK_STRATEGY_LABELS = {
   "layers+all": "Model layers + others",
   custom: "Custom list",
 };
+const BENCHMARK_STRATEGY_DESCRIPTIONS = {
+  singles: "Tests each available feature source separately, using the default layer for layered models.",
+  "singles+all": "Tests each available feature source separately, then all sources together. Layered models use their default layers.",
+  greedy: "Starts with the best single source, then tries adding each remaining source. Keeps the best addition while macro-F1 improves; stops when none improves it. Layered models use their default layers.",
+  full: "Tests every non-empty combination of available feature sources. Layered models use their default layers. The number of runs grows quickly as more sources become available.",
+  layers: "Tests each stored layer of every available layered model separately, without combining sources.",
+  "layers+all": "Tests each stored model layer on its own and together with all other available sources. Other layered models use their default layers.",
+  custom: "Tests only the recipes in your custom list. Use Add current recipe to include the sources and layers selected above.",
+};
 const BENCHMARK_RUN_WARNING = 30;
 const STEP_STATUS_LABELS = { done: "Done", ready: "Ready", blocked: "Blocked" };
 const FEATURE_STATE_LABELS = { current: "current", missing: "missing", stale: "stale" };
@@ -1857,7 +1866,9 @@ function renderBenchmarkControls(data) {
       <label class="benchmark-strategy">Strategy
         <select id="benchmarkStrategy">${options}</select>
       </label>
-      <span id="benchmarkPlanHint" class="benchmark-plan-hint${run.plan.count > BENCHMARK_RUN_WARNING ? " warning" : ""}">${escapeHtml(benchmarkPlanHintText(run.plan))}</span>
+      <div class="benchmark-plan">
+        <details class="benchmark-strategy-help"><summary>Description<span id="benchmarkPlanHint" class="benchmark-plan-hint${run.plan.count > BENCHMARK_RUN_WARNING ? " warning" : ""}">${escapeHtml(benchmarkPlanHintText(run.plan))}</span></summary><p id="benchmarkStrategyDescription">${escapeHtml(BENCHMARK_STRATEGY_DESCRIPTIONS[benchmarkStrategy])}</p><p>Uses stored features and your labels; compares recipes by cross-validated macro-F1.</p></details>
+      </div>
       ${workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark", !run.runnable, run.title)}
     </div>
     <div id="benchmarkCustom" class="benchmark-custom" hidden>
@@ -1870,6 +1881,8 @@ function renderBenchmarkControls(data) {
 
 function updateBenchmarkControls(data = latestTrainingReadiness) {
   const state = benchmarkRunState(data);
+  const descriptionEl = document.getElementById("benchmarkStrategyDescription");
+  if (descriptionEl) descriptionEl.textContent = BENCHMARK_STRATEGY_DESCRIPTIONS[benchmarkStrategy];
   const hintEl = document.getElementById("benchmarkPlanHint");
   if (hintEl) {
     hintEl.textContent = benchmarkPlanHintText(state.plan);

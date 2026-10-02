@@ -417,7 +417,11 @@ td, th { padding: .65rem .65rem; text-align: left; border-bottom: 1px solid var(
 .benchmark-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--workflow-action-width); align-items: end; gap: .45rem; }
 .benchmark-strategy { display: flex; flex-direction: column; gap: .2rem; color: var(--text-muted); font-size: .65rem; min-width: 0; }
 .benchmark-strategy select { width: 100%; font-size: .75rem; padding: .3rem .5rem; min-height: 2.5rem; }
-.benchmark-plan-hint { font-size: .65rem; line-height: 1.2; color: var(--text-muted); grid-column: 1 / -1; order: 3; }
+.benchmark-plan { grid-column: 1 / -1; order: 3; }
+.benchmark-strategy-help { min-width: 0; color: var(--text-muted); font-size: .65rem; }
+.benchmark-strategy-help summary { width: fit-content; cursor: pointer; color: var(--text-soft); font-size: .65rem; }
+.benchmark-strategy-help p { margin-top: .4rem; }
+.benchmark-plan-hint { display: inline-block; margin-left: .75rem; font-size: .65rem; line-height: 1.2; color: var(--text-muted); }
 .benchmark-plan-hint.warning { color: var(--accent); }
 .benchmark-result-details { margin-top: .4rem; }
 .benchmark-result-details summary { font-size: .65rem; color: var(--text-soft); }

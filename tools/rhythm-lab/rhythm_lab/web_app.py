@@ -9,15 +9,19 @@ from pathlib import Path
 import threading
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from dj_track_similarity.analysis_models import EMBEDDING_LAYER_HINTS, EMBEDDING_LAYERS
 from dj_track_similarity.classifier.manifest import load_classifier_manifest_summary
-from dj_track_similarity.audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
-from dj_track_similarity.api.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
+from dj_track_similarity.api.media_preview import (
+    AudioPreviewError,
+    preview_duration_seconds,
+    streaming_wav_response,
+)
+from dj_track_similarity.api.schemas import TrackPreviewInfoResponse
 from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabCollectionSelection,
     RhythmLabCollections,
@@ -1382,8 +1386,7 @@ def create_app(
             "source_artifact": str(result["source_artifact"]),
         }
 
-    @app.get("/media/{track_id}")
-    def media(track_id: int):
+    def media_path(track_id: int) -> Path:
         try:
             track = source_state.require_source().get_track(track_id)
         except (KeyError, ValueError) as error:
@@ -1391,13 +1394,28 @@ def create_app(
         path = Path(track.file_path)
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Audio file is missing")
-        if requires_browser_preview_transcode(path):
-            try:
-                configure_shared_ffmpeg_runtime()
-                return transcoded_wav_file_response(path)
-            except RuntimeError as error:
-                raise HTTPException(status_code=503, detail=str(error)) from error
-        return FileResponse(path)
+        return path
+
+    @app.get("/api/tracks/{track_id}/preview-info", response_model=TrackPreviewInfoResponse)
+    def preview_info(track_id: int) -> TrackPreviewInfoResponse:
+        path = media_path(track_id)
+        try:
+            return TrackPreviewInfoResponse(duration_seconds=preview_duration_seconds(path))
+        except AudioPreviewError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/media/{track_id}")
+    def media(
+        track_id: int,
+        start: float = Query(default=0.0, ge=0.0, allow_inf_nan=False),
+    ) -> StreamingResponse:
+        path = media_path(track_id)
+        try:
+            return streaming_wav_response(path, start=start)
+        except AudioPreviewError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except OSError as error:
+            raise HTTPException(status_code=422, detail=f"Audio preview failed: {error}") from error
 
     return app
 

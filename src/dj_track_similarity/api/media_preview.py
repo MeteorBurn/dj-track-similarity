@@ -4,17 +4,13 @@ import logging
 import math
 import re
 import struct
-import tempfile
-import wave
 from collections.abc import Generator, Iterator
-from contextlib import closing
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING
 
 import anyio
-from fastapi.responses import FileResponse, StreamingResponse
-from starlette.background import BackgroundTask
+from fastapi.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from ..audio.ffmpeg_runtime import load_project_pyav
@@ -27,24 +23,9 @@ if TYPE_CHECKING:
 
 
 LOGGER = logging.getLogger(__name__)
-AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
-BROWSER_PREVIEW_TRANSCODE_SUFFIXES = AIFF_PREVIEW_SUFFIXES | {
-    ".dff",
-    ".dsd",
-    ".dsf",
-    ".flac",
-    ".ape",
-    ".wv",
-    ".m4b",
-    ".m4r",
-    ".tak",
-    ".tta",
-    ".wma",
-}
-BROWSER_SAFE_WAV_SAMPLE_WIDTH = 2
 PREVIEW_SAMPLE_RATE = 44_100
 _PREVIEW_CHANNELS = 2
-_PREVIEW_FRAME_BYTES = _PREVIEW_CHANNELS * BROWSER_SAFE_WAV_SAMPLE_WIDTH
+_PREVIEW_FRAME_BYTES = _PREVIEW_CHANNELS * 2
 _CHUNK_FRAMES = 16_384
 _WAV_STREAM_HEADER = struct.pack(
     "<4sI4s4sIHHIIHH4sI",
@@ -208,58 +189,3 @@ def _complete_pcm_packet(packet: Packet, stream: AudioStream, av: ModuleType) ->
     repaired.time_base = packet.time_base
     repaired.duration = packet.duration
     return repaired
-
-
-def requires_browser_preview_transcode(path: Path) -> bool:
-    suffix = path.suffix.lower()
-    if suffix in BROWSER_PREVIEW_TRANSCODE_SUFFIXES:
-        return True
-    if suffix == ".wav":
-        return not _is_browser_safe_wav(path)
-    return False
-
-
-def transcoded_wav_file_response(path: Path) -> FileResponse:
-    """Keep Rhythm Lab's finite, browser-seekable file response using the shared decoder."""
-    with tempfile.NamedTemporaryFile(prefix="dj-sim-preview-", suffix=".wav", delete=False) as temp_file:
-        temp_path = Path(temp_file.name)
-    try:
-        wrote_samples = False
-        with closing(_pcm_chunks(path)) as chunks, wave.open(str(temp_path), "wb") as audio:
-            audio.setnchannels(_PREVIEW_CHANNELS)
-            audio.setsampwidth(BROWSER_SAFE_WAV_SAMPLE_WIDTH)
-            audio.setframerate(PREVIEW_SAMPLE_RATE)
-            for chunk in chunks:
-                audio.writeframesraw(chunk)
-                wrote_samples = True
-        if not wrote_samples:
-            raise AudioPreviewError("No decodable audio samples")
-    except (OSError, RuntimeError, ValueError) as error:
-        _delete_temp_file(temp_path)
-        message = f"Audio preview failed: {error}"
-        LOGGER.warning("Direct preview transcode failed path=%s error=%s", path, message)
-        raise AudioPreviewError(message) from error
-    return FileResponse(
-        temp_path,
-        media_type="audio/wav",
-        filename=f"{path.stem}.wav",
-        content_disposition_type="inline",
-        background=BackgroundTask(_delete_temp_file, temp_path),
-    )
-def _is_browser_safe_wav(path: Path) -> bool:
-    try:
-        with wave.open(str(path), "rb") as audio:
-            return (
-                audio.getsampwidth() == BROWSER_SAFE_WAV_SAMPLE_WIDTH
-                and audio.getnchannels() > 0
-                and audio.getframerate() > 0
-            )
-    except (EOFError, OSError, wave.Error):
-        return False
-
-
-def _delete_temp_file(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        LOGGER.warning("Failed to delete temporary preview file: %s", path)

@@ -43,9 +43,8 @@ async def _read_response(response) -> bytes:
 
 
 @pytest.fixture(autouse=True)
-def _shared_pyav_without_processes(monkeypatch, tmp_path):
+def _shared_pyav_without_processes(monkeypatch):
     monkeypatch.setattr(media_preview, "load_project_pyav", lambda: av)
-    monkeypatch.setattr(media_preview.tempfile, "tempdir", str(tmp_path))
 
     def forbidden_process(*_args, **_kwargs):
         pytest.fail("Preview must decode through shared libraries without a subprocess")
@@ -53,7 +52,7 @@ def _shared_pyav_without_processes(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "Popen", forbidden_process)
 
 
-def test_finite_preview_recovers_incomplete_pcm_tail_without_modifying_source(
+def test_streaming_preview_recovers_incomplete_pcm_tail_without_modifying_source(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "incomplete.wav"
@@ -63,16 +62,11 @@ def test_finite_preview_recovers_incomplete_pcm_tail_without_modifying_source(
     struct.pack_into("<I", damaged, 40, len(damaged) - 44)
     source.write_bytes(damaged)
 
-    response = media_preview.transcoded_wav_file_response(source)
-    preview = Path(response.path)
-    try:
-        with wave.open(str(preview), "rb") as audio:
-            assert audio.getnframes() == 10_001
-            assert audio.readframes(audio.getnframes()) == expected_pcm
-        assert source.read_bytes() == damaged
-    finally:
-        response.background.func(*response.background.args)
-    assert not preview.exists()
+    body = anyio.run(_read_response, media_preview.streaming_wav_response(source))
+    assert body[:4] == b"RIFF"
+    assert body[8:12] == b"WAVE"
+    assert body[44:] == expected_pcm
+    assert source.read_bytes() == damaged
 
 
 @pytest.mark.parametrize("fail_on_message", [1, 3])

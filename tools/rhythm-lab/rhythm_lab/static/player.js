@@ -1,7 +1,7 @@
 /* One transport survives every workspace render. A queue retains the request
  * that produced the selected row, including its library, recipe and ordering. */
 function createRhythmPlayer({ onChange }) {
-  const audio = document.getElementById("playerAudio");
+  let audio = document.getElementById("playerAudio");
   const title = document.getElementById("playerTitle");
   const artist = document.getElementById("playerArtist");
   const previous = document.getElementById("playerPrevious");
@@ -19,6 +19,8 @@ function createRhythmPlayer({ onChange }) {
   let pending = false;
   let request = null;
   let lastRowState = null;
+  let selection = null;
+  let stream = null;
 
   function identity(item) {
     return item ? `${item.catalog_uuid}:${item.track_id}:${item.track_uuid}` : "";
@@ -30,29 +32,31 @@ function createRhythmPlayer({ onChange }) {
   }
 
   function update(forceRows = false) {
-    const length = Number.isFinite(audio.duration) ? audio.duration : 0;
+    const length = selection?.duration || 0;
+    const elapsed = stream ? stream.start + stream.elapsed : 0;
+    const playing = Boolean(track && stream?.playing);
     title.textContent = track ? track.title || String(track.file_path || "").split(/[\\/]/).pop() || "Untitled track" : "No track playing";
     artist.textContent = track ? track.artist || "Unknown Artist" : "Select a track from the library";
     toggle.disabled = !track || pending;
-    toggle.dataset.playing = String(Boolean(track && !audio.paused));
-    toggle.setAttribute("aria-label", audio.paused ? "Play" : "Pause");
-    toggle.title = audio.paused ? "Play" : "Pause";
-    toggle.innerHTML = audio.paused
+    toggle.dataset.playing = String(playing);
+    toggle.setAttribute("aria-label", playing ? "Pause" : "Play");
+    toggle.title = playing ? "Pause" : "Play";
+    toggle.innerHTML = !playing
       ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m8 5 11 7-11 7z"/></svg>'
       : '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
     previous.disabled = !queue || position <= 0 || pending;
     next.disabled = !queue || position >= queue.total - 1 || pending;
     seek.disabled = !track || length <= 0;
     seek.max = String(length || 1);
-    seek.value = String(Math.min(length, audio.currentTime || 0));
-    seek.style.setProperty("--range-progress", `${length ? (audio.currentTime / length) * 100 : 0}%`);
-    currentTime.textContent = time(audio.currentTime);
+    seek.value = String(Math.min(length, elapsed));
+    seek.style.setProperty("--range-progress", `${length ? (Math.min(length, elapsed) / length) * 100 : 0}%`);
+    currentTime.textContent = time(length ? Math.min(length, elapsed) : elapsed);
     duration.textContent = time(length);
     volume.style.setProperty("--range-progress", `${audio.volume * 100}%`);
-    const rowState = `${identity(track)}:${!audio.paused}`;
+    const rowState = `${identity(track)}:${playing}`;
     if (rowState !== lastRowState || forceRows === true) {
       lastRowState = rowState;
-      onChange?.({ track, playing: Boolean(track && !audio.paused) });
+      onChange?.({ track, playing });
     }
   }
 
@@ -62,13 +66,103 @@ function createRhythmPlayer({ onChange }) {
     update();
   }
 
-  async function play() {
-    const token = generation;
+  function release(source) {
+    source.pause();
+    source.removeAttribute("src");
+    source.load();
+  }
+
+  function updatePosition(value) {
+    if (stream !== value || value.failed) return;
+    value.elapsed = Number.isFinite(value.audio.currentTime) ? Math.max(0, value.audio.currentTime) : 0;
+    update();
+  }
+
+  function failPlayback(value, reason) {
+    if (stream !== value || value.failed) return;
+    updatePosition(value);
+    value.failed = true;
+    value.playing = false;
+    release(value.audio);
+    fail(selection?.metadataError || reason);
+  }
+
+  async function play(value = stream) {
+    if (!value || stream !== value || !value.playing) return;
     try {
-      if (audio.ended) audio.currentTime = 0;
-      await audio.play();
+      await value.audio.play();
     } catch (reason) {
-      if (token === generation && reason.name !== "AbortError") fail(reason);
+      if (stream === value && value.playing && reason.name !== "AbortError") failPlayback(value, reason);
+    }
+  }
+
+  function startStream(start, playing) {
+    const previousAudio = audio;
+    // A fresh element isolates queued media events from the previous stream.
+    audio = previousAudio.cloneNode(false);
+    audio.removeAttribute("src");
+    audio.volume = previousAudio.volume;
+    const value = { audio, start, elapsed: 0, playing, ended: false, failed: false };
+    stream = value;
+    release(previousAudio);
+    previousAudio.replaceWith(audio);
+    if (selection.duration > 0 && start >= selection.duration) {
+      value.ended = true;
+      value.playing = false;
+      update();
+      return;
+    }
+    audio.addEventListener("timeupdate", () => updatePosition(value));
+    audio.addEventListener("play", () => {
+      if (stream !== value || !value.playing) value.audio.pause();
+      else update();
+    });
+    audio.addEventListener("pause", () => {
+      if (stream !== value || !value.audio.paused || value.audio.ended || value.failed) return;
+      value.playing = false;
+      updatePosition(value);
+    });
+    audio.addEventListener("ended", () => {
+      if (stream !== value || value.failed) return;
+      value.ended = true;
+      value.playing = false;
+      updatePosition(value);
+    });
+    audio.addEventListener("error", () => failPlayback(value, "Audio preview could not load. Check that the track is available in this library."));
+    audio.addEventListener("volumechange", () => { if (stream === value) update(); });
+    audio.src = `/media/${encodeURIComponent(track.track_id)}?start=${start}`;
+    audio.load();
+    void play(value);
+    update();
+  }
+
+  function togglePlayback() {
+    if (!stream) return;
+    error.hidden = true;
+    if (stream.playing) {
+      stream.playing = false;
+      audio.pause();
+    } else if (stream.ended || stream.failed) {
+      startStream(stream.ended ? 0 : stream.start + stream.elapsed, true);
+    } else {
+      stream.playing = true;
+      void play();
+    }
+    update();
+  }
+
+  async function loadDuration(item, selected) {
+    try {
+      const response = await fetch(`/api/tracks/${encodeURIComponent(item.track_id)}/preview-info`, { signal: selected.controller.signal });
+      const data = await response.json();
+      if (selection !== selected) return;
+      if (!response.ok) throw new Error(data.detail || response.statusText);
+      selected.duration = Number.isFinite(data.duration_seconds) ? Math.max(0, data.duration_seconds) : 0;
+      update();
+    } catch (reason) {
+      if (selection !== selected || reason.name === "AbortError") return;
+      selected.metadataError = reason.message || String(reason);
+      fail(stream?.failed ? selected.metadataError : `Could not determine track duration: ${selected.metadataError}`);
     }
   }
 
@@ -84,13 +178,12 @@ function createRhythmPlayer({ onChange }) {
     error.hidden = true;
     error.textContent = "";
     if (sameTrack) {
-      if (audio.paused) await play();
-      else audio.pause();
+      togglePlayback();
     } else {
-      audio.pause();
-      audio.src = `/media/${encodeURIComponent(item.track_id)}`;
-      audio.load();
-      await play();
+      selection?.controller.abort();
+      selection = { duration: 0, metadataError: null, controller: new AbortController() };
+      startStream(0, true);
+      void loadDuration(item, selection);
     }
     update();
   }
@@ -134,26 +227,27 @@ function createRhythmPlayer({ onChange }) {
     generation += 1;
     request?.abort();
     request = null;
+    selection?.controller.abort();
+    selection = null;
+    stream = null;
     track = null;
     queue = null;
     pending = false;
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
+    release(audio);
     error.hidden = true;
     update();
   }
 
-  toggle.addEventListener("click", () => audio.paused ? play() : audio.pause());
+  toggle.addEventListener("click", togglePlayback);
   previous.addEventListener("click", () => move(-1));
   next.addEventListener("click", () => move(1));
   seek.addEventListener("input", () => {
-    if (Number.isFinite(audio.duration)) audio.currentTime = Math.min(audio.duration, Math.max(0, Number(seek.value)));
-    update();
+    const seconds = Number(seek.value);
+    if (stream && selection.duration > 0 && Number.isFinite(seconds)) {
+      startStream(Math.min(selection.duration, Math.max(0, seconds)), stream.playing);
+    }
   });
-  volume.addEventListener("input", () => { audio.volume = Math.max(0, Math.min(1, Number(volume.value))); });
-  ["play", "pause", "ended", "timeupdate", "durationchange", "loadedmetadata", "volumechange"].forEach(event => audio.addEventListener(event, update));
-  audio.addEventListener("error", () => { if (track) fail("Audio preview could not load. Check that the track is available in this library."); });
+  volume.addEventListener("input", () => { audio.volume = Math.max(0, Math.min(1, Number(volume.value))); update(); });
   audio.volume = Math.max(0, Math.min(1, Number(volume.value || 0.7)));
   update();
   return { select, reset, update: () => update(true), identity, current: () => track };

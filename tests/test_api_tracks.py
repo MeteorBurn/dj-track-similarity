@@ -7,6 +7,7 @@ import wave
 from contextlib import closing
 from dataclasses import fields
 from pathlib import Path
+from types import SimpleNamespace
 
 import av
 import numpy as np
@@ -38,6 +39,20 @@ from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentit
 def _client(monkeypatch, db_path: Path) -> TestClient:
     monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: db_path.parent)
     return TestClient(api_module.create_app(db_path))
+
+
+def _preview_client(monkeypatch, db_path: Path, preview_app: str) -> TestClient:
+    if preview_app == "djts":
+        return _client(monkeypatch, db_path)
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "tools" / "rhythm-lab"))
+    from rhythm_lab import web_app
+
+    database = LibraryDatabase(db_path)
+    source = SimpleNamespace(get_track=lambda track_id: SimpleNamespace(
+        file_path=database.get_media_path(track_id),
+    ))
+    monkeypatch.setattr(web_app.SourceDatabaseState, "require_source", lambda _self: source)
+    return TestClient(web_app.create_app(labels_db_path=db_path.parent / "labels.sqlite"))
 
 
 def _add_track(
@@ -652,9 +667,11 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
     ]
 
 
+@pytest.mark.parametrize("preview_app", ["djts", "rhythm_lab"])
 def test_media_endpoint_reports_missing_audio_file_without_traceback(
     monkeypatch,
     tmp_path: Path,
+    preview_app: str,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     source = tmp_path / "missing.wav"
@@ -666,14 +683,17 @@ def test_media_endpoint_reports_missing_audio_file_without_traceback(
     )
     source.unlink()
 
-    response = _client(
+    client = _preview_client(
         monkeypatch,
         db_path,
-    ).get(f"/media/{identity.track_id}")
+        preview_app,
+    )
+    response = client.get(f"/media/{identity.track_id}")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Audio file is missing"}
     assert "Traceback" not in response.text
+    assert client.get(f"/api/tracks/{identity.track_id}/preview-info").status_code == 404
 
 
 def test_reveal_track_location_uses_saved_track_path(
@@ -722,12 +742,16 @@ def test_reveal_track_file_uses_explorer_select_without_shell(
     assert calls == [(f'explorer.exe /select,"{source}"', False)]
 
 
-def test_media_endpoint_streams_audio_with_binary_metadata_without_modifying_source(
+@pytest.mark.parametrize("preview_app", ["djts", "rhythm_lab"])
+@pytest.mark.parametrize("source_format", ["wav_binary_metadata", "m4a_alac"])
+def test_media_endpoint_streams_audio_without_modifying_source(
     monkeypatch,
     tmp_path: Path,
+    preview_app: str,
+    source_format: str,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
-    source = tmp_path / "preview.wav"
+    source = tmp_path / ("preview.m4a" if source_format == "m4a_alac" else "preview.wav")
     identity = _add_track(
         LibraryDatabase(db_path),
         source,
@@ -735,40 +759,54 @@ def test_media_endpoint_streams_audio_with_binary_metadata_without_modifying_sou
         title="Preview",
     )
     pcm = struct.pack("<hh", 1000, -1000) * 22_050
-    with wave.open(str(source), "wb") as audio:
-        audio.setnchannels(2)
-        audio.setsampwidth(2)
-        audio.setframerate(44_100)
-        audio.writeframes(pcm)
-    metadata = b"INFO" + struct.pack("<4sI", b"NITR", 8) + b"NTKB\xa7\xaa\x00\x00"
-    wave_bytes = bytearray(source.read_bytes() + struct.pack("<4sI", b"LIST", len(metadata)) + metadata)
-    struct.pack_into("<I", wave_bytes, 4, len(wave_bytes) - 8)
-    source.write_bytes(wave_bytes)
+    if source_format == "m4a_alac":
+        with av.open(str(source), "w", format="mp4") as container:
+            stream = container.add_stream("alac", rate=44_100)
+            stream.layout = "stereo"
+            samples = np.frombuffer(pcm, dtype="<i2").reshape(-1, 2).T.copy()
+            frame = av.AudioFrame.from_ndarray(samples, format="s16p", layout="stereo")
+            frame.sample_rate = 44_100
+            for packet in (*stream.encode(frame), *stream.encode(None)):
+                container.mux(packet)
+    else:
+        with wave.open(str(source), "wb") as audio:
+            audio.setnchannels(2)
+            audio.setsampwidth(2)
+            audio.setframerate(44_100)
+            audio.writeframes(pcm)
+        metadata = b"INFO" + struct.pack("<4sI", b"NITR", 8) + b"NTKB\xa7\xaa\x00\x00"
+        wave_bytes = bytearray(source.read_bytes() + struct.pack("<4sI", b"LIST", len(metadata)) + metadata)
+        struct.pack_into("<I", wave_bytes, 4, len(wave_bytes) - 8)
+        source.write_bytes(wave_bytes)
     source_bytes = source.read_bytes()
     monkeypatch.setattr(media_preview_module, "load_project_pyav", lambda: av)
-    client = _client(monkeypatch, db_path)
+    client = _preview_client(monkeypatch, db_path, preview_app)
     info_url = f"/api/tracks/{identity.track_id}/preview-info"
-    assert client.get(info_url).json() == {"duration_seconds": 0.5}
     response = client.get(f"/media/{identity.track_id}?start=0.125", headers={"Range": "bytes=0-"})
 
-    assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     assert "content-length" not in response.headers
     assert "accept-ranges" not in response.headers
     assert response.content[:4] == b"RIFF"
     assert response.content[44:] == pcm[round(0.125 * 44_100) * 4:]
     assert source.read_bytes() == source_bytes
+    assert client.get(info_url).json() == {"duration_seconds": 0.5}
     for start in (0.5, 1.0):
         beyond_end = client.get(f"/media/{identity.track_id}?start={start}")
         assert beyond_end.status_code == 422
         assert "end of the audio" in beyond_end.json()["detail"]
-    monkeypatch.setattr("dj_track_similarity.api.routes_library.preview_duration_seconds", lambda _path: None)
+    route_module = "dj_track_similarity.api.routes_library" if preview_app == "djts" else "rhythm_lab.web_app"
+    monkeypatch.setattr(f"{route_module}.preview_duration_seconds", lambda _path: None)
     assert client.get(info_url).json() == {"duration_seconds": None}
 
 
+@pytest.mark.parametrize("preview_app", ["djts", "rhythm_lab"])
 def test_media_endpoint_rejects_undecodable_audio_and_invalid_start_without_traceback(
     monkeypatch,
     tmp_path: Path,
+    preview_app: str,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     identity = _add_track(
@@ -779,7 +817,7 @@ def test_media_endpoint_rejects_undecodable_audio_and_invalid_start_without_trac
     )
 
     monkeypatch.setattr(media_preview_module, "load_project_pyav", lambda: av)
-    client = _client(monkeypatch, db_path)
+    client = _preview_client(monkeypatch, db_path, preview_app)
     response = client.get(f"/media/{identity.track_id}")
 
     assert response.status_code == 422

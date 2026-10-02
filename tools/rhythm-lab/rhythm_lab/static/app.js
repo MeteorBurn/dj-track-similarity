@@ -78,6 +78,7 @@ let activeView = "library";
 let collections = [];
 const viewOffsets = { library: 0, candidates: 0, liked: 0, collection: 0, training: 0, settings: 0 };
 let loadSequence = 0;
+let trackLoadController = null;
 let libraryRandomSeed = makeLibraryRandomSeed();
 let latestTrainingReadiness = null;
 let latestProfileSummary = null;
@@ -148,19 +149,19 @@ collectionTabEl.addEventListener("click", () => switchView("collection"));
 trainingTabEl.addEventListener("click", () => switchView("training"));
 settingsTabEl.addEventListener("click", () => switchView("settings"));
 sourcePathEl.addEventListener("keydown", event => { if (event.key === "Enter") switchSource(sourcePathEl.value).catch(showError); });
-queryEl.addEventListener("keydown", event => { if (event.key === "Enter") loadActive({ reset: true }); });
-bpmMinEl.addEventListener("change", () => loadActive({ reset: true }));
-bpmMaxEl.addEventListener("change", () => loadActive({ reset: true }));
-labelEl.addEventListener("change", () => loadActive({ reset: true }));
+queryEl.addEventListener("input", reloadFilteredTracks);
+bpmMinEl.addEventListener("input", reloadFilteredTracks);
+bpmMaxEl.addEventListener("input", reloadFilteredTracks);
+labelEl.addEventListener("change", reloadFilteredTracks);
 collectionSelectEl.addEventListener("change", () => loadActive({ reset: true }));
 deleteCollectionEl.addEventListener("click", () => deleteSelectedCollection().catch(showError));
 libraryOrderEl.addEventListener("change", () => updateLibraryOrder({ reset: true }));
 shuffleLibraryOrderEl.addEventListener("click", () => shuffleLibraryOrder());
-candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));
-candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));
+candidatePredictedEl.addEventListener("change", reloadFilteredTracks);
+candidateMinBrokenEl.addEventListener("change", reloadFilteredTracks);
+candidateMinPositiveEl.addEventListener("input", reloadFilteredTracks);
 candidateMinPositiveEl.addEventListener("change", () => {
   candidateMinPositiveEl.value = probabilityFilterValue();
-  loadActive({ reset: true });
 });
 trainingPanelEl.addEventListener("click", event => handleTrainingActionClick(event).catch(showError));
 trainingPanelEl.addEventListener("change", event => handleTrainingControlChange(event).catch(showError));
@@ -253,6 +254,8 @@ function clearActiveProfile() {
 
 function invalidateActiveLoads() {
   loadSequence += 1;
+  trackLoadController?.abort();
+  trackLoadController = null;
 }
 
 function resetProfileRecipeState() {
@@ -575,6 +578,7 @@ async function shutdownLab() {
 }
 
 async function switchView(view) {
+  invalidateActiveLoads();
   viewOffsets[activeView] = offset;
   activeView = view;
   offset = viewOffsets[view] || 0;
@@ -624,7 +628,7 @@ function updateLibraryOrder(options = {}) {
 function shuffleLibraryOrder() {
   libraryRandomSeed = makeLibraryRandomSeed();
   updateFilterPanelControls();
-  return loadTracks({ reset: true });
+  return loadActive({ reset: true });
 }
 
 function updateLibraryOrderControls() {
@@ -646,14 +650,25 @@ function makeLibraryRandomSeed() {
   return Math.floor(Math.random() * 2147483647);
 }
 
+function reloadFilteredTracks() {
+  if (sourceSwitchPending) return;
+  return loadActive({ reset: true, filtersOnly: true });
+}
+
 async function loadActive(options = {}) {
   if (!activeProfile) return;
-  if (activeView === "candidates") return loadCandidates(options).catch(showError);
-  if (activeView === "liked") return loadLikedTracks(options).catch(showError);
-  if (activeView === "collection") return loadCollectionTracks(options).catch(showError);
-  if (activeView === "training") return loadTrainingView().catch(showError);
-  if (activeView === "settings") return loadSettingsView().catch(showError);
-  return loadTracks(options).catch(showError);
+  const view = activeView;
+  const load = view === "candidates" ? loadCandidates
+    : view === "liked" ? loadLikedTracks
+    : view === "collection" ? loadCollectionTracks
+    : view === "training" ? loadTrainingView
+    : view === "settings" ? loadSettingsView
+    : loadTracks;
+  const pending = load(options);
+  const sequence = loadSequence;
+  return pending.catch(error => {
+    if (sequence === loadSequence && view === activeView) showError(error);
+  });
 }
 
 async function loadSummary(sequence = loadSequence) {
@@ -799,8 +814,35 @@ function plural(count, one, many) {
   return Math.abs(Number(count)) === 1 ? one : many;
 }
 
+function beginTrackLoad(options) {
+  invalidateActiveLoads();
+  trackLoadController = new AbortController();
+  if (options.reset) {
+    visibleTrackContext = null;
+    total = 0;
+    tracksEl.innerHTML = '<div class="empty-state">Loading tracks…</div>';
+    updatePager({ items: [], total: 0, limit: pageLimit(), offset: 0 });
+    pageInfoEl.textContent = "Loading tracks…";
+  }
+  return loadSequence;
+}
+
+async function fetchTrackPage(url, sequence) {
+  try {
+    return await fetch(url, { signal: trackLoadController.signal }).then(parseJsonResponse);
+  } catch (error) {
+    if (sequence === loadSequence && error.name !== "AbortError") {
+      tracksEl.innerHTML = '<div class="empty-state">Unable to load tracks.</div>';
+      updatePager({ items: [], total: 0, limit: pageLimit(), offset: 0 });
+      pageInfoEl.textContent = "Unable to load tracks.";
+      showError(error);
+    }
+    return null;
+  }
+}
+
 async function loadTracks(options = {}) {
-  const sequence = ++loadSequence;
+  const sequence = beginTrackLoad(options);
   if (options.reset) offset = 0;
   viewOffsets.library = offset;
   const limit = pageLimit();
@@ -815,8 +857,8 @@ async function loadTracks(options = {}) {
   params.set("order", libraryOrderEl.value);
   params.set("seed", String(libraryRandomSeed));
   appendRecipeParam(params);
-  const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
-  if (sequence !== loadSequence || activeView !== "library") return;
+  const data = await fetchTrackPage(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`, sequence);
+  if (!data || sequence !== loadSequence || activeView !== "library") return;
   visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/tracks`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
@@ -831,11 +873,11 @@ async function loadTracks(options = {}) {
   player.update();
   updatePager(data);
   await loadSummary(sequence);
-  await loadTrainingReadiness();
+  if (sequence === loadSequence) await loadTrainingReadiness();
 }
 
 async function loadLikedTracks(options = {}) {
-  const sequence = ++loadSequence;
+  const sequence = beginTrackLoad(options);
   if (options.reset) offset = 0;
   viewOffsets.liked = offset;
   const limit = pageLimit();
@@ -849,8 +891,8 @@ async function loadLikedTracks(options = {}) {
   });
   params.set("liked", "yes");
   appendRecipeParam(params);
-  const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
-  if (sequence !== loadSequence || activeView !== "liked") return;
+  const data = await fetchTrackPage(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`, sequence);
+  if (!data || sequence !== loadSequence || activeView !== "liked") return;
   visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/tracks`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
@@ -865,14 +907,15 @@ async function loadLikedTracks(options = {}) {
   player.update();
   updatePager(data);
   await loadSummary(sequence);
-  await loadTrainingReadiness();
+  if (sequence === loadSequence) await loadTrainingReadiness();
 }
 
 async function loadCollectionTracks(options = {}) {
-  const sequence = ++loadSequence;
+  const sequence = beginTrackLoad(options);
   if (options.reset) offset = 0;
   viewOffsets.collection = offset;
-  await loadCollections();
+  if (!options.filtersOnly) await loadCollections();
+  if (sequence !== loadSequence || activeView !== "collection") return;
   const collection = selectedCollection();
   if (!collection) {
     total = 0;
@@ -880,7 +923,7 @@ async function loadCollectionTracks(options = {}) {
     tracksEl.innerHTML = '<div class="empty-state">No collection selected</div>';
     updatePager({ items: [], total: 0, limit: pageLimit(), offset: 0 });
     await loadSummary(sequence);
-    await loadTrainingReadiness();
+    if (sequence === loadSequence) await loadTrainingReadiness();
     return;
   }
   const limit = pageLimit();
@@ -894,8 +937,8 @@ async function loadCollectionTracks(options = {}) {
     offset: String(offset)
   });
   appendRecipeParam(params);
-  const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
-  if (sequence !== loadSequence || activeView !== "collection") return;
+  const data = await fetchTrackPage(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`, sequence);
+  if (!data || sequence !== loadSequence || activeView !== "collection") return;
   visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/tracks`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
@@ -910,7 +953,7 @@ async function loadCollectionTracks(options = {}) {
   player.update();
   updatePager(data);
   await loadSummary(sequence);
-  await loadTrainingReadiness();
+  if (sequence === loadSequence) await loadTrainingReadiness();
 }
 
 async function deleteSelectedCollection() {
@@ -926,7 +969,7 @@ async function deleteSelectedCollection() {
 }
 
 async function loadCandidates(options = {}) {
-  const sequence = ++loadSequence;
+  const sequence = beginTrackLoad(options);
   if (options.reset) offset = 0;
   viewOffsets.candidates = offset;
   const limit = pageLimit();
@@ -942,8 +985,8 @@ async function loadCandidates(options = {}) {
     offset: String(offset)
   });
   appendRecipeParam(params);
-  const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions?${params}`).then(parseJsonResponse);
-  if (sequence !== loadSequence || activeView !== "candidates") return;
+  const data = await fetchTrackPage(`/api/profiles/${activeProfile.classifier_key}/predictions?${params}`, sequence);
+  if (!data || sequence !== loadSequence || activeView !== "candidates") return;
   visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/predictions`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
@@ -958,7 +1001,7 @@ async function loadCandidates(options = {}) {
   player.update();
   updatePager(data);
   await loadSummary(sequence);
-  await loadTrainingReadiness();
+  if (sequence === loadSequence) await loadTrainingReadiness();
 }
 
 function probabilityFilterValue() {

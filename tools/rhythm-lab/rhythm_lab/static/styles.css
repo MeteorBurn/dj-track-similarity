@@ -90,7 +90,7 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .brand { display: inline-flex; align-items: center; gap: .8rem; color: var(--text); text-decoration: none; flex-shrink: 0; }
 .brand strong { font-size: 1.65rem; letter-spacing: -.03em; }
 .brand svg { width: 2.65rem; height: 2rem; color: var(--accent); stroke-width: 1.5; }
-.global-status { display: flex; align-items: center; gap: .6rem; flex: 0 1 9rem; min-width: 6rem; margin-right: auto; color: var(--green); font-size: .95rem; overflow: hidden; white-space: nowrap; }
+.global-status { display: flex; align-items: center; gap: .6rem; flex: 1 1 9rem; min-width: 6rem; margin-right: auto; color: var(--green); font-size: .95rem; overflow: hidden; white-space: nowrap; }
 .global-status::before { content: ""; width: .8rem; height: .8rem; flex-shrink: 0; border-radius: 50%; background: currentColor; }
 .global-status[data-state="error"] { color: var(--danger); }
 .profile-controls { display: flex; align-items: center; gap: .5rem; width: calc(18rem + 21vw + var(--gutter) - 1.45rem); min-width: max-content; flex-shrink: 0; height: 100%; }
@@ -341,10 +341,10 @@ details[open] > summary { margin-bottom: .65rem; }
 .workflow-step-details p { margin: .3rem 0; font-size: .76rem; }
 .training-center, .training-models { display: flex; flex-direction: column; gap: .65rem; min-width: 0; }
 .recipe-builder > p { font-size: .8rem; }
-.recipe-rack { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: .65rem; }
-.recipe-slot { display: flex; align-items: center; gap: .45rem; }
-.recipe-slot label { display: inline-flex; align-items: center; gap: .7rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); padding: .55rem .65rem; font-size: .78rem; min-height: 2.45rem; }
-.recipe-slot select { min-height: 2.45rem; font-size: .78rem; min-width: 8rem; max-width: 8rem; }
+.recipe-rack { display: flex; flex-wrap: nowrap; gap: .65rem; margin-top: .65rem; overflow-x: auto; }
+.recipe-slot { display: flex; flex-direction: column; align-items: stretch; gap: .45rem; flex: 1 0 6.5rem; }
+.recipe-slot label { display: inline-flex; align-items: center; gap: .7rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); padding: .55rem .65rem; font-size: .78rem; min-height: 2.45rem; white-space: nowrap; }
+.recipe-slot select { width: 100%; min-height: 2.45rem; font-size: .78rem; min-width: 0; }
 .recipe-details { margin-top: .6rem; }
 .recipe-details summary { font-size: .68rem; }
 .recipe-line { display: flex; flex-wrap: wrap; gap: .45rem; margin: .45rem 0; }
@@ -529,6 +529,24 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
 .dialog-footer > div { display: flex; gap: 1rem; }
 .dialog-footer button { min-width: 7.25rem; min-height: 2.7rem; }
 .dialog-footer .primary-button { min-width: 9.5rem; }
+
+@media (min-width: 1801px) and (min-height: 900px) {
+  .classifier-workflow-card { height: 100%; }
+  .training-columns { align-items: stretch; min-height: min-content; }
+  .training-workflow { display: flex; flex-direction: column; min-height: min-content; }
+  .workflow-steps { display: flex; flex-direction: column; justify-content: space-between; flex: 1; }
+  .workflow-step { padding: .4rem 0; }
+  .workflow-step-details > summary, .recipe-details > summary { display: none; }
+  .workflow-step-details p { overflow-wrap: anywhere; }
+  .training-center, .training-models { min-height: 0; }
+  .training-center > :not(.saved-variants) { flex-shrink: 0; }
+  .saved-variants { display: flex; flex-direction: column; flex: 1 1 0; min-height: 14rem; }
+  .variants-table { flex: 1; min-height: 0; max-height: none; }
+  .benchmark-results { max-height: 22rem; overflow: auto; }
+  .training-models > .tool-panel { display: flex; flex-direction: column; flex: 1; }
+  .selected-variant > button { margin-top: auto; }
+  .promoted-model .model-date { margin-top: auto; padding-top: .8rem; }
+}
 
 @media (max-width: 1800px) {
   :root { --gutter: .85rem; --row-padding-x: .85rem; --row-gap: .65rem; }

@@ -111,6 +111,8 @@ let latestWorkflowProgress = { status: "idle" };
 let workflowStatusText = "";
 let workflowStatusState = "idle";
 let deletingVariant = false;
+const roomyTrainingLayout = window.matchMedia("(min-width: 1801px) and (min-height: 900px)");
+roomyTrainingLayout.addEventListener("change", syncTrainingDisclosureLayout);
 const player = createRhythmPlayer({ onChange: updatePlayingRows });
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
@@ -1289,6 +1291,16 @@ function applyTrainingReadiness(data) {
   updateBenchmarkControls(data);
   refreshTrainingInformation(data);
   renderTrainingModels(data, selected);
+  syncTrainingDisclosureLayout();
+}
+
+function syncTrainingDisclosureLayout() {
+  trainingPanelEl.querySelectorAll(".workflow-step-details, .recipe-details").forEach(details => {
+    const expanded = String(roomyTrainingLayout.matches);
+    if (details.dataset.roomyLayout === expanded) return;
+    details.open = roomyTrainingLayout.matches;
+    details.dataset.roomyLayout = expanded;
+  });
 }
 
 function syncRecipeFromReadiness(data) {

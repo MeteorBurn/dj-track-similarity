@@ -359,11 +359,14 @@ td, th { padding: .65rem .65rem; text-align: left; border-bottom: 1px solid var(
 .variants-table th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .variants-table td { font-size: .78rem; }
 .variants-table th:first-child, .variants-table td:first-child { padding-left: 1.2rem; }
-.variants-table tr.selected { background: var(--accent-active-bg); }
-.variants-table tr.selected td:first-child { box-shadow: inset .22rem 0 0 var(--accent); }
+.variants-table tr.selected { background: var(--success-bg); }
+.variants-table tr.selected td:first-child { box-shadow: inset .22rem 0 0 var(--green); }
 .variant-select { padding: .15rem 0; min-height: 1.6rem; background: transparent; box-shadow: none; border: 0; font-size: .78rem; text-align: left; justify-content: flex-start; white-space: normal; }
-.variant-select:hover:not(:disabled) { background: transparent; color: var(--accent); }
-.variants-table td:nth-last-child(-n+2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.variant-select:hover:not(:disabled) { background: transparent; color: var(--green); }
+.variants-table td:nth-child(n+3) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.variants-table .variant-actions { width: 1%; text-align: right; }
+.variant-delete { width: 1.8rem; min-height: 1.8rem; padding: .3rem; }
+.variant-delete svg { width: 1rem; height: 1rem; }
 .model-contribution { padding: .55rem 1rem .8rem; }
 .model-contribution > summary { color: var(--text); }
 .model-contribution > p { font-size: .72rem; }

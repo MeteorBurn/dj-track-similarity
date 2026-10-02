@@ -10,7 +10,7 @@ import threading
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from dj_track_similarity.analysis_models import EMBEDDING_LAYER_HINTS, EMBEDDING_LAYERS
@@ -139,6 +139,17 @@ class ProfilePatchRequest(BaseModel):
 
 class ProfileDeleteRequest(BaseModel):
     confirm: str
+
+
+class ArtifactDeleteRequest(BaseModel):
+    feature_set: str
+    artifact_filename: str = Field(min_length=1, pattern=r"^[^/\\:]+$")
+
+
+class ArtifactDeleteResponse(BaseModel):
+    feature_set: str
+    deleted_files: int
+    deleted_names: list[str]
 
 
 class LabelRenameRequest(BaseModel):
@@ -618,6 +629,64 @@ def create_app(
             "name": deleted.name,
             "artifact_cleanup": artifact_cleanup,
         }
+
+    @app.delete(
+        "/api/profiles/{profile_key}/artifacts",
+        response_model=ArtifactDeleteResponse,
+    )
+    def delete_saved_variant(
+        profile_key: str, request: ArtifactDeleteRequest
+    ) -> ArtifactDeleteResponse:
+        profile = profile_or_404(profile_key)
+        try:
+            feature_set = canonical_feature_set(feature_sources(request.feature_set))
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        try:
+            training_progress.start(
+                profile.classifier_key,
+                operation="delete_artifact",
+                stage="Deleting saved variant",
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        try:
+            root = Path(profile.artifact_dir).expanduser().resolve()
+            models = _artifact_groups(
+                root, suffix=".joblib", artifact_prefix=profile.artifact_prefix
+            ).get(feature_set, [])
+            metrics = _artifact_groups(
+                root, suffix=".metrics.json", artifact_prefix=profile.artifact_prefix
+            ).get(feature_set, [])
+            targets = models + metrics
+            if not targets:
+                raise HTTPException(status_code=404, detail="Saved variant no longer exists.")
+            # Validate the entire recipe before removing any retained training run.
+            for path in targets:
+                if path.is_symlink() or path.resolve().parent != root or not path.is_file():
+                    raise HTTPException(status_code=400, detail="Unsafe training artifact path.")
+            if targets[0].name != request.artifact_filename:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Saved variant changed; reload it before deleting.",
+                )
+            for path in targets:
+                path.unlink()
+        except HTTPException as error:
+            training_progress.fail(profile.classifier_key, error=error)
+            raise
+        except Exception as error:
+            training_progress.fail(profile.classifier_key, error=error)
+            LOGGER.exception("%s saved variant deletion failed", profile.name)
+            raise HTTPException(
+                status_code=500, detail="Could not remove training artifacts; reload and retry."
+            ) from error
+        training_progress.complete(profile.classifier_key, stage="Saved variant deleted")
+        return ArtifactDeleteResponse(
+            feature_set=feature_set,
+            deleted_files=len(targets),
+            deleted_names=[path.name for path in targets],
+        )
 
     @app.post("/api/profiles/{profile_key}/labels/{old_key}/rename")
     def rename_profile_label(profile_key: str, old_key: str, request: LabelRenameRequest):

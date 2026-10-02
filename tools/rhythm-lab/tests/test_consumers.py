@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -348,6 +349,95 @@ def _create_focused_profile(
             {"key": "no", "name": "No", "role": "negative"},
         ],
     )
+
+
+def test_delete_saved_variant_removes_only_its_training_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mulan_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
+    artifact_dir = tmp_path / "artifacts"
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path, artifact_dir=artifact_dir)
+    old = _write_promotable_artifact(artifact_dir, stamp="old")
+    latest = _write_promotable_artifact(artifact_dir, stamp="new")
+    # Use deterministic timestamps for the visible revision guard.
+    os.utime(old, (1, 1))
+    os.utime(latest, (2, 2))
+    retained = _write_promotable_artifact(
+        artifact_dir, output=AnalysisOutput("clap", "embedding")
+    )
+    foreign = artifact_dir / "other-mulan-test.joblib"
+    foreign.write_bytes(b"other profile")
+    promoted = tmp_path / "promoted" / "focused"
+    promoted.mkdir(parents=True)
+    (promoted / "model.joblib").write_bytes(b"promoted model")
+    (promoted / "model.json").write_text("{}", encoding="utf-8")
+    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    track = SourceDatabase(repository.path).list_tracks()[0]
+    scoped.set_label(track, "yes")
+    scoped.save_prediction(
+        track, feature_set="mulan", model_artifact=str(latest),
+        label="yes", confidence=0.8, probabilities={"yes": 0.8, "no": 0.2},
+    )
+    scoped.record_training_checkpoint({"yes": 1, "no": 0}, model_artifact=latest)
+    progress = web_app_module.TrainingProgress()
+    monkeypatch.setattr(web_app_module, "TrainingProgress", lambda: progress)
+    app = create_app(
+        repository.path, labels_db_path=lab_path,
+        classifier_target_root=tmp_path / "promoted",
+    )
+
+    def database_snapshot() -> list[list[str]]:
+        snapshots = []
+        for path in (repository.path, lab_path):
+            with sqlite3.connect(path) as connection:
+                snapshots.append(list(connection.iterdump()))
+        return snapshots
+
+    before_data = database_snapshot()
+    before_files = {path: path.read_bytes() for path in artifact_dir.iterdir()}
+    promoted_files = {path: path.read_bytes() for path in promoted.iterdir()}
+    endpoint = "/api/profiles/focused/artifacts"
+    payload = {"feature_set": "mulan", "artifact_filename": latest.name}
+    with TestClient(app) as client:
+        assert client.request("DELETE", endpoint).status_code == 422
+        assert client.request(
+            "DELETE", endpoint, json={**payload, "artifact_filename": "../outside.joblib"}
+        ).status_code == 422
+        assert client.request(
+            "DELETE", endpoint, json={**payload, "artifact_filename": old.name}
+        ).status_code == 409
+        progress.start("focused", operation="train_refresh", stage="Training")
+        assert client.request("DELETE", endpoint, json=payload).status_code == 409
+        progress.complete("focused", stage="Done")
+        original_is_symlink = Path.is_symlink
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                Path, "is_symlink",
+                lambda path: path == latest or original_is_symlink(path),
+            )
+            assert client.request("DELETE", endpoint, json=payload).status_code == 400
+        assert {path: path.read_bytes() for path in artifact_dir.iterdir()} == before_files
+        response = client.request("DELETE", endpoint, json=payload)
+        assert response.status_code == 200
+        removed = {old, latest, old.with_suffix(".metrics.json"), latest.with_suffix(".metrics.json")}
+        assert set(response.json()) == {"feature_set", "deleted_files", "deleted_names"}
+        assert response.json()["feature_set"] == "mulan"
+        assert response.json()["deleted_files"] == len(removed)
+        assert set(response.json()["deleted_names"]) == {path.name for path in removed}
+        assert {path: path.read_bytes() for path in artifact_dir.iterdir()} == {
+            path: content for path, content in before_files.items() if path not in removed
+        }
+        assert retained.exists()
+        summary = web_app_module._artifact_summary(artifact_dir, "focused")
+        assert {row["feature_set"] for row in summary["by_feature"]} == {"clap"}
+        assert {path: path.read_bytes() for path in promoted.iterdir()} == promoted_files
+        assert database_snapshot() == before_data
+        assert client.request("DELETE", endpoint, json=payload).status_code == 404
 
 
 def test_web_profile_creation_uses_canonical_profiles_directory(

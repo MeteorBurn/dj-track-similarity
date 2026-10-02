@@ -101,6 +101,7 @@ let trainingProgressHasStarted = false;
 let latestWorkflowProgress = { status: "idle" };
 let workflowStatusText = "";
 let workflowStatusState = "idle";
+let deletingVariant = false;
 const player = createRhythmPlayer({ onChange: updatePlayingRows });
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
@@ -338,6 +339,7 @@ function setWorkflowBusy(disabled) {
     setTrainingActionDisabled(id, disabled);
   });
   trainingPanelEl.querySelectorAll("button[data-training-action]").forEach(button => { button.disabled = Boolean(disabled); });
+  trainingPanelEl.querySelectorAll("button[data-variant-delete]").forEach(button => { button.disabled = Boolean(disabled); });
 }
 
 function setGlobalStatus(message, state = "idle") {
@@ -428,6 +430,8 @@ function startTrainingProgressPolling(profileKey, operation, stage = "Startingâ€
 async function handleTrainingActionClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  const deleteButton = target.closest("button[data-variant-delete]");
+  if (deleteButton && !deleteButton.disabled) return deleteSavedVariant(deleteButton.dataset.variantDelete);
   const variantButton = target.closest("button[data-variant-select]");
   if (variantButton && promoteFeatureSetEl && !variantButton.disabled) {
     promoteFeatureSetEl.value = variantButton.dataset.variantSelect;
@@ -1039,6 +1043,33 @@ async function openLibraryForLabels() {
   await loadActive({ reset: true });
 }
 
+async function deleteSavedVariant(featureSet) {
+  if (!activeProfile || deletingVariant || latestWorkflowProgress.status === "running") return;
+  const row = latestTrainingReadiness?.artifact_summary?.promotion_options?.find(option => option.feature_set === featureSet);
+  if (!row) return;
+  const profileKey = activeProfile.classifier_key;
+  const recipe = recipeTokens(featureSet).map(recipeTokenLabel).join(" + ");
+  if (!window.confirm(`Delete the saved training artifacts for ${recipe}? Only this recipe's local model and metrics files will be removed. Labels, predictions, the profile and promoted model stay.`)) return;
+  deletingVariant = true;
+  setWorkflowBusy(true);
+  setWorkflowStatus("Deleting saved variantâ€¦");
+  try {
+    const response = await fetch(`/api/profiles/${encodeURIComponent(profileKey)}/artifacts`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feature_set: featureSet, artifact_filename: fileName(row.latest_model || row.latest_metrics) })
+    });
+    await parseRefreshResponse(response);
+    if (activeProfile?.classifier_key === profileKey) setWorkflowStatus(`Deleted saved variant: ${recipe}.`, "success");
+  } finally {
+    deletingVariant = false;
+    if (activeProfile?.classifier_key === profileKey) {
+      setWorkflowBusy(false);
+      await loadTrainingReadiness();
+    }
+  }
+}
+
 async function trainRefresh() {
   if (trainingActionElement("trainRefresh")?.disabled) return;
   if (!window.confirm(`Train a new ${activeProfile.name} model with recipe ${recipeText()} and refresh candidates?`)) {
@@ -1338,7 +1369,7 @@ function renderTrainingModels(data, selected) {
   const options = data?.artifact_summary?.promotion_options || [];
   const totals = labelTotals(data);
   document.getElementById("trainingCoverage").innerHTML = `<b class="training-state ${data.ready ? "ready" : "blocked"}" id="workflowStateChip">${data.ready ? "Ready to train in this library" : "Training needs more labels or features in this library"}</b>${coverageBars(data, true)}${totals ? `<span class="meta cross-library-labels"><span>Total labels across libraries:</span>${trainingLabels().map((label, index) => `<span class="cross-library-label ${labelRoleClass(label, index)}">${escapeHtml(label.name)} <b>${escapeHtml(totals[label.key] || 0)}</b></span>`).join("")}</span>` : ""}`;
-  document.getElementById("savedVariants").innerHTML = `<header class="saved-variants-heading"><h2 class="section-kicker">Saved variants</h2><span class="meta">${options.length} saved variants</span></header>${options.length ? `<div class="variants-table"><table><thead><tr><th>#</th><th>Recipe</th><th>F1</th><th>Calibration</th></tr></thead><tbody>${options.map((row, index) => `<tr class="${row.feature_set === selected?.feature_set ? "selected" : ""}"><td>${row.rank ?? index + 1}</td><td><button type="button" class="variant-select" data-variant-select="${escapeHtml(row.feature_set)}" ${selectableOption(row) ? "" : "disabled"} aria-pressed="${row.feature_set === selected?.feature_set}" title="${escapeHtml(promotionOptionLabel(row))}">${escapeHtml(recipeTokens(row.feature_set).map(recipeTokenLabel).join(" + "))}</button></td><td title="${escapeHtml(row.macro_f1_mean ?? "Unavailable")}">${formatMetricPercent(row.macro_f1_mean)}</td><td>${escapeHtml(row.calibration_status === "calibrated" ? row.calibration_method || "Calibrated" : "Uncalibrated")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty-state">Train a model to save the first variant.</p>'}`;
+  document.getElementById("savedVariants").innerHTML = `<header class="saved-variants-heading"><h2 class="section-kicker">Saved variants</h2><span class="meta">${options.length} saved variants</span></header>${options.length ? `<div class="variants-table"><table><thead><tr><th>#</th><th>Recipe</th><th>F1</th><th>Calibration</th><th aria-label="Actions"></th></tr></thead><tbody>${options.map((row, index) => `<tr class="${row.feature_set === selected?.feature_set ? "selected" : ""}"><td>${row.rank ?? index + 1}</td><td><button type="button" class="variant-select" data-variant-select="${escapeHtml(row.feature_set)}" ${selectableOption(row) ? "" : "disabled"} aria-pressed="${row.feature_set === selected?.feature_set}" title="${escapeHtml(promotionOptionLabel(row))}">${escapeHtml(recipeTokens(row.feature_set).map(recipeTokenLabel).join(" + "))}</button></td><td title="${escapeHtml(row.macro_f1_mean ?? "Unavailable")}">${formatMetricPercent(row.macro_f1_mean)}</td><td>${escapeHtml(row.calibration_status === "calibrated" ? row.calibration_method || "Calibrated" : "Uncalibrated")}</td><td class="variant-actions"><button type="button" class="icon-button danger-button variant-delete" data-variant-delete="${escapeHtml(row.feature_set)}" aria-label="Delete saved variant ${escapeHtml(recipeTokens(row.feature_set).map(recipeTokenLabel).join(" + "))}" title="Delete training artifacts only" ${deletingVariant || latestWorkflowProgress.status === "running" ? "disabled" : ""}>${actionIcon("delete")}</button></td></tr>`).join("")}</tbody></table></div>` : '<p class="empty-state">Train a model to save the first variant.</p>'}`;
   document.getElementById("selectedVariant").innerHTML = `<h2 class="section-kicker">Selected variant</h2>${selected ? `<div class="model-score"><strong>${formatMetricPercent(selected.macro_f1_mean)}</strong><span>F1</span><span class="calibration-chip ${selected.calibration_status === "calibrated" ? "calibrated" : ""}">${selected.calibration_status === "calibrated" ? "Calibrated" : "Not calibrated"}</span></div><p>Recall ${formatMetricPercent(selected.positive_recall_mean)}</p><p class="meta">Recipe</p>${recipeChips(selected.feature_set)}<div class="model-provenance"><p>${escapeHtml(artifactProvenanceText(selected))}</p><p class="${selected.source_data_ready ? "ready" : "blocked"}">${selected.source_data_ready ? "Source data current" : escapeHtml(selected.source_data_reason || "Source data unavailable")}</p></div>${workflowButton("", "promote", "Promote", "promote-classifier", !canPromoteArtifact(data), promoteBlockedTitle(selected))}<p class="meta">${escapeHtml(selected.calibration_status === "calibrated" ? selected.spec_compatible ? "Ready for promotion." : selected.spec_reason || "Feature spec does not match." : "Calibrate before promotion.")}</p>` : '<p class="empty-state">No trained variant selected.</p>'}`;
   const model = data.promoted_model;
   const calibration = model?.calibration || {};
@@ -1483,6 +1514,7 @@ function workflowButton(id, action, label, className, disabled, title) {
 }
 
 function actionIcon(action) {
+  if (action === "delete") return '<svg class="lucide lucide-trash-2" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6l-1 14H6L5 6M9 6V3h6v3M10 10v6M14 10v6" /></svg>';
   if (action === "library") return '<svg class="lucide lucide-library-big" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1" /><path d="M7 3v18" /><path d="M20.4 18.9c.2.7-.2 1.4-.9 1.6l-3.7 1c-.7.2-1.4-.2-1.6-.9L9.1 5.1c-.2-.7.2-1.4.9-1.6l3.7-1c.7-.2 1.4.2 1.6.9Z" /></svg>';
   if (action === "train") return '<svg class="lucide lucide-brain" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>';
   if (action === "candidates") return '<svg class="lucide lucide-sparkles" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594Z" /><path d="M20 2v4" /><path d="M22 4h-4" /></svg>';

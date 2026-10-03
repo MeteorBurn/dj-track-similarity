@@ -8,7 +8,6 @@ are relative to this file. These guides are read by task, not imported as a batc
 
 ## MODEL LAYER OWNERSHIP
 
-- State the model layer before changing shared files.
 - For MAEST integration changes and reviews, use `models/maest/contract.json`
   as the active native-inference reference. Contracts are tracked in Git; the
   weights beside them are local and untracked. The package itself is the pinned
@@ -73,7 +72,6 @@ are relative to this file. These guides are read by task, not imported as a batc
   and family unions in `frontend/src/api.ts` take changes within the requested
   scope. Preserve unaffected contracts; update affected consumers together when
   the requested behavior changes a shared contract.
-- Do not expand, redesign, or remove Model Listening Lab without a new request.
 - Keep CLAP text scores separate from audio-to-audio CLAP signals. Never
   substitute MuQ, MERT-v2, MAEST, CLAP, MuQ-MuLan, or SONARA evidence
   for another.

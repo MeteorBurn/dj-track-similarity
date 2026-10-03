@@ -182,12 +182,10 @@ a statement: startup can write. Use temporary fixtures for executable examples
 and the prescribed read-only path when an explicitly identified library must
 be inspected. Apply, delete, migrate, rescore and retrain modes are not docs QA.
 
-Select documentation checks from the verification guide: while the site is
-paused, a `README.md` edit runs
-`npm --prefix .\docs\dj-track-similarity run lint:language`; when the site is
-maintained, site or docs tooling changes run
-`npm --prefix .\docs\dj-track-similarity run check`. Inspect the result rather
-than inferring success from a rendered page. Check scoped whitespace and links.
+Select documentation checks from the verification guide; when the site is
+maintained, its full `run check` also covers docs tooling changes. Inspect the
+result rather than inferring success from a rendered page. Check scoped
+whitespace and links.
 Instruction-only work needs a scoped diff and relevant path/command checks.
 Do not run application suites or add tests for prose and navigation copy.
 

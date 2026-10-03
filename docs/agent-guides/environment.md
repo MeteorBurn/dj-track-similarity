@@ -11,8 +11,6 @@ are relative to this file. These guides are read by task, not imported as a batc
 - Work from the repository root in PowerShell 7. Invoke local commands with
   `.\run_server.cmd`, `& .\.venv\Scripts\python.exe`, and `& 'C:\path\tool.exe'`.
   Use PowerShell syntax and argument arrays; do not copy Bash examples into it.
-  Follow `.gitattributes`: source text uses LF, `.cmd`/`.bat` use CRLF; new text
-  is UTF-8 without BOM. Preserve unrelated file formatting.
 - `.python-version` selects the development interpreter; `requires-python` in
   `pyproject.toml` is the package compatibility range, not an alternative pin.
   Use the root `.venv` created by `uv`, never an unverified system `python`.
@@ -66,8 +64,10 @@ are relative to this file. These guides are read by task, not imported as a batc
   The repository ships an LGPL audio-only build in `libs/ffmpeg/bin/` and a PyAV
   wheel built against it in `libs/wheels/`; that wheel carries no libraries of its
   own, so `configure_shared_ffmpeg_runtime()` must run before anything imports
-  `av`. Discovery checks `libs/ffmpeg/bin/` first, then the DLL directory in
-  `DJTS_FFMPEG`, then PATH, skipping missing or invalid candidates. Verify
+  `av`. Discovery checks `libs/ffmpeg/bin/` first, then the optional DLL
+  directory in `DJTS_FFMPEG`, then PATH, skipping missing or invalid candidates,
+  and fails explicitly if none is usable. The bundled build needs no environment
+  setup; the installer does not create `DJTS_FFMPEG`. Verify
   with `inspect_audio_runtime()`, which also checks project PyAV; finding
   `ffmpeg.exe` alone is insufficient. No project code launches an FFmpeg
   executable.
@@ -93,13 +93,8 @@ Examples below are selected by task, not run as a batch. Local mode uses backend
 `127.0.0.1:8765` and Vite `127.0.0.1:5173`; Rhythm Lab defaults to
 `127.0.0.1:8777`. Check existing processes/listeners before starting a server;
 LAN exposure must be requested. Confirm the database before using `--db`.
-Start project servers only through `run_server.cmd` in a visible interactive
-window so the user can see and stop them. Do not launch hidden direct `dj-sim`,
-Uvicorn or Vite processes. While the main server runs, start Rhythm Lab only
-through it (Rhythm Lab button or `POST /api/rhythm-lab/launch`); it runs as the
-server's managed child in the same window. Without the main server, use
-`run_rhythm-lab.cmd` in a visible window, which hands off to a running main
-server itself. Never run `rhythm_lab_cli.py serve` directly.
+Follow [EXECUTION AND SCOPE](../../AGENTS.md#execution-and-scope) for server and
+Rhythm Lab launch rules.
 
 ```powershell
 .\run_server.cmd --help

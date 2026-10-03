@@ -44,7 +44,8 @@ preserve unrelated and concurrent work.
 - Do not expand source pruning into dependency or environment cleanup, model
   downloads, documentation work, or generated-output cleanup. Removing a package
   requires an explicit dependency-maintenance scope and its owning lockfile
-  workflow. Missing packages or optional extras do not prove code is dead.
+  workflow. Missing packages or platform-specific dependencies do not prove code
+  is dead.
 
 ## Runtime Tool Contract
 
@@ -119,8 +120,9 @@ Check the project-specific roots relevant to each candidate:
   jobs, queue callbacks, and Windows process-pool targets. An HTTP endpoint is
   an external boundary; no frontend call does not make it dead.
 - Adapter factories, lazy imports, model capability registries, text caches,
-  classifier manifests, optional extras, and reset/readiness paths. Declare the
-  affected model layer and follow the model-layer guide before judging them.
+  classifier manifests, platform-specific code paths, and reset/readiness paths.
+  Declare the affected model layer and follow the model-layer guide before
+  judging them.
 - Database repositories, schema/migration code, saved payload and vector formats,
   model/output identities, and catalog/track UUID and database-generation checks.
   An old data reader or an infrequent safety check can still serve a contract.

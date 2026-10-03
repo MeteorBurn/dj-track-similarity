@@ -192,13 +192,9 @@ Source audio remains unchanged. Respect explicit, recoverable migrations,
 database-only classifier scoring, dry-run and backup rules, and confirmed
 deletion boundaries. Do not run apply/delete modes to prove an example works.
 
-Select documentation checks from the verification guide: while the site is
-paused, a `README.md` edit runs
-`npm --prefix .\docs\dj-track-similarity run lint:language`; when the site is
-maintained, site or docs tooling changes run
-`npm --prefix .\docs\dj-track-similarity run check`. Add scoped whitespace and
-relevant link checks. Validate factual claims separately from rendering. For
-requested artifacts outside that surface, use their applicable format checks
+Select documentation checks from the verification guide. Add scoped whitespace
+and relevant link checks. Validate factual claims separately from rendering.
+For requested artifacts outside that surface, use their applicable format checks
 without introducing a new toolchain.
 
 Do not add prose, label or source-text tests. Run application checks only when a

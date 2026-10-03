@@ -10,8 +10,9 @@
 # and documentation roles. Register a role in its source frontmatter; do not
 # maintain a second list of names in this script or project configuration.
 #
-# Project skills remain in .djts/skills/<name>/SKILL.md. Codex discovers
-# them there directly; a skill is never projected as an agent launcher.
+# Project skills remain in .djts/skills/<name>/SKILL.md. Codex reads them
+# from its installed copy of the plugin; a skill is never projected as an
+# agent launcher.
 #
 # Real agents land in .codex/agents/*.toml. Those files are disposable — edit
 # the Markdown, never the TOML.
@@ -25,10 +26,11 @@
 #                                Codex takes gpt-5.6*; translating would lie.
 #   skills                   ->  named in the preamble, not emitted as
 #                                [[skills.config]]. That key is a per-skill
-#                                enablement override, and every skill under
-#                                .djts/skills is already discoverable by Codex,
-#                                so an override would add nothing and its path
-#                                base is not documented clearly enough to risk.
+#                                enablement override, and every skill of the
+#                                installed plugin is already discoverable by
+#                                Codex, so an override would add nothing and
+#                                its path base is not documented clearly enough
+#                                to risk.
 #
 # The body is copied verbatim. No harness name is ever substituted: a blanket
 # search-and-replace over the body is what produced "so Codex and Codex run the

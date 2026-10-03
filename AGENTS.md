@@ -43,15 +43,11 @@ work unverified rather than inventing its instructions.
 - Work from the repository root in PowerShell 7. Use the verified root `uv`
   `.venv`, never an unverified system Python. Read the environment guide before
   application/runtime commands; do not sync, upgrade or recreate it for inspection.
-- For requested full installation, use `.\install.ps1`. It prepares the shared
-  environment, frontend, audio runtime and pinned model assets. All Python
-  dependencies are required by the root `pyproject.toml`; preserve the locked
-  SONARA fork and CUDA package sources. FFmpeg discovery checks `libs/ffmpeg/bin`,
-  then the optional `DJTS_FFMPEG` DLL directory, then `PATH`; skip missing or
-  invalid candidates and fail explicitly if none is usable. Use shared libraries
-  only, never `ffmpeg.exe` or `ffprobe.exe`. The bundled build needs no environment
-  setup; the installer neither creates `DJTS_FFMPEG` nor changes user/system
-  `PATH`. See the [environment guide](docs/agent-guides/environment.md) for details.
+- For requested full installation, use `.\install.ps1`. All Python dependencies
+  are required by the root `pyproject.toml`; preserve the locked SONARA fork and
+  CUDA package sources. Audio uses shared FFmpeg libraries only, never
+  `ffmpeg.exe` or `ffprobe.exe`; discovery order and installer behavior are in
+  the [environment guide](docs/agent-guides/environment.md).
 - scikit-learn is a required project-wide dependency managed in the root
   `pyproject.toml`. Prefer its existing tools for feature analysis, clustering,
   evaluation and classical ML when they fit the task.

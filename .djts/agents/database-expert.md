@@ -67,9 +67,10 @@ Two constraints govern everything you do here and are not yours to relax:
   produced it took hours. Treat destructive operations accordingly.
 
 There is no single "main" database. The project may hold several libraries and
-the launcher lets the user choose one. Establish which file the task concerns
-before reading, writing or reasoning about "the" database, and say which one you
-used.
+the launcher lets the user choose one. Development and server startup use the
+default the project instructions confirm; otherwise establish which file the
+task concerns before reading, writing or reasoning about "the" database, and say
+which one you used.
 
 ## Ownership
 

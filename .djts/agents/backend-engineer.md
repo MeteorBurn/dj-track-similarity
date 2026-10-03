@@ -79,7 +79,7 @@ Own the service side end to end:
 - application composition, shared state and dependency wiring;
 - Python implementation quality in this layer;
 - process and subprocess handling, including how external binaries are invoked;
-- the environment, the lockfile and the extras that make the service runnable;
+- the environment and the lockfile that make the service runnable;
 - fixtures and test doubles for the service layer.
 
 Do not take ownership of schema design, model semantics, UI behavior or the

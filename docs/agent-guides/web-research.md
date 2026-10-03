@@ -8,18 +8,21 @@ are relative to this file. These guides are read by task, not imported as a batc
 
 ## WEB RESEARCH ROUTING
 
-- Start with built-in web search/page reading. Use Tavily or Firecrawl when
-  those results are insufficient; account for their API-credit costs. Discover
-  the tools available in the current session and follow the provider's own
-  skills/help rather than assuming fixed tool names or capabilities.
+- Start with Perplexity search/ask when it is available, otherwise built-in web
+  search/page reading. Use Context7 for library and API documentation. Use
+  Tavily or Firecrawl when those results are insufficient; account for their
+  API-credit costs. Discover the tools available in the current session and
+  follow the provider's own skills/help rather than assuming fixed tool names or
+  capabilities.
 - Use Tavily search for facts, news and links, research for multi-source
   synthesis, and extraction for known URLs. For difficult or JS-rendered pages,
   use the provider's supported advanced extraction or browser workflow.
 - Use map for URL discovery and crawl for page content, with explicit limits.
   For structured extraction, use a supported schema workflow or shape fields
   from extracted content when that capability is unavailable.
-- For library/API behavior and errors, use Firecrawl's developer index when
-  available to locate official documentation, repository issues and PRs.
+- For library/API behavior and errors beyond Context7, use Firecrawl's developer
+  index when available to locate official documentation, repository issues and
+  PRs.
 - For audio-model literature (CLAP, MuQ, MuQ-MuLan, MERT-v2, MAEST, SONARA), use
   the research-paper index when available, inspect relevant papers and linked
   repositories, and cite the paper URL or ID for claims. A web-search research

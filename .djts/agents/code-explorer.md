@@ -126,13 +126,15 @@ matches nothing useful and returns plausible noise instead of code.
 
 Second, **pick the command the question calls for**: one that explains a named
 symbol and everything touching it; one that walks backwards to find the blast
-radius of a change; one that finds the route between two symbols; a breadth
-search over a handful of concrete tokens; and an overview of the architectural
-hubs. Reach for the specific command when you have a symbol, and for the broad
-one only when you do not.
+radius of a change; a breadth search over a handful of concrete tokens; and an
+overview of the architectural hubs. For the connection between two symbols,
+inspect the neighbours of their exact nodes: the route-finding command matches
+endpoints loosely, so its "no path" proves nothing. Reach for the specific
+command when you have a symbol, and for the broad one only when you do not.
 
 Treat truncated output as unfinished work. Narrow the tokens, filter by
-relation, or raise the budget — never present a cut-off sweep as an answer.
+relation, or explain the exact symbol; keep the guide's budget unless the caller
+sets another — never present a cut-off sweep as an answer.
 
 The graph does not cover tests, documentation, configuration prose, dependency
 locks, git history or the agent layer. Find tests by their naming convention

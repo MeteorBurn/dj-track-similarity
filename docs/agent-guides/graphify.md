@@ -21,7 +21,11 @@ Tasks confined to instructions, configuration, locks, Git state, or the excluded
 agent layer use direct inspection; those files are outside the code graph.
 Codex's `.codex/hooks.json` has no Graphify search reminder: the native guard
 cannot distinguish these exceptions and emits an unconditional instruction.
-Claude retains its native search/read guards. Hook setup belongs to the
+Claude deliberately keeps its native search/read guards; they are equally
+unconditional: the read guard also fires on project `.md` files and the search
+guard on any `rg`/`grep`. Their reminder never overrides this guide: excluded
+files are inspected directly, and graph commands follow the invocation, budget
+and `path` rules below. Hook setup belongs to the
 [agent-layer guide](agent-layer.md); do not add a wrapper or duplicate rules.
 
 The agent maintains the graph while using it; the owner runs nothing by hand.

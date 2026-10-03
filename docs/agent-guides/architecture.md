@@ -89,5 +89,4 @@ respective package owners.
   growing `App.tsx`; use `App.tsx` to compose workflows and panels.
 - Dependency changes use the owning package manager and lockfile: `uv.lock` for
   Python and `frontend/package-lock.json` for the frontend. Do not hand-edit locks.
-- UI work follows `DESIGN.md` at the repository root: no raw colours inside
-  components, `type="button"` on every button that does not submit.
+- UI work follows `DESIGN.md` at the repository root.

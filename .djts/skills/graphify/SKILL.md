@@ -42,7 +42,7 @@ $graphifyPackageVersion = (& $graphPython -c 'from importlib.metadata import ver
 if ($LASTEXITCODE -ne 0) { throw 'Graphify package version check failed.' }
 $graphifySkillVersion = (Get-Content -LiteralPath '.djts/skills/graphify/.graphify_version' -Raw).Trim()
 if ($graphifyCliVersion -ne "graphify $graphifyPackageVersion" -or $graphifySkillVersion -ne $graphifyPackageVersion) {
-    throw 'Graphify runtime and project skill versions differ; review the skill before refreshing its marker and plugin caches.'
+    throw 'Graphify runtime and project skill versions differ; review the skill before refreshing its marker and the Codex plugin cache.'
 }
 ```
 
@@ -62,7 +62,8 @@ unavailable, report that limit and inspect source; a question alone does not
 authorize installing Graphify or building a new graph.
 
 Read [references/query.md](references/query.md) for vocabulary selection,
-bounded navigation, source verification, and the project memory loop.
+bounded navigation, budgets and truncation, the `path` limitation, source
+verification, and the project memory loop.
 
 ```powershell
 & .\.tools\graphify\bin\graphify.exe query '<expanded vocabulary tokens>' --budget 8000
@@ -71,25 +72,17 @@ bounded navigation, source verification, and the project memory loop.
 & .\.tools\graphify\bin\graphify.exe affected '<exact node ID>' --relation calls --depth 1
 ```
 
-The budget is an approximate output target, not a hard cap. Narrow an oversized
-query with `--context call` when investigating calls, or use `explain` for a
-specific symbol. `TRUNCATED` output is incomplete; a tool-level truncation also
-means the agent has not read the full result. A failed fuzzy `path` lookup is
-not proof that no code relationship exists.
-
 ## Maintenance and integrations
 
 - Read [references/update.md](references/update.md) for the native `update .`
-  and `extract . --code-only` routes. Use the guide's maintenance triggers;
-  do not rebuild after every edit or as a delivery check.
+  and `extract . --code-only` routes. Use the guide's maintenance triggers.
 - Read [references/hooks.md](references/hooks.md) for requested Git hook work.
   Project agent hooks and plugin refresh belong to
-  `docs/agent-guides/agent-layer.md`. Hook configuration is not activation proof.
-- After an authorized package upgrade, review the installed upstream skill and
-  references, apply relevant changes while retaining this project's rules,
-  then update `.graphify_version` and the version statement above. Refresh both
-  plugin caches and verify their contents. The containing project's plugin
-  version is independent of the Graphify package version.
+  `docs/agent-guides/agent-layer.md`.
+- After an authorized package upgrade, follow the agent-layer guide: review
+  the installed upstream skill and references against this project's rules,
+  apply relevant changes, then update `.graphify_version` and the version
+  statement above together.
 
 Only the three references linked above are active procedures. Other bundled
 references are upstream background retained for comparison during maintenance;

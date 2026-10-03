@@ -30,19 +30,24 @@ edge context:
 if ($LASTEXITCODE -ne 0) { throw 'Graphify call query failed.' }
 ```
 
-Use `--budget 8000` unless the user specifies another budget. Allow at least
-12000 output tokens in the calling tool. This does not guarantee that all
-output fits: Graphify can emit `Complete answer over budget` when all nodes fit
-and it retains every connecting edge. Narrow with `--context call` for calls
-or use `explain`; increasing the budget cannot shrink this output.
+Use `--budget 8000` unless the user specifies another budget; this overrides
+the CLI default of 2000. The budget is an approximate output target, not a
+hard cap. Allow at least 12000 output tokens in the calling tool. This does
+not guarantee that all output fits: Graphify can emit
+`Complete answer over budget` when all nodes fit and it retains every
+connecting edge. Narrow with `--context call` for calls or use `explain`;
+increasing the budget cannot shrink this output.
 
-`TRUNCATED` means Graphify omitted nodes. Narrow the query or use `explain`
-before treating the result as complete; increase the query budget only when
-the user specifies another budget. If the calling tool truncates an otherwise
-complete Graphify response, narrow the query as well.
+`TRUNCATED` means Graphify omitted nodes, and a tool-level truncation means
+the agent has not read the full result; treat both as incomplete. Narrow the
+query or use `explain` before treating the result as complete; increase the
+query budget only when the user specifies another budget. If the calling tool
+truncates an otherwise complete Graphify response, narrow the query as well
+or raise that tool's output allowance.
 
 If only the executable launcher is unavailable but the verified project
-interpreter imports Graphify, invoke the same CLI through its module:
+interpreter imports Graphify, invoke the same CLI through its module with the
+same budget:
 
 ```powershell
 & $graphPython -m graphify query '<expanded tokens>' --budget 8000
@@ -64,8 +69,16 @@ if ($LASTEXITCODE -ne 0) { throw 'Graphify affected query failed.' }
 
 Use depth `2` only when the next caller level is relevant. Resolve ambiguous
 labels with exact IDs in `graph.json`; use its `links` array when inspecting
-directed relationships. `path` uses fuzzy endpoint matching in 0.9.73, so
-`No path` or `No directed path` is not evidence that a relationship is absent.
+directed relationships.
+
+`path` uses fuzzy endpoint matching in 0.9.73: it picks endpoints by token
+scoring instead of exact-ID lookup, splits a full node ID into tokens, does
+not recognize `path::Symbol`, and often resolves an endpoint to a module,
+parent class, or other code node. `No path` or `No directed path` is therefore
+not evidence that a relationship is absent. To trace a connection, use a
+scoped `explain` with the exact ID or `path::Symbol`, or inspect exact node
+IDs and directed `links` in `graph.json` with the project Graphify interpreter,
+then verify the source. For incoming calls, use `affected`.
 
 Read each relevant `source_file` and `source_location`. Graph edges, including
 `EXTRACTED` and `INFERRED` edges, are navigation leads. Distinguish graph output,
@@ -73,11 +86,11 @@ confirmed source behavior, and any runtime behavior actually exercised.
 
 ## Save source-grounded findings
 
-After a graph-guided investigation, always save `dead_end` and `corrected`
-outcomes. Save `useful` findings only when `LESSONS.md` does not already list
-the cited source. Both the question and answer must be English; include the
-expanded tokens, cited node labels, and verified source locations. Do not
-save a plausible graph interpretation as a confirmed fact.
+Decide what to save under the guide's memory policy. Both the question and
+answer must be English, even when the user writes in Russian; this overrides
+upstream's rule to save the original question. Include the expanded tokens,
+cited node labels, and verified source locations. Do not save a plausible
+graph interpretation as a confirmed fact.
 
 Use an argument array for text; replace the placeholders before execution:
 
@@ -106,4 +119,3 @@ Always pass this `--memory-dir` to both commands. Notes stay outside the code
 corpus; reflection writes `graphify-out/reflections/LESSONS.md` and its overlay
 beside the graph. Never use or recreate `graphify-out/memory/`: upstream's
 update path force-scans it and would add documentation nodes to the code graph.
-Recheck remembered claims against current source on reuse.

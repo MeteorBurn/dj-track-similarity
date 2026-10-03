@@ -422,6 +422,28 @@ def test_delete_saved_variant_removes_only_its_training_artifacts(
             )
             assert client.request("DELETE", endpoint, json=payload).status_code == 400
         assert {path: path.read_bytes() for path in artifact_dir.iterdir()} == before_files
+        original_rename = Path.rename
+        original_unlink = Path.unlink
+
+        def fail_second_file(path: Path, *args, **kwargs):
+            if path == old:
+                raise PermissionError("Training artifact is locked")
+            return original_rename(path, *args, **kwargs)
+
+        def fail_second_unlink(path: Path, *args, **kwargs):
+            if path == old:
+                raise PermissionError("Training artifact is locked")
+            return original_unlink(path, *args, **kwargs)
+
+        # The same file lock must preserve the entire recipe, including files
+        # already processed before the failure. A retry must still be possible.
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "rename", fail_second_file)
+            patch.setattr(Path, "unlink", fail_second_unlink)
+            assert client.request("DELETE", endpoint, json=payload).status_code == 500
+        assert {path: path.read_bytes() for path in artifact_dir.iterdir()} == before_files
+        assert database_snapshot() == before_data
+        assert progress.snapshot("focused")["status"] == "failed"
         response = client.request("DELETE", endpoint, json=payload)
         assert response.status_code == 200
         removed = {old, latest, old.with_suffix(".metrics.json"), latest.with_suffix(".metrics.json")}

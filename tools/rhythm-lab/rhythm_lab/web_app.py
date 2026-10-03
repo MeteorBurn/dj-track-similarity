@@ -6,6 +6,8 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
+import tempfile
 import threading
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -670,8 +672,38 @@ def create_app(
                     status_code=409,
                     detail="Saved variant changed; reload it before deleting.",
                 )
-            for path in targets:
-                path.unlink()
+            # Stage the whole recipe on the same filesystem before deleting
+            # bytes. A locked file must not leave only part of the recipe.
+            staging = Path(tempfile.mkdtemp(prefix=".delete-", dir=root))
+            moved: list[Path] = []
+            try:
+                for path in targets:
+                    path.rename(staging / path.name)
+                    moved.append(path)
+            except OSError:
+                restore_failed = False
+                for path in reversed(moved):
+                    try:
+                        if path.exists():
+                            raise FileExistsError(path)
+                        (staging / path.name).rename(path)
+                    except OSError:
+                        restore_failed = True
+                        LOGGER.exception("Could not restore training artifact %s", path)
+                if restore_failed:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Deletion failed and could not restore every file. Recovery files remain at {staging}.",
+                    )
+                staging.rmdir()
+                raise
+            try:
+                shutil.rmtree(staging)
+            except OSError as error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Saved variant removed, but cleanup is incomplete. Remaining files are at {staging}.",
+                ) from error
         except HTTPException as error:
             training_progress.fail(profile.classifier_key, error=error)
             raise

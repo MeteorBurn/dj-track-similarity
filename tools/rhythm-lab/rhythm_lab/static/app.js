@@ -1287,7 +1287,19 @@ function applyTrainingReadiness(data) {
   const facts = document.getElementById("workflowFacts");
   if (facts) facts.innerHTML = renderWorkflowFacts(data, selected);
   const steps = document.getElementById("workflowSteps");
-  if (steps) steps.innerHTML = renderWorkflowSteps(data, selected);
+  if (steps) {
+    const disclosureStates = Array.from(steps.querySelectorAll(".workflow-step-details"), details => ({
+      open: details.open,
+      roomyLayout: details.dataset.roomyLayout,
+    }));
+    steps.innerHTML = renderWorkflowSteps(data, selected);
+    steps.querySelectorAll(".workflow-step-details").forEach((details, index) => {
+      const previous = disclosureStates[index];
+      if (!previous || previous.roomyLayout === undefined) return;
+      details.open = previous.open;
+      details.dataset.roomyLayout = previous.roomyLayout;
+    });
+  }
   updateBenchmarkControls(data);
   refreshTrainingInformation(data);
   renderTrainingModels(data, selected);

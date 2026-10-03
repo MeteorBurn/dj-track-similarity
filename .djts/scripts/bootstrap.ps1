@@ -48,9 +48,11 @@ else {
         throw "Claude Code could not register the project plugin marketplace (exit $LASTEXITCODE)."
     }
 
-    & $claude.Source plugin install 'dj-track-similarity@dj-track-similarity' --scope project --yes
-    if ($LASTEXITCODE -ne 0) {
-        throw "Claude Code could not install the project plugin (exit $LASTEXITCODE)."
+    # Enable, never install: an installed copy is cached and a same-version
+    # update does not refresh it, while an enabled plugin loads from .djts/.
+    $enableResult = & $claude.Source plugin enable 'dj-track-similarity@dj-track-similarity' --scope project --json | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -and -not $enableResult.alreadyInGoalState) {
+        throw "Claude Code could not enable the project plugin: $($enableResult.message)"
     }
 }
 

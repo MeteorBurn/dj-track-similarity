@@ -14,28 +14,31 @@ are relative to this file. These guides are read by task, not imported as a batc
 - Edit agent/skill Markdown there. After agent edits, explicitly run
   `.\.djts\scripts\sync-codex-agents.ps1` to regenerate `.codex/agents/*.toml`;
   never edit the generated launchers. Skills are not projected as agents.
-- For initial agent setup, run
-  `.\.djts\scripts\bootstrap.ps1`: it registers/installs the plugin for available
-  Claude Code and Codex CLIs, then generates launchers. It is optional for
-  application-only use and is not run automatically at session start.
-- For a requested plugin refresh, inspect its registered source and installation
-  scope first. Preserve the version unless the user requests a version change.
-  Refresh Codex with `codex plugin add dj-track-similarity@dj-track-similarity`.
-  This command enables the plugin globally: restore its global `enabled = false`,
-  retain `enabled = true` in this checkout's `.codex/config.toml`, and verify
-  both scopes afterward.
-  For Claude, set `$pluginScope` to the verified existing scope (this checkout
-  uses `project`), then run
-  `claude plugin update dj-track-similarity@dj-track-similarity --scope $pluginScope --yes`.
-  If the installed content remains stale at the same version, run
-  `claude plugin uninstall dj-track-similarity@dj-track-similarity --scope $pluginScope --keep-data`
-  followed by
-  `claude plugin install dj-track-similarity@dj-track-similarity --scope $pluginScope --yes`.
-  Target only this plugin; bootstrap or a successful update message alone does
-  not prove its cached content was refreshed.
-- Compare the installed plugin files and skill inventory with `.djts/`, including
-  removal of deleted skills. Verify registration and enabled state separately.
-  An already open session can retain old capabilities until restarted.
+- For initial agent setup, run `.\.djts\scripts\bootstrap.ps1`: for available
+  CLIs it registers the `.djts` marketplace, enables the plugin for Claude Code
+  at project scope (no install) and installs it for Codex, then generates
+  launchers. It is optional for application-only use and is not run
+  automatically at session start.
+- Claude loads the plugin in place from `.djts/`: `.claude/settings.json`
+  declares the marketplace (`extraKnownMarketplaces`) and enables the plugin
+  (`enabledPlugins`) without an install record. `.djts/` edits reach Claude from
+  the next session, with no refresh command or version bump; an open session
+  keeps old capabilities until restarted. Never install, reinstall or update
+  this plugin for Claude: install makes it run a cached copy under
+  `~/.claude/plugins/cache/` that drifts from `.djts/`, and update at an
+  unchanged version copies nothing. Verify the inventory with
+  `claude plugin details dj-track-similarity@dj-track-similarity`; an empty
+  `claude plugin list` is expected. To prove the loaded content, ask an edited
+  agent in a new session, without tools, to quote a changed line and compare it
+  with `.djts/`.
+- For a requested Codex refresh, inspect its registered source and scope first;
+  preserve the version unless the user requests a change. Run
+  `codex plugin add dj-track-similarity@dj-track-similarity`. It enables the
+  plugin globally: restore its global `enabled = false`, retain `enabled = true`
+  in this checkout's `.codex/config.toml`, and verify both scopes. Codex uses
+  the generated `.codex/agents/*.toml` and only the skills from its plugin
+  cache: compare those with `.djts/skills/`, including removal of deleted
+  skills; a successful add message alone does not prove a refresh.
 - `.claude/` holds only Claude configuration, hooks, and runtime state;
   `.codex/` holds Codex configuration and generated launchers. Do not put
   copies or links to shared skills/agents in `.claude/`.
@@ -44,17 +47,23 @@ are relative to this file. These guides are read by task, not imported as a batc
   configuration and enabled in this checkout's `.codex/config.toml`; preserve
   that scope after plugin installation or refresh. Claude uses project scope.
   Do not add standalone skill copies or register a Graphify MCP server.
-  Claude's PreToolUse hooks call native `hook-guard search/read`. Codex follows
-  the [Graphify guide](graphify.md) without a search hook: the native reminder
-  cannot honor the guide's excluded-file exceptions. Do not restore that
-  reminder, the `hook-check` no-op, or a custom wrapper/SessionStart script.
+  Claude's PreToolUse hooks call native `hook-guard search/read` from the
+  git-ignored `.claude/settings.json`; bootstrap writes only the marketplace and
+  plugin enablement there, never these hooks. Matchers
+  `Bash|Grep` and `PowerShell` run `hook-guard search`, `Read|Glob` runs
+  `hook-guard read`, each through this checkout's
+  `.tools/graphify/bin/graphify.exe` by absolute path with forward slashes.
+  Codex follows the [Graphify guide](graphify.md) without a search hook: the
+  native reminder cannot honor the guide's excluded-file exceptions. Do not
+  restore that reminder, the `hook-check` no-op, or a custom
+  wrapper/SessionStart script.
   Graphify's automatic skill refresh covers upstream-managed installation
-  paths, not `.djts/skills/graphify/` or this plugin's cached copies. After a
-  package upgrade, review upstream skill changes against our project overrides,
-  update the shared source and its `.graphify_version` together, and refresh
-  both plugin installations as above. Compare the CLI/package version, marker,
-  skill version statement, and cached skill contents; a successful refresh
-  message alone is insufficient. The containing project plugin has its own
+  paths, not `.djts/skills/graphify/` or the Codex plugin cache. After a
+  package upgrade, review upstream skill changes against our project overrides
+  and update the shared source and its `.graphify_version` together. Claude
+  picks it up from the next session; refresh only the Codex installation as
+  above, then compare the CLI/package version, marker, skill version statement,
+  and Codex cached skill contents. The containing project plugin has its own
   version: do not replace it with Graphify's package version.
   New or changed Codex hooks require native trust review; configuration alone
   does not prove activation.

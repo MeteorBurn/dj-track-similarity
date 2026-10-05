@@ -1957,6 +1957,15 @@ h2 {
   min-height: 36px;
 }
 
+/* A bound the current choice does not let you edit (a preset, no range, a
+   locked library) has to read as unavailable rather than as an empty field. */
+.sonara-settings-bpm-controls > label > input:disabled {
+  background: var(--surface-disabled);
+  border-color: var(--surface-disabled-border);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
 .sonara-settings-bpm-hint {
   color: var(--text-muted);
   font-size: 11px;

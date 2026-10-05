@@ -40,7 +40,8 @@ export const emptyLibrarySummary: LibrarySummary = {
   liked: 0,
   classifiers: 0,
   sonara_bpm_min: null,
-  sonara_bpm_max: null
+  sonara_bpm_max: null,
+  sonara_bpm_range_none: false
 };
 
 type RefreshLibraryOptions = {

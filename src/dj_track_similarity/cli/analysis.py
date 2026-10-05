@@ -22,10 +22,13 @@ from ..analysis.config import (
     MIN_SONARA_BATCH_SIZE,
     build_analysis_job_config,
     parse_analysis_models_text,
-    parse_sonara_bpm_range,
 )
 from ..analysis.jobs import AnalysisJobManager
-from ..analysis.sonara_runtime import DEFAULT_SONARA_BPM_PRESET, SONARA_BPM_PRESETS
+from ..analysis.sonara_runtime import (
+    DEFAULT_SONARA_BPM_PRESET,
+    SONARA_BPM_PRESETS,
+    SONARA_BPM_RANGE_NONE,
+)
 from ..classifier.scoring import analyze_classifier as run_classifier_analysis
 from .common import DATABASE_OPTION_HELP, _db
 from .progress import _run_cli_job_with_progress
@@ -34,8 +37,10 @@ from .progress import _run_cli_job_with_progress
 _SONARA_BPM_RANGE_HELP = (
     "SONARA BPM analysis range: a preset ("
     + ", ".join(f"{name} {low:g}-{high:g}" for name, (low, high) in SONARA_BPM_PRESETS.items())
-    + ") or MIN-MAX such as 70-140, where MAX is at least twice MIN. Defaults to the "
-    f"library's range, or {DEFAULT_SONARA_BPM_PRESET} for a library without SONARA analysis."
+    + f"), {SONARA_BPM_RANGE_NONE} for SONARA's own tempo unfolded, or MIN-MAX such as "
+    "68-135, where MAX + 1 is at least twice MIN. A tempo outside the range is folded "
+    "into it by octaves. Defaults to the library's range, or "
+    f"{DEFAULT_SONARA_BPM_PRESET} for a library without SONARA analysis."
 )
 
 
@@ -119,7 +124,6 @@ def analyze(
 
     try:
         selected_models = _parse_analysis_models(models)
-        sonara_bpm_min, sonara_bpm_max = parse_sonara_bpm_range(sonara_bpm_range) or (None, None)
         config = build_analysis_job_config(
             models=selected_models,
             limit=limit,
@@ -128,8 +132,7 @@ def analyze(
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
             sonara_batch_size=sonara_batch_size,
-            sonara_bpm_min=sonara_bpm_min,
-            sonara_bpm_max=sonara_bpm_max,
+            sonara_bpm_range=sonara_bpm_range,
             ml_staging_config=ml_staging_config,
         )
     except ValueError as error:
@@ -144,8 +147,7 @@ def analyze(
             track_batch_size=config.track_batch_size,
             inference_batch_size=config.inference_batch_size,
             sonara_batch_size=config.sonara_batch_size,
-            sonara_bpm_min=config.sonara_bpm_min,
-            sonara_bpm_max=config.sonara_bpm_max,
+            sonara_bpm_range=sonara_bpm_range,
             ml_staging_config=config.ml_staging_config,
         )
         status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
@@ -161,7 +163,11 @@ def analyze(
     if config.models == ("sonara",):
         result_summary += (
             f" sonara_batch_size={config.sonara_batch_size}"
-            f" sonara_bpm={status.sonara_bpm_min:g}-{status.sonara_bpm_max:g}"
+            + (
+                f" sonara_bpm={SONARA_BPM_RANGE_NONE}"
+                if status.sonara_bpm_min is None or status.sonara_bpm_max is None
+                else f" sonara_bpm={status.sonara_bpm_min:g}-{status.sonara_bpm_max:g}"
+            )
         )
     else:
         result_summary += (

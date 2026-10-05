@@ -1271,6 +1271,7 @@ class TrackRepository:
                         SET roots_json = '[]',
                             sonara_bpm_min = NULL,
                             sonara_bpm_max = NULL,
+                            sonara_bpm_range_none = 0,
                             updated_at = ?
                         WHERE singleton_id = 1
                         """,

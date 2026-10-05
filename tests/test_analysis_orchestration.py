@@ -128,10 +128,9 @@ class _FakeRepository:
 
     def claim_sonara_analysis_range(
         self,
-        bpm_min: float,
-        bpm_max: float,
-    ) -> tuple[float, float]:
-        return (bpm_min, bpm_max)
+        bpm_range: tuple[float, float] | None,
+    ) -> tuple[float, float] | None:
+        return bpm_range
 
     def current_sonara_track_count(self) -> int:
         return self.sonara_count

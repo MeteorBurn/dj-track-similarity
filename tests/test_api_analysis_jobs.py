@@ -12,10 +12,6 @@ from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
 from dj_track_similarity.analysis_models import EMBEDDING_LAYERS
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.analysis.sonara_runtime import (
-    DEFAULT_SONARA_BPM_MAX,
-    DEFAULT_SONARA_BPM_MIN,
-)
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
@@ -90,8 +86,7 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
             "track_batch_size": 5,
             "inference_batch_size": 18,
             "sonara_batch_size": 8,
-            "sonara_bpm_min": None,
-            "sonara_bpm_max": None,
+            "sonara_bpm_range": None,
             "device": "cpu",
             "top_k": 4,
         }
@@ -397,8 +392,7 @@ def test_api_pipeline_builds_direct_sonara_settings_without_staging_folder(
     assert settings == {
         "mode": "direct",
         "batch_size": 12,
-        "bpm_min": DEFAULT_SONARA_BPM_MIN,
-        "bpm_max": DEFAULT_SONARA_BPM_MAX,
+        "bpm_range": None,
         "staging_config": None,
     }
 

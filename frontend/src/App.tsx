@@ -52,7 +52,10 @@ import { shutdownApplication } from "./shutdownApplication";
 import {
   loadSonaraAnalysisSettings,
   saveSonaraAnalysisSettings,
+  selectedSonaraBpmRange,
+  sonaraBpmRangeArgument,
   type SonaraAnalysisSettings,
+  type SonaraBpmRange,
 } from "./sonaraAnalysisSettings";
 import {
   loadMLAnalysisSettings,
@@ -352,14 +355,17 @@ export function App() {
       || (audioDedupJob?.events || []).some((event) => event.level === "error");
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length) || Boolean(databaseValidationJob?.errors) || Boolean(databaseOptimizationJob?.error) || Boolean(audioDedupJob?.error);
   }, [activityLog, analysisJob, audioDedupJob, databaseOptimizationJob, databaseValidationJob, genreTagJob, scanJob]);
-  // The library reports the one BPM range it analyses SONARA with. Once an
-  // analysis job has claimed it, the range is fixed until that analysis is
-  // reset or the library is cleared.
-  const sonaraBpmRangeLocked = librarySummary.sonara_bpm_min != null
-    && librarySummary.sonara_bpm_max != null;
+  // The library reports the one BPM range it analyses SONARA with, or none.
+  // Once an analysis job has claimed it, the range is fixed until that
+  // analysis is reset or the library is cleared.
+  const libraryBpmRange: SonaraBpmRange = librarySummary.sonara_bpm_min != null
+    && librarySummary.sonara_bpm_max != null
+    ? { bpmMin: librarySummary.sonara_bpm_min, bpmMax: librarySummary.sonara_bpm_max }
+    : null;
+  const sonaraBpmRangeLocked = librarySummary.sonara_bpm_range_none || libraryBpmRange !== null;
   const sonaraBpmRange = sonaraBpmRangeLocked
-    ? { bpmMin: librarySummary.sonara_bpm_min as number, bpmMax: librarySummary.sonara_bpm_max as number }
-    : { bpmMin: sonaraSettings.bpmMin, bpmMax: sonaraSettings.bpmMax };
+    ? libraryBpmRange
+    : selectedSonaraBpmRange(sonaraSettings);
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
     maest: librarySummary.maest_analysis,
@@ -1009,7 +1015,7 @@ export function App() {
                 sonara: {
                   mode: sonaraSettings.mode,
                   direct_batch_size: sonaraSettings.directBatchSize,
-                  bpm_range: `${sonaraBpmRange.bpmMin}-${sonaraBpmRange.bpmMax}`,
+                  bpm_range: sonaraBpmRangeArgument(sonaraBpmRange),
                   staged: {
                     folder: sonaraSettings.staged.folder,
                     processes: sonaraSettings.staged.processes,
@@ -1676,7 +1682,7 @@ export function App() {
       {metadataTrack && (
         <TrackMetadataDialog
           track={metadataTrack}
-          sonaraBpmRange={sonaraBpmRangeLocked ? sonaraBpmRange : null}
+          sonaraBpmRange={sonaraBpmRangeLocked ? sonaraBpmRange : undefined}
           onClose={() => setMetadataTrack(null)}
           onDelete={(track) => requestConfirmation({
             title: "Удалить трек из базы?",
@@ -1706,7 +1712,6 @@ export function App() {
           onSonaraSettingsChange={setSonaraSettings}
           sonaraBpmRange={sonaraBpmRange}
           sonaraBpmRangeLocked={sonaraBpmRangeLocked}
-          onSonaraBpmRangeChange={(range) => setSonaraSettings((current) => ({ ...current, ...range }))}
           onChooseSonaraStagingFolder={() => void handleChooseStagingFolder()}
           onClose={() => setSonaraSettingsDialogOpen(false)}
         />

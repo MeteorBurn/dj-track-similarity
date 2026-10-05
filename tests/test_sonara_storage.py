@@ -186,7 +186,7 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
     )
 
     result = database.save_sonara_results(
-        (write,), bpm_range=database.claim_sonara_analysis_range(70.0, 180.0)
+        (write,), bpm_range=database.claim_sonara_analysis_range((70.0, 180.0))
     )
 
     assert result[0].ok
@@ -314,7 +314,7 @@ def test_repository_rolls_back_core_when_embedding_write_fails(
     )
 
     result = database.save_sonara_results(
-        (write,), bpm_range=database.claim_sonara_analysis_range(70.0, 180.0)
+        (write,), bpm_range=database.claim_sonara_analysis_range((70.0, 180.0))
     )
 
     assert not result[0].ok
@@ -475,8 +475,8 @@ def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -
         ),
         (
             "provenance",
-            {"schema_version": 6, "bpm_min": 70.0, "bpm_max": 139.0, "sample_rate": 22_050, "hop_length": 512},
-            "bpm_max must be at least 140",
+            {"schema_version": 6, "bpm_min": 70.0, "bpm_max": 138.0, "sample_rate": 22_050, "hop_length": 512},
+            "bpm_max must be at least 139",
         ),
     ],
 )
@@ -589,27 +589,28 @@ def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
         manager.create_job(models=["maest"])
     # ...a SONARA job refused over another setting claims nothing either...
     with pytest.raises(ValueError, match="Staged SONARA mode requires staging settings"):
-        manager.create_job(models=["sonara"], sonara_mode="staged", sonara_bpm_min=79, sonara_bpm_max=192)
+        manager.create_job(models=["sonara"], sonara_mode="staged", sonara_bpm_range="79-192")
     # ...and a range narrower than an octave is refused as a setting, both when
     # checked alone and when a job would claim it.
     with pytest.raises(ValueError, match="at least twice"):
-        manager.check_sonara_range(100, 150)
+        manager.check_sonara_range("100-150")
     with pytest.raises(ValueError, match="at least twice"):
-        manager.resolve_sonara_range(100, 150)
+        manager.resolve_sonara_range("100-150")
     summary = database.library_summary()
     assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)
 
-    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
+    manager.create_job(models=["sonara"], sonara_bpm_range="79-192")
 
     summary = database.library_summary()
     assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (79.0, 192.0)
 
     # A later run without an explicit range inherits the claimed one.
     manager.create_job(models=["sonara"])
-    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
+    manager.create_job(models=["sonara"], sonara_bpm_range="mixed-in-key")
 
-    with pytest.raises(ValueError, match="Reset SONARA analysis"):
-        manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
+    for other in ("rekordbox", "none"):
+        with pytest.raises(ValueError, match="Reset SONARA analysis"):
+            manager.create_job(models=["sonara"], sonara_bpm_range=other)
     # An ML job is not held to the claimed range either: it fails only for
     # lacking SONARA tracks.
     with pytest.raises(ValueError, match="requires at least one track"):
@@ -625,7 +626,7 @@ def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(
     database = LibraryDatabase(tmp_path / "library.sqlite")
     manager = AnalysisJobManager(database)
     track_id = _track(database, tmp_path, 11)
-    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
+    manager.create_job(models=["sonara"], sonara_bpm_range="79-192")
 
     # Deleting tracks leaves the library's own setting alone.
     identity = database.get_track_identity(track_id)
@@ -643,23 +644,20 @@ def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(
     # process, cannot store into the library: not while it holds no range, and
     # not once a later job claimed another one.
     track_id = _track(database, tmp_path, 12)
-    write = prepare_sonara_write(
-        AnalysisCandidate(
-            target=AnalysisTarget(database.catalog_uuid, track_id, str(uuid.UUID(int=12))),
-            file_path=(tmp_path / "track-12.wav").as_posix(),
-            file_size_bytes=1,
-            file_modified_ns=1,
-            missing_outputs=(AnalysisOutput("sonara", "core"),),
-        ),
-        _analysis(),
-        analyzed_at="2026-07-23T12:00:00.000000Z",
+    candidate = AnalysisCandidate(
+        target=AnalysisTarget(database.catalog_uuid, track_id, str(uuid.UUID(int=12))),
+        file_path=(tmp_path / "track-12.wav").as_posix(),
+        file_size_bytes=1,
+        file_modified_ns=1,
+        missing_outputs=(AnalysisOutput("sonara", "core"),),
     )
+    write = prepare_sonara_write(candidate, _analysis(), analyzed_at="2026-07-23T12:00:00.000000Z")
     stale = database.save_sonara_results((write,), bpm_range=(79.0, 192.0))
     assert stale[0].error is not None and stale[0].error.endswith(
         f"track_id={track_id} was analysed with BPM range 79-192, "
-        "but the library now holds no BPM range"
+        "but the library now holds no BPM range claim"
     )
-    manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
+    manager.create_job(models=["sonara"], sonara_bpm_range="70-180")
     assert database.library_summary().sonara_bpm_min == 70.0
     stale = database.save_sonara_results((write,), bpm_range=(79.0, 192.0))
     assert stale[0].error is not None and stale[0].error.endswith(
@@ -669,6 +667,32 @@ def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(
     assert database.list_analysis_candidates((AnalysisOutput("sonara", "core"),))
     assert database.save_sonara_results((write,), bpm_range=(70.0, 180.0))[0].ok
 
+    # Analysis without a range is a claim of its own, held like any range and
+    # released the same way: it is not the unclaimed state.
+    database.reset_analysis_outputs((AnalysisOutput("sonara", "core"),))
+    manager.create_job(models=["sonara"], sonara_bpm_range="none")
+    summary = database.library_summary()
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max, summary.sonara_bpm_range_none) == (None, None, True)
+    manager.create_job(models=["sonara"])
+    with pytest.raises(ValueError, match="analysed without a BPM range"):
+        manager.create_job(models=["sonara"], sonara_bpm_range="mixed-in-key")
+    stale = database.save_sonara_results((write,), bpm_range=(70.0, 180.0))
+    assert stale[0].error is not None and stale[0].error.endswith(
+        f"track_id={track_id} was analysed with BPM range 70-180, "
+        "but the library now holds no BPM range"
+    )
+    # A run without a range carries no bounds in provenance and stores as is.
+    unfolded = _analysis()
+    unfolded["provenance"] = {
+        key: value
+        for key, value in unfolded["provenance"].items()
+        if key not in ("bpm_min", "bpm_max")
+    }
+    write = prepare_sonara_write(candidate, unfolded, analyzed_at="2026-07-23T12:00:00.000000Z")
+    assert database.save_sonara_results((write,), bpm_range=None)[0].ok
+
     database.clear_library()
     summary = database.library_summary()
-    assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max, summary.sonara_bpm_range_none) == (None, None, False)
+    # The schema takes the same octave as SONARA: Rekordbox's 68-135 spans one.
+    assert database.claim_sonara_analysis_range((68.0, 135.0)) == (68.0, 135.0)

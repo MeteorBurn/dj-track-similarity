@@ -195,6 +195,12 @@ def _error_result(
     )
 
 
+def _bpm_range_text(bpm_range: tuple[float, float] | None) -> str:
+    if bpm_range is None:
+        return "no BPM range"
+    return f"BPM range {bpm_range[0]:g}-{bpm_range[1]:g}"
+
+
 def _upsert_sonara_core(
     core_connection: sqlite3.Connection,
     *,
@@ -611,19 +617,20 @@ class AnalysisRepository:
         self,
         writes: Sequence[SonaraWrite],
         *,
-        bpm_range: tuple[float, float],
+        bpm_range: tuple[float, float] | None,
     ) -> tuple[AnalysisWriteResult, ...]:
         """Store SONARA runs analysed with ``bpm_range``, the range their job claimed.
 
-        The claim is checked inside the write transaction: a SONARA reset in
-        another process may have released it, and a later job claimed another.
+        None means the runs were analysed without a range. The claim is checked
+        inside the write transaction: a SONARA reset in another process may have
+        released it, and a later job claimed another.
         """
         selected = tuple(writes)
         if any(not isinstance(write, SonaraWrite) for write in selected):
             raise TypeError("writes must contain only SonaraWrite values")
         if not selected:
             return ()
-        job_range = (float(bpm_range[0]), float(bpm_range[1]))
+        job_range = None if bpm_range is None else (float(bpm_range[0]), float(bpm_range[1]))
         results: list[AnalysisWriteResult] = []
         self._discard_library_vectors()
         with self._write_lock:
@@ -631,7 +638,7 @@ class AnalysisRepository:
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     catalog_uuid = _catalog_uuid(connection)
-                    library_range = _stored_sonara_range(connection)
+                    library_claimed, library_range = _stored_sonara_range(connection)
                     for index, write in enumerate(selected):
                         name = _savepoint(connection, index)
                         try:
@@ -641,16 +648,16 @@ class AnalysisRepository:
                                 write.target,
                                 catalog_uuid=catalog_uuid,
                             )
-                            if library_range != job_range:
+                            if not library_claimed or library_range != job_range:
                                 held = (
-                                    "no BPM range"
-                                    if library_range is None
-                                    else f"BPM range {library_range[0]:g}-{library_range[1]:g}"
+                                    _bpm_range_text(library_range)
+                                    if library_claimed
+                                    else "no BPM range claim"
                                 )
                                 raise StaleAnalysisTargetError(
                                     "stale SONARA result rejected: track_id="
-                                    f"{write.target.track_id} was analysed with BPM range "
-                                    f"{job_range[0]:g}-{job_range[1]:g}, but the library now "
+                                    f"{write.target.track_id} was analysed with "
+                                    f"{_bpm_range_text(job_range)}, but the library now "
                                     f"holds {held}"
                                 )
                             _upsert_sonara_core(
@@ -1335,6 +1342,7 @@ class AnalysisRepository:
                                 UPDATE library
                                 SET sonara_bpm_min = NULL,
                                     sonara_bpm_max = NULL,
+                                    sonara_bpm_range_none = 0,
                                     updated_at = ?
                                 WHERE singleton_id = 1
                                 """,

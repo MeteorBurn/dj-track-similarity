@@ -14,16 +14,19 @@ from dj_track_similarity.analysis.config import (
 )
 
 
-def test_sonara_bpm_range_is_one_argument_holding_a_preset_or_an_octave_wide_range() -> None:
-    assert parse_sonara_bpm_range(None) is None
+def test_sonara_bpm_range_is_one_argument_holding_a_preset_none_or_an_octave_wide_range() -> None:
     assert parse_sonara_bpm_range("mixed-in-key") == (79.0, 192.0)
     assert parse_sonara_bpm_range(" Rekordbox ") == (70.0, 180.0)
-    assert parse_sonara_bpm_range("virtual-dj") == (80.0, 240.0)
-    for value, expected in (("70-140", (70.0, 140.0)), ("50 - 100", (50.0, 100.0)), ("90-180", (90.0, 180.0))):
+    # None is analysis without a range: SONARA's own tempo, unfolded.
+    assert parse_sonara_bpm_range(" None ") is None
+    # An octave in SONARA's sense: MAX + 1 >= 2 * MIN, as in Rekordbox's 68-135.
+    for value, expected in (("70-140", (70.0, 140.0)), ("50 - 100", (50.0, 100.0)), ("68-135", (68.0, 135.0))):
         assert parse_sonara_bpm_range(value) == expected
     for value, message in (
         ("100-150", "at least twice"),
+        ("68-134", "at least twice"),
         ("techno", "must be a preset"),
+        ("virtual-dj", "must be a preset"),
         ("70", "must be a preset"),
         ("70-140-280", "must be a preset"),
         ("", "must be a preset"),
@@ -105,7 +108,8 @@ def test_sonara_mode_rejects_unknown_or_incomplete_staged_configuration() -> Non
         ({"inference_batch_size": 0}, "inference_batch_size must be between 1 and 128"),
         ({"sonara_batch_size": 17}, "sonara_batch_size must be between 1 and 16"),
         # A setting of the other layer is refused rather than silently ignored.
-        ({"sonara_bpm_min": 70.0, "sonara_bpm_max": 140.0}, "BPM range applies only to SONARA"),
+        ({"sonara_bpm_range": "70-140"}, "BPM range applies only to SONARA"),
+        ({"sonara_bpm_range": "none"}, "BPM range applies only to SONARA"),
         (
             {"models": ["sonara"], "ml_staging_config": MLStagingConfig(root=Path("staging"))},
             "ML staged mode applies only to ML models",

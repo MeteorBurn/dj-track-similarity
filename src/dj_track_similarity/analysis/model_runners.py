@@ -85,7 +85,7 @@ class AnalysisWriteRepository(Protocol):
         self,
         writes: Sequence[SonaraWrite],
         *,
-        bpm_range: tuple[float, float],
+        bpm_range: tuple[float, float] | None,
     ) -> tuple[AnalysisWriteResult, ...]: ...
 
     def save_maest_results(
@@ -136,12 +136,13 @@ class SonaraModelRunner:
         *,
         sonara_module: Any | None = None,
         staging_config: SonaraStagingConfig | None = None,
-        bpm_min: float = DEFAULT_SONARA_BPM_MIN,
-        bpm_max: float = DEFAULT_SONARA_BPM_MAX,
     ) -> None:
         self._sonara_module = sonara_module
-        self.bpm_min = float(bpm_min)
-        self.bpm_max = float(bpm_max)
+        # The job sets the range it resolved; None analyses without one.
+        self.bpm_range: tuple[float, float] | None = (
+            DEFAULT_SONARA_BPM_MIN,
+            DEFAULT_SONARA_BPM_MAX,
+        )
         self._active_outputs = analysis_outputs_for_sonara_runtime()
         self._candidate_outputs = self._active_outputs
         self.progress: Callable[[int, int], None] | None = None
@@ -183,8 +184,7 @@ class SonaraModelRunner:
                 sonara_module=self._sonara_module,
                 progress=self.progress,
                 metrics=self._capture_metrics,
-                bpm_min=self.bpm_min,
-                bpm_max=self.bpm_max,
+                bpm_range=self.bpm_range,
             )
         else:
             self.incremental_results_emitted = True
@@ -197,8 +197,7 @@ class SonaraModelRunner:
                 # trip into the staging child processes.
                 analyze_group=partial(
                     analyze_staged_sonara_group,
-                    bpm_min=self.bpm_min,
-                    bpm_max=self.bpm_max,
+                    bpm_range=self.bpm_range,
                 ),
                 prepare_write=lambda candidate, analysis: prepare_sonara_write(
                     candidate,
@@ -207,7 +206,7 @@ class SonaraModelRunner:
                 ),
                 store_write=partial(
                     _store_staged_sonara_write,
-                    bpm_range=(self.bpm_min, self.bpm_max),
+                    bpm_range=self.bpm_range,
                 ),
                 cancelled=self.cancelled,
                 executor_factory=lambda: sonara_process_executor(self.staging_config),
@@ -242,7 +241,7 @@ def _store_staged_sonara_write(
     repository: AnalysisWriteRepository,
     write: SonaraWrite,
     *,
-    bpm_range: tuple[float, float],
+    bpm_range: tuple[float, float] | None,
 ) -> None:
     results = tuple(repository.save_sonara_results((write,), bpm_range=bpm_range))
     if len(results) != 1:

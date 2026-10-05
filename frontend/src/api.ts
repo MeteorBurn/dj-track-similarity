@@ -397,6 +397,7 @@ export type LibrarySummary = {
   classifiers: number;
   sonara_bpm_min: number | null;
   sonara_bpm_max: number | null;
+  sonara_bpm_range_none: boolean;
 };
 
 export type SonaraMixerWeights = {

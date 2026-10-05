@@ -290,9 +290,11 @@ class DatabaseValidator:
     @staticmethod
     def _library_range_finding(connection: sqlite3.Connection) -> ValidationFinding:
         row = connection.execute(
-            "SELECT sonara_bpm_min, sonara_bpm_max FROM library WHERE singleton_id = 1"
+            "SELECT sonara_bpm_min, sonara_bpm_max, sonara_bpm_range_none FROM library WHERE singleton_id = 1"
         ).fetchone()
         low, high = row["sonara_bpm_min"], row["sonara_bpm_max"]
+        if row["sonara_bpm_range_none"] and low is None and high is None:
+            return ValidationFinding("ok", "library_sonara_range_none", "library", "SONARA analyses without a BPM range", table="library")
         if low is None and high is None:
             return ValidationFinding("ok", "library_sonara_range_unclaimed", "library", "no SONARA BPM range is claimed", table="library")
         if low is None or high is None:

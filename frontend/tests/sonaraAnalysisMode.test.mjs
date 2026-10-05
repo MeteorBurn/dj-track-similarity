@@ -31,6 +31,7 @@ test("SONARA settings clamp persisted custom values to supported ranges", async 
     assert.deepEqual(settingsModule.loadSonaraAnalysisSettings(storage), {
       mode: "staged",
       directBatchSize: 16,
+      bpmRange: settingsModule.defaultSonaraBpmRange,
       bpmMin: settingsModule.defaultSonaraBpmMin,
       bpmMax: settingsModule.defaultSonaraBpmMax,
       staged: {

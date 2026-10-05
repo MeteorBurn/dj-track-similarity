@@ -322,13 +322,13 @@ def sonara_process_executor(config: SonaraStagingConfig) -> ProcessPoolExecutor:
 def analyze_staged_sonara_group(
     staged: Sequence[StagedSonaraCandidate],
     *,
-    bpm_min: float = DEFAULT_SONARA_BPM_MIN,
-    bpm_max: float = DEFAULT_SONARA_BPM_MAX,
+    bpm_range: tuple[float, float] | None = (DEFAULT_SONARA_BPM_MIN, DEFAULT_SONARA_BPM_MAX),
 ) -> tuple[StagedSonaraResult, ...]:
     """Analyze one mini-batch inside a persistent child process."""
 
     from .sonara_features import _analysis_mapping_with_ffmpeg_fallback, _import_sonara
 
+    bpm_min, bpm_max = bpm_range or (None, None)
     started = time.perf_counter()
     sonara = _import_sonara()
     raw_results = sonara.analyze_batch(

@@ -24,10 +24,10 @@ test("editing one bound keeps the pair at least an octave apart", async () => {
     );
 
     // Raising the floor pushes the ceiling up rather than producing a range the
-    // backend would reject.
+    // backend would reject: SONARA's octave is MAX + 1 >= 2 * MIN.
     assert.deepEqual(
       applySonaraBpmChange({ bpmMin: 70, bpmMax: 180 }, { bpmMin: 100 }),
-      { bpmMin: 100, bpmMax: 200 }
+      { bpmMin: 100, bpmMax: 199 }
     );
 
     // Lowering the ceiling pulls the floor down for the same reason.
@@ -46,6 +46,7 @@ test("a stored range that breaks the octave rule falls back to the default", asy
     const defaultRange = { bpmMin: module.defaultSonaraBpmMin, bpmMax: module.defaultSonaraBpmMax };
     assert.deepEqual(module.boundedBpmRange(120, 140), defaultRange);
     assert.deepEqual(module.boundedBpmRange(79, 192), { bpmMin: 79, bpmMax: 192 });
+    assert.deepEqual(module.boundedBpmRange(68, 135), { bpmMin: 68, bpmMax: 135 });
     assert.deepEqual(module.boundedBpmRange("nonsense", null), defaultRange);
   } finally {
     await close();
@@ -56,13 +57,13 @@ test("every shipped preset is a range the library can actually store", async () 
   const { module, close } = await loadSettingsModule();
   try {
     const { sonaraBpmPresets, boundedBpmRange } = module;
-    assert.equal(sonaraBpmPresets.length, 3);
+    assert.ok(sonaraBpmPresets.length > 0);
 
     for (const preset of sonaraBpmPresets) {
       // The stored Core row requires a full octave; a preset that breaks it
       // would be rejected by the database CHECK at analysis time.
       assert.ok(
-        preset.bpmMax >= 2 * preset.bpmMin,
+        preset.bpmMax + 1 >= 2 * preset.bpmMin,
         `${preset.label} (${preset.bpmMin}-${preset.bpmMax}) does not span an octave`
       );
       assert.deepEqual(

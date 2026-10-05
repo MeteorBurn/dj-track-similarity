@@ -67,12 +67,18 @@ CREATE TABLE library (
     -- full library clear, never by deleting individual tracks.
     sonara_bpm_min REAL CHECK(sonara_bpm_min IS NULL OR sonara_bpm_min > 0),
     sonara_bpm_max REAL,
+    -- 1 when the claim is analysis without a range: SONARA's own tempo,
+    -- unfolded.
+    sonara_bpm_range_none INTEGER NOT NULL DEFAULT 0 CHECK(
+        sonara_bpm_range_none IN (0, 1)
+        AND (sonara_bpm_range_none = 0 OR sonara_bpm_min IS NULL)
+    ),
     CHECK(
         (sonara_bpm_min IS NULL AND sonara_bpm_max IS NULL)
         OR (
             sonara_bpm_min IS NOT NULL
             AND sonara_bpm_max IS NOT NULL
-            AND sonara_bpm_max >= 2 * sonara_bpm_min
+            AND sonara_bpm_max + 1 >= 2 * sonara_bpm_min
         )
     )
 );

@@ -119,28 +119,32 @@ def _sonara_core_row(
         provenance.get("schema_version"),
         "provenance.schema_version",
     )
-    bpm_min = _required_float(
-        provenance.get("bpm_min"),
-        "provenance.bpm_min",
-        minimum=0.0,
-        strict_minimum=True,
-    )
-    bpm_max = _required_float(
-        provenance.get("bpm_max"),
-        "provenance.bpm_max",
-        minimum=2 * bpm_min,
-    )
     # Bound the detected value by the range this run actually analysed with,
-    # which provenance carries above, not by a project-wide constant. SONARA
-    # accepts any bounds, so a library analysed with a different range must not
-    # have its own results rejected. The pair itself is not stored per row: the
-    # library holds the one range every run is locked to.
-    detected_bpm = _optional_float(
-        analysis,
-        "bpm",
-        minimum=bpm_min,
-        maximum=bpm_max,
-    )
+    # which provenance carries, not by a project-wide constant. SONARA accepts
+    # any bounds, so a library analysed with a different range must not have
+    # its own results rejected. A run without a range has no bounds in
+    # provenance and reports its tempo unfolded. The pair itself is not stored
+    # per row: the library holds the one range every run is locked to.
+    if provenance.get("bpm_min") is None and provenance.get("bpm_max") is None:
+        detected_bpm = _optional_float(analysis, "bpm", minimum=0.0, strict_minimum=True)
+    else:
+        bpm_min = _required_float(
+            provenance.get("bpm_min"),
+            "provenance.bpm_min",
+            minimum=0.0,
+            strict_minimum=True,
+        )
+        bpm_max = _required_float(
+            provenance.get("bpm_max"),
+            "provenance.bpm_max",
+            minimum=2 * bpm_min - 1,
+        )
+        detected_bpm = _optional_float(
+            analysis,
+            "bpm",
+            minimum=bpm_min,
+            maximum=bpm_max,
+        )
     raw_bpm = _optional_float(analysis, "bpm_raw", minimum=0.0, strict_minimum=True)
     bpm_confidence = _optional_unit_interval(
         analysis,

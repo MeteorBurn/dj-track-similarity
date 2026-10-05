@@ -3,7 +3,7 @@ import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { api } from "./apiClient";
 import { copyTextToClipboard } from "./clipboard";
-import { matchingSonaraBpmPreset } from "./sonaraAnalysisSettings";
+import { matchingSonaraBpmPreset, type SonaraBpmRange } from "./sonaraAnalysisSettings";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { displayTrack } from "./trackDisplay";
 
@@ -157,7 +157,7 @@ function feature(key: keyof SonaraCore, label: string, description: string): Cor
 
 export function metadataDialogModel(
   track: TrackDetail,
-  sonaraBpmRange?: { bpmMin: number; bpmMax: number } | null,
+  sonaraBpmRange?: SonaraBpmRange,
 ) {
   const genres = track.maest?.genres ?? [];
   return {
@@ -165,7 +165,7 @@ export function metadataDialogModel(
     tagEntries: readableTagInfo(track),
     audioEntries: readableAudioData(track),
     scanEntries: readableScanDetails(track),
-    sonaraAnalysisEntries: readableSonaraAnalysisDetails(track, sonaraBpmRange ?? null),
+    sonaraAnalysisEntries: readableSonaraAnalysisDetails(track, sonaraBpmRange),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
     classifierScores: readableClassifierScores(track),
     classifierAnalysisEntries: readableClassifierAnalysisDetails(track),
@@ -185,7 +185,9 @@ export function TrackMetadataDialog({
   playingTrackId,
 }: {
   track: TrackDetail;
-  sonaraBpmRange: { bpmMin: number; bpmMax: number } | null;
+  // The library's range once claimed (null: analysis without one); undefined
+  // while no range is claimed.
+  sonaraBpmRange: SonaraBpmRange | undefined;
   onClose: () => void;
   onDelete: (track: TrackDetail) => void;
   onPreview: (track: TrackDetail) => void;
@@ -509,21 +511,22 @@ function readableScanDetails(track: TrackDetail): MetadataEntry[] {
 
 function readableSonaraAnalysisDetails(
   track: TrackDetail,
-  sonaraBpmRange: { bpmMin: number; bpmMax: number } | null,
+  sonaraBpmRange: SonaraBpmRange | undefined,
 ): MetadataEntry[] {
   if (!track.sonara_core) return [];
   return [
     ["Analysis schema", `v${track.sonara_core.analysis_schema_version}`],
     // The library owns the range, so an absent one means the caller did not
     // pass it: show nothing rather than a dash that would read as "unknown".
-    ...(sonaraBpmRange
+    ...(sonaraBpmRange !== undefined
       ? [["Analysis BPM range", formatSonaraBpmRange(sonaraBpmRange)] as MetadataEntry]
       : []),
     ["Analyzed at", formatTimestamp(track.sonara_core.analyzed_at)],
   ];
 }
 
-function formatSonaraBpmRange(range: { bpmMin: number; bpmMax: number }): string {
+function formatSonaraBpmRange(range: SonaraBpmRange): string {
+  if (range === null) return "None (tempo not folded)";
   const preset = matchingSonaraBpmPreset(range);
   const bounds = `${range.bpmMin}–${range.bpmMax}`;
   return preset ? `${bounds} (${preset.label})` : bounds;

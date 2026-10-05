@@ -580,42 +580,44 @@ class LibraryQueryRepository:
 
     def claim_sonara_analysis_range(
         self,
-        bpm_min: float,
-        bpm_max: float,
-    ) -> tuple[float, float]:
-        """Return the library BPM range, claiming this pair when none is set.
+        bpm_range: tuple[float, float] | None,
+    ) -> tuple[float, float] | None:
+        """Return the library BPM range, claiming ``bpm_range`` when none is set.
 
-        The range belongs to the library, not to any single analysed row: the
-        first analysis job claims it, every later run reuses it, and only a
-        SONARA reset or a full library clear releases it. Reading and claiming
-        share one transaction so two jobs started against a fresh library
-        cannot settle on different ranges.
+        None claims analysis without a range. The range belongs to the
+        library, not to any single analysed row: the first analysis job claims
+        it, every later run reuses it, and only a SONARA reset or a full
+        library clear releases it. Reading and claiming share one transaction
+        so two jobs started against a fresh library cannot settle on different
+        ranges.
         """
-
+        claim = None if bpm_range is None else (float(bpm_range[0]), float(bpm_range[1]))
+        low, high = (None, None) if claim is None else claim
         with self._write_lock:
             with closing(self.connect()) as connection:
                 try:
                     connection.execute("BEGIN IMMEDIATE")
-                    claimed = _stored_sonara_range(connection)
-                    if claimed is not None:
+                    claimed, stored = _stored_sonara_range(connection)
+                    if claimed:
                         connection.rollback()
-                        return claimed
+                        return stored
                     connection.execute(
                         """
                         UPDATE library
                         SET sonara_bpm_min = ?,
                             sonara_bpm_max = ?,
+                            sonara_bpm_range_none = ?,
                             updated_at = ?
                         WHERE singleton_id = 1
                         """,
-                        (float(bpm_min), float(bpm_max), utc_now_text()),
+                        (low, high, int(claim is None), utc_now_text()),
                     )
                     connection.commit()
                 except BaseException:
                     if connection.in_transaction:
                         connection.rollback()
                     raise
-        return (float(bpm_min), float(bpm_max))
+        return claim
 
     def library_summary(self) -> LibrarySummary:
         def count_rows(connection: sqlite3.Connection, table: str) -> int:
@@ -646,25 +648,36 @@ class LibraryQueryRepository:
 
 def _stored_sonara_range(
     connection: sqlite3.Connection,
-) -> tuple[float, float] | None:
-    """Read the claimed library BPM range, or None while none is claimed."""
+) -> tuple[bool, tuple[float, float] | None]:
+    """Read whether the library claimed a BPM range, and which one.
+
+    A claim without a range comes back as ``(True, None)``; a library that
+    claimed nothing yet as ``(False, None)``.
+    """
     row = connection.execute(
         """
-        SELECT sonara_bpm_min, sonara_bpm_max
+        SELECT sonara_bpm_min, sonara_bpm_max, sonara_bpm_range_none
         FROM library
         WHERE singleton_id = 1
         """
     ).fetchone()
-    if row is None or row[0] is None or row[1] is None:
-        return None
-    return (float(row[0]), float(row[1]))
+    if row is None:
+        return (False, None)
+    if row[2]:
+        return (True, None)
+    if row[0] is None or row[1] is None:
+        return (False, None)
+    return (True, (float(row[0]), float(row[1])))
 
 
 def _sonara_range_fields(
     connection: sqlite3.Connection,
-) -> dict[str, float | None]:
-    """Expose the claimed library range, or nulls while none is claimed."""
-    claimed = _stored_sonara_range(connection)
-    if claimed is None:
-        return {"sonara_bpm_min": None, "sonara_bpm_max": None}
-    return {"sonara_bpm_min": claimed[0], "sonara_bpm_max": claimed[1]}
+) -> dict[str, float | bool | None]:
+    """Expose the claimed library range: its bounds and whether it is none."""
+    claimed, stored = _stored_sonara_range(connection)
+    low, high = (None, None) if stored is None else stored
+    return {
+        "sonara_bpm_min": low,
+        "sonara_bpm_max": high,
+        "sonara_bpm_range_none": claimed and stored is None,
+    }

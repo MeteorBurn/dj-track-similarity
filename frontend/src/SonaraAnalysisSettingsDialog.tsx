@@ -1,15 +1,29 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { FolderOpen, Lock, X } from "lucide-react";
 
 import { NumberStepper } from "./NumberStepper";
 import {
   applySonaraBpmChange,
-  matchingSonaraBpmPreset,
   maxSonaraBpm,
+  maxSonaraBpmMin,
   minSonaraBpm,
+  minSonaraBpmMax,
   sonaraBpmPresets,
+  sonaraBpmRangeChoiceOf,
   type SonaraAnalysisSettings,
+  type SonaraBpmRange,
+  type SonaraBpmRangeChoice,
 } from "./sonaraAnalysisSettings";
+
+const bpmRangeChoices: readonly { key: SonaraBpmRangeChoice; label: string; title: string }[] = [
+  ...sonaraBpmPresets.map((preset) => ({
+    key: preset.key,
+    label: preset.label,
+    title: `${preset.label}: ${preset.bpmMin}–${preset.bpmMax} BPM`,
+  })),
+  { key: "custom", label: "Свой диапазон", title: "Границы задаются в полях BPM Min и BPM Max" },
+  { key: "none", label: "Не использовать", title: "Темп SONARA без сворачивания по октавам" },
+];
 
 export function SonaraAnalysisSettingsDialog({
   busy,
@@ -18,7 +32,6 @@ export function SonaraAnalysisSettingsDialog({
   onSonaraSettingsChange,
   sonaraBpmRange,
   sonaraBpmRangeLocked,
-  onSonaraBpmRangeChange,
   onChooseSonaraStagingFolder,
   onClose,
 }: {
@@ -26,16 +39,25 @@ export function SonaraAnalysisSettingsDialog({
   stageRunning: boolean;
   sonaraSettings: SonaraAnalysisSettings;
   onSonaraSettingsChange: (value: SonaraAnalysisSettings) => void;
-  sonaraBpmRange: { bpmMin: number; bpmMax: number };
+  // The range the next run uses: the library's once locked, else the selected one.
+  sonaraBpmRange: SonaraBpmRange;
   // The library fixes its range with the first SONARA analysis; until then the
   // dialog is where it is chosen.
   sonaraBpmRangeLocked: boolean;
-  onSonaraBpmRangeChange: (range: { bpmMin: number; bpmMax: number }) => void;
   onChooseSonaraStagingFolder: () => void;
   onClose: () => void;
 }) {
   const disabled = busy || stageRunning;
-  const activeBpmPreset = matchingSonaraBpmPreset(sonaraBpmRange);
+  const activeBpmChoice = sonaraBpmRangeLocked
+    ? sonaraBpmRangeChoiceOf(sonaraBpmRange)
+    : sonaraSettings.bpmRange;
+  const customBpmEditable = !disabled && !sonaraBpmRangeLocked && activeBpmChoice === "custom";
+  const changeCustomBpm = (change: { bpmMin?: number; bpmMax?: number }) => {
+    onSonaraSettingsChange({
+      ...sonaraSettings,
+      ...applySonaraBpmChange(sonaraSettings, change),
+    });
+  };
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -67,48 +89,48 @@ export function SonaraAnalysisSettingsDialog({
             <div className="sonara-settings-section-title">
               <span>Диапазон BPM для анализа SONARA</span>
               {sonaraBpmRangeLocked && <Lock size={13} aria-hidden="true" />}
-              <span className={`sonara-settings-bpm-preset-custom ${activeBpmPreset ? "" : "selected"}`}>
-                {activeBpmPreset ? `${activeBpmPreset.bpmMin}–${activeBpmPreset.bpmMax}` : "Свой диапазон"}
+              <span className={`sonara-settings-bpm-preset-custom ${activeBpmChoice === "custom" ? "selected" : ""}`}>
+                {sonaraBpmRange ? `${sonaraBpmRange.bpmMin}–${sonaraBpmRange.bpmMax}` : "Без диапазона"}
               </span>
             </div>
-            <p className="sonara-settings-section-description">Диапазон BPM определяет, в каких пределах SONARA ищет темп трека. Правильный диапазон помогает избежать ошибок вроде 64 вместо 128 BPM. Для большинства библиотек подойдут готовые диапазоны Mixed In Key, Rekordbox или VirtualDJ, при необходимости можно задать свой.</p>
-            <div className="sonara-settings-bpm-presets" aria-label="Пресеты диапазона BPM">
-              {sonaraBpmPresets.map((preset) => {
-                const selected = activeBpmPreset?.key === preset.key;
+            <p className="sonara-settings-section-description">SONARA выбирает темп трека без учёта диапазона. Если найденный темп выходит за границы, он сворачивается по октавам: ниже нижней границы удваивается, выше верхней делится пополам, и биты, сетка и зависящие от темпа признаки строятся уже по нему. Темп внутри диапазона не меняется. «Не использовать» оставляет темп SONARA как есть.</p>
+            <div className="sonara-settings-bpm-presets" aria-label="Диапазон BPM">
+              {bpmRangeChoices.map((choice) => {
+                const selected = activeBpmChoice === choice.key;
                 return <button
-                  key={preset.key}
+                  key={choice.key}
                   className={`sonara-settings-bpm-preset-chip ${selected ? "selected" : ""}`}
                   aria-pressed={selected}
                   disabled={disabled || sonaraBpmRangeLocked}
-                  title={`${preset.label}: ${preset.bpmMin}–${preset.bpmMax} BPM`}
-                  onClick={() => onSonaraBpmRangeChange({ bpmMin: preset.bpmMin, bpmMax: preset.bpmMax })}
+                  title={choice.title}
+                  onClick={() => onSonaraSettingsChange({ ...sonaraSettings, bpmRange: choice.key })}
                   type="button"
-                >{preset.label}</button>;
+                >{choice.label}</button>;
               })}
             </div>
             <div className="sonara-settings-bpm-controls">
-              <label>BPM Min<input
+              <BpmBoundInput
+                label="BPM Min"
                 name="sonara-bpm-min"
-                type="number"
-                min={minSonaraBpm}
-                max={Math.floor(maxSonaraBpm / 2)}
-                value={sonaraBpmRange.bpmMin}
-                disabled={disabled || sonaraBpmRangeLocked}
-                onChange={(event) => onSonaraBpmRangeChange(applySonaraBpmChange(sonaraBpmRange, { bpmMin: Number(event.target.value) || minSonaraBpm }))}
-              /></label>
-              <label>BPM Max<input
+                minimum={minSonaraBpm}
+                maximum={maxSonaraBpmMin}
+                value={sonaraBpmRange?.bpmMin ?? null}
+                disabled={!customBpmEditable}
+                onCommit={(bpmMin) => changeCustomBpm({ bpmMin })}
+              />
+              <BpmBoundInput
+                label="BPM Max"
                 name="sonara-bpm-max"
-                type="number"
-                min={2 * minSonaraBpm}
-                max={maxSonaraBpm}
-                value={sonaraBpmRange.bpmMax}
-                disabled={disabled || sonaraBpmRangeLocked}
-                onChange={(event) => onSonaraBpmRangeChange(applySonaraBpmChange(sonaraBpmRange, { bpmMax: Number(event.target.value) || 2 * minSonaraBpm }))}
-              /></label>
+                minimum={minSonaraBpmMax}
+                maximum={maxSonaraBpm}
+                value={sonaraBpmRange?.bpmMax ?? null}
+                disabled={!customBpmEditable}
+                onCommit={(bpmMax) => changeCustomBpm({ bpmMax })}
+              />
             </div>
             <p className="sonara-settings-bpm-hint">{sonaraBpmRangeLocked
-              ? "База уже проанализирована этим диапазоном. Чтобы задать другой, сбросьте анализ SONARA."
-              : "Выберите пресет или введите свой диапазон. Задаётся один раз: первый анализ SONARA закрепит его за всей базой. Верхняя граница должна быть минимум вдвое больше нижней."}</p>
+              ? "База уже проанализирована с этим выбором. Чтобы изменить его, сбросьте анализ SONARA."
+              : "Задаётся один раз: первый анализ SONARA закрепит выбор за всей базой. Свой диапазон должен охватывать октаву: верхняя граница + 1 не меньше удвоенной нижней, как 68–135 в Rekordbox."}</p>
           </section>
           <section className="sonara-settings-section">
             <div className="sonara-settings-section-title">
@@ -145,5 +167,50 @@ export function SonaraAnalysisSettingsDialog({
         </footer>
       </section>
     </div>
+  );
+}
+
+// A range bound typed freely and applied on blur or Enter: clamping on every
+// keystroke would turn the first digit of 48 into the lower limit.
+function BpmBoundInput({
+  label,
+  name,
+  minimum,
+  maximum,
+  value,
+  disabled,
+  onCommit,
+}: {
+  label: string;
+  name: string;
+  minimum: number;
+  maximum: number;
+  value: number | null;
+  disabled: boolean;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const parsed = Number(draft);
+    setDraft(null);
+    // An emptied or unreadable field keeps the bound it had.
+    if (draft.trim() !== "" && Number.isFinite(parsed)) onCommit(parsed);
+  };
+  return (
+    <label>{label}<input
+      name={name}
+      type="number"
+      min={minimum}
+      max={maximum}
+      value={draft ?? value ?? ""}
+      placeholder="—"
+      disabled={disabled}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+    /></label>
   );
 }

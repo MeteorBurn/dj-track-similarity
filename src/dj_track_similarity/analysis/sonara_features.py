@@ -43,7 +43,7 @@ class SonaraAnalysisRepository(Protocol):
         self,
         writes: Sequence[SonaraWrite],
         *,
-        bpm_range: tuple[float, float],
+        bpm_range: tuple[float, float] | None,
     ) -> tuple[AnalysisWriteResult, ...]: ...
 
 
@@ -94,8 +94,7 @@ def analyze_and_store_sonara_batch(
     sonara_module: Any | None = None,
     progress: Callable[[int, int], None] | None = None,
     metrics: Callable[[SonaraBatchMetrics], None] | None = None,
-    bpm_min: float = DEFAULT_SONARA_BPM_MIN,
-    bpm_max: float = DEFAULT_SONARA_BPM_MAX,
+    bpm_range: tuple[float, float] | None = (DEFAULT_SONARA_BPM_MIN, DEFAULT_SONARA_BPM_MAX),
 ) -> list[SonaraBatchTrackResult]:
     """Analyze one native batch and persist successful results in input order.
 
@@ -117,6 +116,8 @@ def analyze_and_store_sonara_batch(
     active_outputs = analysis_outputs_for_sonara_runtime()
     repository.register_analysis_outputs(active_outputs)
 
+    # No range leaves both bounds None, which SONARA reads as "do not fold".
+    bpm_min, bpm_max = bpm_range or (None, None)
     analyze_started = time.perf_counter()
     raw_results = sonara.analyze_batch(
         [candidate.file_path for candidate in selected_candidates],
@@ -165,7 +166,7 @@ def analyze_and_store_sonara_batch(
     pending_writes = tuple(item for item in prepared if isinstance(item, SonaraWrite))
     store_started = time.perf_counter()
     write_results = tuple(
-        repository.save_sonara_results(pending_writes, bpm_range=(bpm_min, bpm_max))
+        repository.save_sonara_results(pending_writes, bpm_range=bpm_range)
     )
     store_seconds = time.perf_counter() - store_started
     _validate_write_results(pending_writes, write_results)
@@ -220,8 +221,8 @@ def _analysis_mapping_with_ffmpeg_fallback(
     raw_result: object,
     *,
     decode_path: str | None = None,
-    bpm_min: float = DEFAULT_SONARA_BPM_MIN,
-    bpm_max: float = DEFAULT_SONARA_BPM_MAX,
+    bpm_min: float | None = DEFAULT_SONARA_BPM_MIN,
+    bpm_max: float | None = DEFAULT_SONARA_BPM_MAX,
 ) -> tuple[dict[str, object], str | None]:
     """Map one native result, recovering a decode failure through FFmpeg PCM.
 

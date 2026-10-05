@@ -29,8 +29,7 @@ def save_sonara_writes(
     """Store SONARA fixtures as a job does: under the library's claimed BPM range."""
 
     bpm_range = database.claim_sonara_analysis_range(
-        DEFAULT_SONARA_BPM_MIN,
-        DEFAULT_SONARA_BPM_MAX,
+        (DEFAULT_SONARA_BPM_MIN, DEFAULT_SONARA_BPM_MAX)
     )
     return database.save_sonara_results(writes, bpm_range=bpm_range)
 

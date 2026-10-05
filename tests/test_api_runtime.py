@@ -215,6 +215,7 @@ def test_reset_and_summary_use_analysis_family_names(
         "classifiers": 0,
         "sonara_bpm_min": None,
         "sonara_bpm_max": None,
+        "sonara_bpm_range_none": False,
     }
 
 

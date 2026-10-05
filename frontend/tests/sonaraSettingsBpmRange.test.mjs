@@ -7,6 +7,7 @@ import { createServer } from "vite";
 const defaultSonaraSettings = {
   mode: "direct",
   directBatchSize: 8,
+  bpmRange: "custom",
   bpmMin: 70,
   bpmMax: 180,
   staged: { folder: "", processes: 4, threads: 4, batchSize: 4, stageSize: 32 },
@@ -28,7 +29,6 @@ async function renderDialog(props) {
         onSonaraSettingsChange: () => {},
         sonaraBpmRange: { bpmMin: 70, bpmMax: 180 },
         sonaraBpmRangeLocked: false,
-        onSonaraBpmRangeChange: () => {},
         onChooseSonaraStagingFolder: () => {},
         onClose: () => {},
         ...props,

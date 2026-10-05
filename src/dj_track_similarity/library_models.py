@@ -249,7 +249,9 @@ class LibrarySummary:
     clap: int
     liked: int
     classifiers: int
-    # The BPM range this library analyses SONARA with, or None while no
-    # analysis job has claimed one yet.
+    # The BPM range this library analyses SONARA with. Both bounds are None
+    # while no analysis job has claimed one, and when the claim is analysis
+    # without a range, which sonara_bpm_range_none tells apart.
     sonara_bpm_min: float | None = None
     sonara_bpm_max: float | None = None
+    sonara_bpm_range_none: bool = False

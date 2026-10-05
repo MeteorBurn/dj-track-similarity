@@ -1,8 +1,16 @@
 export type SonaraAnalysisMode = "direct" | "staged";
 
+// The BPM range choice for SONARA analysis: a DJ tool's preset, the custom pair
+// in bpmMin/bpmMax, or none, which keeps SONARA's own tempo unfolded.
+export type SonaraBpmRangeChoice = "rekordbox" | "mixed-in-key" | "custom" | "none";
+
+// A range as SONARA analyses with it: a pair, or null for no range.
+export type SonaraBpmRange = { bpmMin: number; bpmMax: number } | null;
+
 export type SonaraAnalysisSettings = {
   mode: SonaraAnalysisMode;
   directBatchSize: number;
+  bpmRange: SonaraBpmRangeChoice;
   bpmMin: number;
   bpmMax: number;
   staged: {
@@ -19,15 +27,23 @@ type StorageWriter = Pick<Storage, "setItem">;
 
 export const sonaraAnalysisSettingsStorageKey = "dj-track-similarity.sonara-analysis-settings";
 
-// Matches the backend default analysis range (Mixed In Key 79-192).
+// Matches the backend default analysis range (Mixed In Key 79-192), which is
+// also where the custom pair starts.
+export const defaultSonaraBpmRange: SonaraBpmRangeChoice = "mixed-in-key";
 export const defaultSonaraBpmMin = 79;
 export const defaultSonaraBpmMax = 192;
 export const minSonaraBpm = 20;
 export const maxSonaraBpm = 400;
+// The pair must span an octave in SONARA's sense, MAX + 1 >= 2 * MIN, which
+// takes Rekordbox's one-octave ranges such as 68–135. These are the bounds each
+// field can reach under that rule.
+export const maxSonaraBpmMin = Math.floor((maxSonaraBpm + 1) / 2);
+export const minSonaraBpmMax = 2 * minSonaraBpm - 1;
 
 export const defaultSonaraAnalysisSettings: SonaraAnalysisSettings = {
   mode: "direct",
   directBatchSize: 8,
+  bpmRange: defaultSonaraBpmRange,
   bpmMin: defaultSonaraBpmMin,
   bpmMax: defaultSonaraBpmMax,
   staged: {
@@ -54,6 +70,9 @@ export function loadSonaraAnalysisSettings(
     return {
       mode: parsed.mode === "staged" ? "staged" : "direct",
       directBatchSize: boundedInteger(parsed.directBatchSize, 1, 16, 8),
+      bpmRange: sonaraBpmRangeChoices.includes(parsed.bpmRange as SonaraBpmRangeChoice)
+        ? parsed.bpmRange as SonaraBpmRangeChoice
+        : defaultSonaraBpmRange,
       ...boundedBpmRange(parsed.bpmMin, parsed.bpmMax),
       staged: {
         folder: "",
@@ -92,7 +111,7 @@ function browserLocalStorage(): Storage | null {
 }
 
 export type SonaraBpmPreset = {
-  key: string;
+  key: "rekordbox" | "mixed-in-key";
   label: string;
   bpmMin: number;
   bpmMax: number;
@@ -101,10 +120,11 @@ export type SonaraBpmPreset = {
 // Ranges the common DJ tools analyse with. Every pair spans a full octave, so
 // each tempo folds into it exactly once — the rule the stored Core row enforces.
 export const sonaraBpmPresets: readonly SonaraBpmPreset[] = [
-  { key: "mixed-in-key", label: "Mixed In Key", bpmMin: 79, bpmMax: 192 },
   { key: "rekordbox", label: "Rekordbox", bpmMin: 70, bpmMax: 180 },
-  { key: "virtual-dj", label: "VirtualDJ", bpmMin: 80, bpmMax: 240 },
+  { key: "mixed-in-key", label: "Mixed In Key", bpmMin: 79, bpmMax: 192 },
 ];
+
+const sonaraBpmRangeChoices: readonly SonaraBpmRangeChoice[] = ["rekordbox", "mixed-in-key", "custom", "none"];
 
 export function matchingSonaraBpmPreset(
   range: { bpmMin: number; bpmMax: number },
@@ -114,20 +134,40 @@ export function matchingSonaraBpmPreset(
   ) ?? null;
 }
 
-// Keep the pair valid while one end is edited, so the panel cannot submit a
-// range the backend would reject. Editing one bound pushes the other just far
-// enough to preserve the octave rule.
+// The range the settings select: the preset's pair, the custom pair or none.
+export function selectedSonaraBpmRange(settings: SonaraAnalysisSettings): SonaraBpmRange {
+  if (settings.bpmRange === "none") return null;
+  const preset = sonaraBpmPresets.find((item) => item.key === settings.bpmRange);
+  return preset
+    ? { bpmMin: preset.bpmMin, bpmMax: preset.bpmMax }
+    : { bpmMin: settings.bpmMin, bpmMax: settings.bpmMax };
+}
+
+// The choice a range reads as, e.g. for the range a library already holds.
+export function sonaraBpmRangeChoiceOf(range: SonaraBpmRange): SonaraBpmRangeChoice {
+  if (range === null) return "none";
+  return matchingSonaraBpmPreset(range)?.key ?? "custom";
+}
+
+// The one range argument the analysis API takes.
+export function sonaraBpmRangeArgument(range: SonaraBpmRange): string {
+  return range === null ? "none" : `${range.bpmMin}-${range.bpmMax}`;
+}
+
+// Keep the pair valid when one end is set, so the panel cannot submit a range
+// the backend would reject. Setting one bound pushes the other just far enough
+// to preserve the octave rule.
 export function applySonaraBpmChange(
   current: { bpmMin: number; bpmMax: number },
   change: { bpmMin?: number; bpmMax?: number },
 ): { bpmMin: number; bpmMax: number } {
   if (change.bpmMin !== undefined) {
-    const bpmMin = clamp(change.bpmMin, minSonaraBpm, Math.floor(maxSonaraBpm / 2));
-    return { bpmMin, bpmMax: Math.max(current.bpmMax, 2 * bpmMin) };
+    const bpmMin = clamp(change.bpmMin, minSonaraBpm, maxSonaraBpmMin);
+    return { bpmMin, bpmMax: Math.max(current.bpmMax, 2 * bpmMin - 1) };
   }
   if (change.bpmMax !== undefined) {
-    const bpmMax = clamp(change.bpmMax, 2 * minSonaraBpm, maxSonaraBpm);
-    return { bpmMin: Math.min(current.bpmMin, Math.floor(bpmMax / 2)), bpmMax };
+    const bpmMax = clamp(change.bpmMax, minSonaraBpmMax, maxSonaraBpm);
+    return { bpmMin: Math.min(current.bpmMin, Math.floor((bpmMax + 1) / 2)), bpmMax };
   }
   return { ...current };
 }
@@ -144,7 +184,7 @@ export function boundedBpmRange(
 ): { bpmMin: number; bpmMax: number } {
   const bpmMin = boundedNumber(rawMin, minSonaraBpm, maxSonaraBpm, defaultSonaraBpmMin);
   const bpmMax = boundedNumber(rawMax, minSonaraBpm, maxSonaraBpm, defaultSonaraBpmMax);
-  if (bpmMax < 2 * bpmMin) {
+  if (bpmMax + 1 < 2 * bpmMin) {
     return { bpmMin: defaultSonaraBpmMin, bpmMax: defaultSonaraBpmMax };
   }
   return { bpmMin, bpmMax };

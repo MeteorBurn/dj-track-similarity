@@ -81,10 +81,9 @@ class _Repository:
 
     def claim_sonara_analysis_range(
         self,
-        bpm_min: float,
-        bpm_max: float,
-    ) -> tuple[float, float]:
-        return (bpm_min, bpm_max)
+        bpm_range: tuple[float, float] | None,
+    ) -> tuple[float, float] | None:
+        return bpm_range
 
     def require_embedding_layer_storage(self, family: str) -> None:
         pass

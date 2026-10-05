@@ -206,14 +206,15 @@ class AnalysisJobRequest(BaseModel):
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
     )
-    # A preset name or MIN-MAX. Omitted: the library's claimed range, or the
-    # default preset for a fresh library.
+    # A preset name, none (SONARA's tempo unfolded) or MIN-MAX. Omitted: the
+    # library's claimed range, or the default preset for a fresh library.
     sonara_bpm_range: str | None = None
 
     @field_validator("sonara_bpm_range")
     @classmethod
     def _valid_sonara_bpm_range(cls, value: str | None) -> str | None:
-        parse_sonara_bpm_range(value)
+        if value is not None:
+            parse_sonara_bpm_range(value)
         return value
 
 
@@ -240,15 +241,16 @@ class SonaraPipelineSettings(BaseModel):
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
     )
-    # A preset name or MIN-MAX. Omitted: the library's claimed range, or the
-    # default preset for a fresh library.
+    # A preset name, none (SONARA's tempo unfolded) or MIN-MAX. Omitted: the
+    # library's claimed range, or the default preset for a fresh library.
     bpm_range: str | None = None
     staged: SonaraStagedSettings = Field(default_factory=SonaraStagedSettings)
 
     @field_validator("bpm_range")
     @classmethod
     def _valid_bpm_range(cls, value: str | None) -> str | None:
-        parse_sonara_bpm_range(value)
+        if value is not None:
+            parse_sonara_bpm_range(value)
         return value
 
 
@@ -950,6 +952,7 @@ class LibrarySummaryResponse(_ResponseModel):
     classifiers: int
     sonara_bpm_min: float | None = None
     sonara_bpm_max: float | None = None
+    sonara_bpm_range_none: bool = False
 
 
 class AnalysisResetResponse(_ResponseModel):

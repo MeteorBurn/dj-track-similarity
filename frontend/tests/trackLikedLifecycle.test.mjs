@@ -97,7 +97,7 @@ function harness() {
     cursor = 0;
     const tree = App();
     return {
-      library: find(tree, "LibraryPanel"), search: find(tree, "SearchPlaylistPanel"),
+      library: find(tree, "LibraryPanel"), search: find(tree, "SearchPlaylistPanel"), dock: find(tree, "PlayerDock"),
       confirmation: find(tree, "ConfirmationDialog"), notice: textContent(find(tree, "notice").children),
     };
   }
@@ -222,6 +222,19 @@ test("like responses only update tracks in the current catalog with matching ide
   const callCount = h.likeCalls.length;
   assert.equal(await ui.search.toggleLiked(replacement), null);
   assert.equal(h.likeCalls.length, callCount);
+
+  // Search-candidate playback walks a snapshot of the results, which a like must reach too.
+  const playback = harness();
+  playback.api.previewInfo = async () => ({ duration_seconds: 10 });
+  const playing = { ...track, track_id: 2, track_uuid: "playing" };
+  ui = await playback.choose("A");
+  ui.search.setPreview(playing, [playing, track]);
+  const candidateLike = playback.startMutation();
+  const candidateResult = playback.render().search.toggleLiked(track);
+  candidateLike.resolve({ ...track, liked: true });
+  await candidateResult;
+  playback.render().dock.onNext();
+  assert.equal(playback.render().dock.preview.liked, true);
 
   const comparison = harness();
   const secondArm = deferred();

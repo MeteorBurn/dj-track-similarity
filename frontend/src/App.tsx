@@ -579,6 +579,11 @@ export function App() {
     toggleAudioPreview(track);
   }
 
+  // The candidate queue is a snapshot of search results: likes and deletions must reach it too.
+  function updateCandidateTracks(update: (tracks: Track[]) => Track[]) {
+    setCandidatePlayback((current) => current && { ...current, tracks: update(current.tracks) });
+  }
+
   function handlePreviewEnded(track: PreviewTarget) {
     if (repeatTrack) {
       toggleAudioPreview(track);
@@ -1119,6 +1124,7 @@ export function App() {
         const result = await api.deleteTrack(track);
         cancelTrackDetailRequest();
         forgetTrack(track);
+        updateCandidateTracks((tracks) => tracks.filter((item) => !sameTrackIdentity(item, track)));
         appendActivity("ok", "Трек удалён из базы", displayTrack(track));
         return result;
       },
@@ -1321,6 +1327,7 @@ export function App() {
         sameTrackIdentity(item.track, updated) ? { ...item, track: updated } : item
       )));
       setSeedTracks((current) => current.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
+      updateCandidateTracks((tracks) => tracks.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
       updatePreviewTrack(updated);
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
       return updated;
@@ -1759,7 +1766,13 @@ export function App() {
         onPreview={(file) => togglePreview({ track_id: file.track_id })}
         onClose={() => setAudioDedupOpen(false)}
         onDeleted={(message, deletedTrackIds) => {
-          if (databaseCatalogUuidRef.current) forgetTrackIds(databaseCatalogUuidRef.current, deletedTrackIds);
+          const catalogUuid = databaseCatalogUuidRef.current;
+          if (catalogUuid) {
+            forgetTrackIds(catalogUuid, deletedTrackIds);
+            updateCandidateTracks((tracks) => tracks.filter((item) => (
+              item.catalog_uuid !== catalogUuid || !deletedTrackIds.includes(item.track_id)
+            )));
+          }
           setNotice({ kind: "ok", text: message });
           appendActivity("info", message);
           void refreshLibrary(0, { refreshSummary: true });

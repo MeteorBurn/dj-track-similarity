@@ -79,7 +79,7 @@ def text_search(
     query: str,
     db_path: Optional[Path] = typer.Option(None, "--db", help=DATABASE_OPTION_HELP),
     model: str = typer.Option("clap", "--model", help="Text embedding model: clap or mulan."),
-    limit: int = typer.Option(50, "--limit", min=1, max=500),
+    limit: int = typer.Option(50, "--limit", min=1, max=1000),
     min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Text embedding device: auto, cpu, or cuda."),
 ) -> None:

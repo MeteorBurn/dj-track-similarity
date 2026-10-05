@@ -37,8 +37,8 @@ are relative to this file. These guides are read by task, not imported as a batc
   and Python tools share the root `.venv`.
   Do not add private tool environments or requirements files.
 - SONARA comes from the public `MeteorBurn/sonara` release
-  `v0.3.6-meteorburn.1`, selected by URL in `[tool.uv.sources]` and by hash in
-  `uv.lock`. Preserve that patched build, ML platform markers, wheel URLs and
+  `v0.3.7-bpm-precision-20261005`, selected by URL in `[tool.uv.sources]` and by
+  hash in `uv.lock`. Preserve that patched build, ML platform markers, wheel URLs and
   PyTorch index selection. Do not substitute another SONARA build on a download
   failure.
 - `uv sync` is exact by default. `--locked` protects the lockfile, not the

@@ -148,7 +148,7 @@ import torch
 import torchaudio
 import torchvision
 import torchcodec
-for package, expected in (("sonara", "0.3.6"), ("torch", "2.11.0+cu130"), ("torchaudio", "2.11.0+cu130"), ("torchvision", "0.26.0+cu130"), ("torchcodec", "0.16.0+cu130")):
+for package, expected in (("sonara", "0.3.7"), ("torch", "2.11.0+cu130"), ("torchaudio", "2.11.0+cu130"), ("torchvision", "0.26.0+cu130"), ("torchcodec", "0.16.0+cu130")):
     actual = version(package)
     if actual != expected:
         raise RuntimeError(f"{package}: expected {expected}, found {actual}")

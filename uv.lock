@@ -570,7 +570,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2" },
     { name = "scikit-learn", specifier = ">=1.4" },
     { name = "send2trash", specifier = ">=1.8" },
-    { name = "sonara", url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl" },
+    { name = "sonara", url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.7-bpm-precision-20261005/sonara-0.3.7-cp310-abi3-win_amd64.whl" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0,<3" },
     { name = "torch", marker = "python_full_version != '3.10.*' or platform_machine != 'AMD64' or sys_platform != 'win32'", specifier = "==2.11.0" },
     { name = "torch", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },
@@ -2579,13 +2579,13 @@ wheels = [
 
 [[package]]
 name = "sonara"
-version = "0.3.6"
-source = { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
+version = "0.3.7"
+source = { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.7-bpm-precision-20261005/sonara-0.3.7-cp310-abi3-win_amd64.whl" }
 dependencies = [
     { name = "numpy" },
 ]
 wheels = [
-    { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl", hash = "sha256:1e59d1b87a742563a5ff0222712af99ca94abe353760624ccbec46c53bbd7908" },
+    { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.7-bpm-precision-20261005/sonara-0.3.7-cp310-abi3-win_amd64.whl", hash = "sha256:2b584a6775caf82454b8852f6fc7f2a4862346766e02e54b704bb337ff76239c" },
 ]
 
 [package.metadata]

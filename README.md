@@ -136,7 +136,7 @@ The installer downloads the ML assets below into `models/` and verifies their SH
 
 ### 🖥️ Main application
 
-Open **[run_server.cmd](run_server.cmd)**. There is no default library: the console lists the `.sqlite` files in `database/` and asks `Database [1-N, or a path]:`, or asks `Database path:` when there are none. Enter a number or a path. A new path such as `database/my-library.sqlite` becomes a new library when the server starts. Empty input cancels startup. Then choose the server mode:
+Open **[run_server.cmd](run_server.cmd)**. There is no default library: the console lists the `.sqlite` files in `database/` and asks `Database [1-N, a name or a path]:`, or asks `Database name or path:` when there are none. Enter a number, a name, or a path: a name without a folder means a file in `database/`, and `.sqlite` is added when no extension is given. A file that does not exist becomes a new library after you confirm with `y`. Empty input cancels startup. Then choose the server mode:
 
 ```text
 Choose server mode:

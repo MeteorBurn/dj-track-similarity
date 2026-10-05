@@ -112,7 +112,7 @@ def test_no_argument_launcher_requires_an_explicit_database_before_mode(
 
     case_dir, completed, captured_launch = run("listed", "1\n\n")
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert completed.stdout.index("Database [1-1, or a path]") < (
+    assert completed.stdout.index("Database [1-1, a name or a path]") < (
         completed.stdout.index("Choose server mode")
     )
     assert captured_launch == {
@@ -148,6 +148,14 @@ def test_no_argument_launcher_requires_an_explicit_database_before_mode(
     assert prompt in completed.stdout
     assert captured_launch is not None
     assert captured_launch["database_path"] == new_path
+    assert captured_launch["create"] == "1"
+
+    # A bare name is a library in the project's database folder, not in the
+    # console's working directory, and gets .sqlite when it has no extension.
+    case_dir, completed, captured_launch = run("named", "fresh\ny\n\n")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert captured_launch is not None
+    assert captured_launch["database_path"] == str(case_dir / "database" / "fresh.sqlite")
     assert captured_launch["create"] == "1"
 
     _, completed, captured_launch = run("empty", "\n\n")

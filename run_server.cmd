@@ -43,6 +43,7 @@ if not defined MODE (
     if "%INTERACTIVE_START%"=="1" (
         call :prompt_database
         if errorlevel 1 goto :setup_error
+        call :normalize_database_path
         call :confirm_database
         if errorlevel 1 goto :setup_error
     )
@@ -164,7 +165,7 @@ for /l %%I in (1,1,!DB_COUNT!) do (
 )
 echo.
 set "DB_CHOICE="
-set /p "DB_CHOICE=Database [1-!DB_COUNT!, or a path]: "
+set /p "DB_CHOICE=Database [1-!DB_COUNT!, a name or a path]: "
 if not defined DB_CHOICE (
     endlocal
     goto :database_required
@@ -183,9 +184,20 @@ exit /b 0
 
 :prompt_database_path
 set "DB_PATH="
-set /p "DB_PATH=Database path: "
+set /p "DB_PATH=Database name or path: "
 if not defined DB_PATH goto :database_required
 echo.
+exit /b 0
+
+:normalize_database_path
+rem A bare name, with no folder, is a library in the project's database folder,
+rem and a name without an extension gets .sqlite. Quotes from a copied path are
+rem dropped, and the result is made absolute so the prompts show the real file.
+rem Delayed expansion stays off here: it would eat a "!" in the path.
+set "DB_PATH=%DB_PATH:"=%"
+for %%P in ("%DB_PATH%") do if "%%~xP"=="" set "DB_PATH=%DB_PATH%.sqlite"
+for %%P in ("%DB_PATH%") do if "%%~nxP"=="%DB_PATH%" set "DB_PATH=%DB_DIR%\%DB_PATH%"
+for %%P in ("%DB_PATH%") do set "DB_PATH=%%~fP"
 exit /b 0
 
 :database_required
@@ -247,9 +259,11 @@ echo   run_server.cmd local --help
 echo.
 echo With no arguments, the launcher looks in "%DB_DIR%" first.
 echo If it finds one or more .sqlite databases there, it lists them and asks
-echo which one to open. If none are found, it asks for a database path.
-echo Type a path to open an existing library, or confirm to create a new one
-echo when the file does not exist. Anything but "y" cancels creation.
+echo which one to open. If none are found, it asks for a database name or path.
+echo A name without a folder means a library in "%DB_DIR%", and a name
+echo without an extension gets .sqlite. Type a name or path to open an existing
+echo library, or confirm to create a new one when the file does not exist.
+echo Anything but "y" cancels creation.
 echo There is no default database. Empty input cancels startup.
 echo It then asks whether to start in local or LAN mode.
 echo Explicit local or lan commands use only the arguments you provide.

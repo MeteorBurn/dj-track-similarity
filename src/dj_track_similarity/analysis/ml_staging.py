@@ -11,6 +11,7 @@ import uuid
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -312,15 +313,36 @@ def analyze_and_store_staged_ml(
             if progress_callback:
                 progress_callback("copy_queued", len(copy_futures), len(candidates))
 
-    with MLStagingSession(config) as session, \
-         ThreadPoolExecutor(
-             max_workers=config.copy_workers,
-             thread_name_prefix="ml-stage-copy"
-         ) as copier, \
-         ThreadPoolExecutor(
-             max_workers=config.decode_workers,
-             thread_name_prefix="ml-stage-decode"
-         ) as decoder:
+    def run_inference_batch() -> None:
+        """Hand the oldest decoded tracks, up to one inference batch, to the models."""
+        batch_size = min(config.inference_batch_size, len(ready_decoded))
+        _process_inference_batch(
+            [ready_decoded.popleft() for _ in range(batch_size)],
+            model_runners,
+            targets_by_track,
+            repository,
+            session,
+            complete,
+            progress_callback,
+            cancelled,
+        )
+
+    # A window smaller than a batch can never hold a full one.
+    full_batch = min(config.inference_batch_size, active_limit)
+
+    with MLStagingSession(config) as session, ExitStack() as pools:
+        copier = pools.enter_context(ThreadPoolExecutor(
+            max_workers=config.copy_workers,
+            thread_name_prefix="ml-stage-copy"
+        ))
+        decoder = pools.enter_context(ThreadPoolExecutor(
+            max_workers=config.decode_workers,
+            thread_name_prefix="ml-stage-decode"
+        ))
+        # Drop queued copies and decodes on any exit, cancellation included;
+        # running ones finish before the session removes the staging directory.
+        pools.callback(copier.shutdown, wait=True, cancel_futures=True)
+        pools.callback(decoder.shutdown, wait=True, cancel_futures=True)
 
         fill_copy_window()
 
@@ -334,28 +356,25 @@ def analyze_and_store_staged_ml(
             if cancelled is not None and cancelled():
                 raise EmbeddingCancelledError("ML staging cancelled")
 
-            # Start decode jobs from staged_ready
-            while staged_ready and len(decode_futures) < config.decode_workers:
+            # Queue every staged copy: the pool still decodes decode_workers at
+            # a time, and keeps going through the queue while the models run.
+            while staged_ready:
                 staged = staged_ready.popleft()
                 decode_futures[decoder.submit(_decode_staged, staged, decode_audio)] = staged
+
+            # Run a full batch as soon as it is decoded; queued copies and
+            # decodes continue on their pools during inference.
+            if len(ready_decoded) >= full_batch:
+                run_inference_batch()
+                fill_copy_window()
+                continue
 
             # Wait for any copy or decode to complete
             all_futures = tuple(copy_futures) + tuple(decode_futures)
             if not all_futures:
                 # No pending I/O, process ready_decoded batch
                 if ready_decoded:
-                    batch_size = min(config.inference_batch_size, len(ready_decoded))
-                    batch = [ready_decoded.popleft() for _ in range(batch_size)]
-                    _process_inference_batch(
-                        batch,
-                        model_runners,
-                        targets_by_track,
-                        repository,
-                        session,
-                        complete,
-                        progress_callback,
-                        cancelled,
-                    )
+                    run_inference_batch()
                 fill_copy_window()
                 continue
 
@@ -399,18 +418,7 @@ def analyze_and_store_staged_ml(
 
         # Process remaining decoded tracks
         while ready_decoded:
-            batch_size = min(config.inference_batch_size, len(ready_decoded))
-            batch = [ready_decoded.popleft() for _ in range(batch_size)]
-            _process_inference_batch(
-                batch,
-                model_runners,
-                targets_by_track,
-                repository,
-                session,
-                complete,
-                progress_callback,
-                cancelled,
-            )
+            run_inference_batch()
 
     return outcomes
 

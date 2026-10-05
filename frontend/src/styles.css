@@ -1030,12 +1030,16 @@ h2 {
    fifteen pixels off a column that is already the narrowest thing on screen,
    and pointed at nothing the panel's own layout does not already show. The
    wheel and the keyboard still reach every section. */
+/* Reaches 4px past the content on each side so the scroll box does not clip
+   the focus ring of a field that sits on its edge, such as the database path. */
 .library-panel-body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  margin: 0 -4px;
   min-height: 0;
   overflow-y: auto;
+  padding: 0 4px;
   scrollbar-width: none;
 }
 
@@ -1867,6 +1871,12 @@ h2 {
 .library-search-mode-toggle button.active {
   background: transparent;
   color: var(--accent-hover);
+}
+
+/* The pill clips its buttons to round the corners, so their focus ring is
+   drawn inside the button instead of around it. */
+.library-search-mode-toggle button:focus-visible {
+  outline-offset: -2px;
 }
 
 .library-view-controls {

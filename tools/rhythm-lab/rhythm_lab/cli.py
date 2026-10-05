@@ -825,6 +825,9 @@ def _serve(args: argparse.Namespace) -> None:
         host=args.host,
         port=args.port,
         log_config=uvicorn_log_config(),
+        # Paused previews can keep HTTP responses open indefinitely. Cancel
+        # those requests after a short drain; lifespan cleanup still runs.
+        timeout_graceful_shutdown=5,
     )
 
 

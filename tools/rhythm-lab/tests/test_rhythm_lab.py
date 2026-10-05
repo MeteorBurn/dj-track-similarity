@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import re
 from dataclasses import fields, replace
@@ -813,6 +814,9 @@ def test_serve_parser_forwards_expected_source_catalog_uuid(
     _, run_kwargs = calls["run"]
     assert run_kwargs["host"] == "127.0.0.1"
     assert run_kwargs["port"] == 8777
+    # A paused streaming preview must not keep server shutdown open forever.
+    drain_timeout = run_kwargs["timeout_graceful_shutdown"]
+    assert math.isfinite(drain_timeout) and drain_timeout > 0
 
 
 _V1_LABELS_DDL = """

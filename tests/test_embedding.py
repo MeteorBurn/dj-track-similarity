@@ -705,6 +705,44 @@ class SharedAudioMulanAdapter(MuqMulanEmbeddingAdapter):
         self._model = self.fake_model
 
 
+def test_job_prepared_audio_is_what_each_adapter_would_resample_itself() -> None:
+    """Analysis jobs resample once per rate off the models' thread and hand the
+    result to every model reading that rate; each must read the same samples."""
+    torchaudio = pytest.importorskip("torchaudio")
+    from dj_track_similarity.analysis.job_batch import prepare_model_audio
+
+    seconds = torch.arange(44_100 * 3, dtype=torch.float32) / 44_100
+    native = DecodedAudio(
+        path="track.wav",
+        audio=0.4 * torch.sin(2 * torch.pi * 440 * seconds) + 0.1 * torch.sin(2 * torch.pi * 9_000 * seconds),
+        sample_rate=44_100,
+        detail="test",
+    )
+    prepared = prepare_model_audio(native, {16_000, 24_000}).by_rate
+    assert (prepared[16_000].sample_rate, prepared[24_000].sample_rate) == (16_000, 24_000)
+
+    maest = MaestEmbeddingAdapter(device="cpu")
+    maest._torch, maest._torchaudio = torch, torchaudio
+    assert torch.equal(
+        maest._prepare_audio_from_decoded(prepared[16_000]),
+        maest._prepare_audio_from_decoded(native),
+    )
+
+    def muq_windows(decoded: DecodedAudio) -> list:
+        return embedding_audio._prepare_windows(
+            [decoded],
+            target_rate=24_000,
+            window_seconds=1.0,
+            torch=torch,
+            torchaudio=torchaudio,
+            model_label="MuQ",
+        )[1]
+
+    own = muq_windows(native)
+    assert len(own) == 3
+    assert all(torch.equal(given, expected) for given, expected in zip(muq_windows(prepared[24_000]), own, strict=True))
+
+
 def test_mulan_adapter_forwards_full_tracks_and_normalizes_audio_and_text(monkeypatch) -> None:
     adapter = SharedAudioMulanAdapter()
     resample_calls = []

@@ -288,6 +288,11 @@ class MaestModelRunner:
         return self.adapter.device
 
     @property
+    def input_sample_rate(self) -> int | None:
+        """The rate the adapter reads; audio already at it is not resampled again."""
+        return getattr(self.adapter, "target_rate", None)
+
+    @property
     def active_outputs(self) -> tuple[AnalysisOutput, ...]:
         return self._active_outputs
 
@@ -414,6 +419,11 @@ class EmbeddingModelRunner:
     @property
     def device(self) -> str | None:
         return self.adapter.device
+
+    @property
+    def input_sample_rate(self) -> int | None:
+        """The rate the adapter reads; audio already at it is not resampled again."""
+        return getattr(self.adapter, "target_rate", None)
 
     @property
     def active_outputs(self) -> tuple[AnalysisOutput, ...]:

@@ -27,6 +27,8 @@ from .job_batch import (
     AnalysisBatchItem,
     DecodeAudio,
     iter_decoded_batches,
+    model_sample_rate,
+    select_model_items,
 )
 from .job_state import (
     AnalysisJobStatus,
@@ -875,6 +877,10 @@ class AnalysisJobManager:
                 payload.candidates,
                 payload.targets_by_track,
                 self._decode_audio,
+                sample_rates={
+                    model: model_sample_rate(runner)
+                    for model, runner in lifecycle.runners.items()
+                },
                 batch_size=batch_size,
                 workers=workers,
                 set_current_path=lambda path: self._update(job_id, current_path=path),
@@ -903,7 +909,9 @@ class AnalysisJobManager:
     ) -> bool:
         status = self.get(job_id)
         for model in ANALYSIS_MODEL_ORDER:
-            model_items = [item for item in items if model in item.models]
+            model_items = select_model_items(
+                items, model, model_sample_rate(lifecycle.runners.get(model))
+            )
             if not model_items:
                 continue
             if self.get(job_id).cancel_requested:

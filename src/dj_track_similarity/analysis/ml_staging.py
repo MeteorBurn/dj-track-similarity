@@ -16,7 +16,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from .job_batch import AnalysisBatchItem, DecodeFailure
+from .job_batch import (
+    AnalysisBatchItem,
+    DecodeFailure,
+    ModelAudio,
+    model_sample_rate,
+    prepare_model_audio,
+    select_model_items,
+)
 from ..analysis_models import AnalysisCandidate, AnalysisTarget
 from ..audio.loader import DecodedAudio, load_decoded_audio_with_ffmpeg
 from ..embedding.contracts import EmbeddingCancelledError
@@ -255,6 +262,9 @@ def analyze_and_store_staged_ml(
     pending = iter(candidates)
     staged_ready: deque[MLStagedCandidate] = deque()  # Copied, waiting decode
     ready_decoded: deque[tuple[MLStagedCandidate, DecodedAudio | DecodeFailure, float]] = deque()  # Decoded, waiting inference
+    # Resampling for the models' rates, at most one batch beyond the batch in inference
+    preparing: deque[tuple[MLStagedCandidate, Future[ModelAudio | DecodeFailure], float]] = deque()
+    sample_rates = {model: model_sample_rate(runner) for model, runner in model_runners.items()}
     outcomes: list[MLStagedResult] = []
 
     copy_futures: dict[Future[MLStagedCandidate], AnalysisCandidate] = {}
@@ -302,6 +312,7 @@ def analyze_and_store_staged_ml(
             + len(staged_ready)
             + len(decode_futures)
             + len(ready_decoded)
+            + len(preparing)
             < active_limit
         ):
             try:
@@ -313,11 +324,29 @@ def analyze_and_store_staged_ml(
             if progress_callback:
                 progress_callback("copy_queued", len(copy_futures), len(candidates))
 
+    def prepare_ahead() -> None:
+        """Resample decoded tracks for the next batch while the models run.
+
+        Only one batch is prepared ahead, so resampled audio stays within two
+        batches however large the decode window is.
+        """
+        while ready_decoded and len(preparing) < full_batch:
+            staged, decoded, decode_seconds = ready_decoded.popleft()
+            rates = {
+                sample_rates.get(model)
+                for model in targets_by_track.get(staged.candidate.target.track_id, ())
+            }
+            preparing.append(
+                (staged, preparer.submit(prepare_model_audio, decoded, rates), decode_seconds)
+            )
+
     def run_inference_batch() -> None:
-        """Hand the oldest decoded tracks, up to one inference batch, to the models."""
-        batch_size = min(config.inference_batch_size, len(ready_decoded))
+        """Hand the oldest prepared tracks, up to one inference batch, to the models."""
+        batch_size = min(config.inference_batch_size, len(preparing))
+        batch = [preparing.popleft() for _ in range(batch_size)]
+        prepare_ahead()
         _process_inference_batch(
-            [ready_decoded.popleft() for _ in range(batch_size)],
+            [(staged, future.result(), decode_seconds) for staged, future, decode_seconds in batch],
             model_runners,
             targets_by_track,
             repository,
@@ -339,10 +368,16 @@ def analyze_and_store_staged_ml(
             max_workers=config.decode_workers,
             thread_name_prefix="ml-stage-decode"
         ))
-        # Drop queued copies and decodes on any exit, cancellation included;
-        # running ones finish before the session removes the staging directory.
+        # Its own pool, so resampling the next batch never queues behind decodes.
+        preparer = pools.enter_context(ThreadPoolExecutor(
+            max_workers=config.decode_workers,
+            thread_name_prefix="ml-stage-prepare"
+        ))
+        # Drop queued copies, decodes and resampling on any exit, cancellation
+        # included; running ones finish before the session removes the staging directory.
         pools.callback(copier.shutdown, wait=True, cancel_futures=True)
         pools.callback(decoder.shutdown, wait=True, cancel_futures=True)
+        pools.callback(preparer.shutdown, wait=True, cancel_futures=True)
 
         fill_copy_window()
 
@@ -352,6 +387,7 @@ def analyze_and_store_staged_ml(
             or staged_ready
             or decode_futures
             or ready_decoded
+            or preparing
         ):
             if cancelled is not None and cancelled():
                 raise EmbeddingCancelledError("ML staging cancelled")
@@ -362,9 +398,10 @@ def analyze_and_store_staged_ml(
                 staged = staged_ready.popleft()
                 decode_futures[decoder.submit(_decode_staged, staged, decode_audio)] = staged
 
-            # Run a full batch as soon as it is decoded; queued copies and
-            # decodes continue on their pools during inference.
-            if len(ready_decoded) >= full_batch:
+            # Run a full batch as soon as it is decoded; queued copies, decodes
+            # and the next batch's resampling continue on their pools meanwhile.
+            prepare_ahead()
+            if len(preparing) >= full_batch:
                 run_inference_batch()
                 fill_copy_window()
                 continue
@@ -372,8 +409,8 @@ def analyze_and_store_staged_ml(
             # Wait for any copy or decode to complete
             all_futures = tuple(copy_futures) + tuple(decode_futures)
             if not all_futures:
-                # No pending I/O, process ready_decoded batch
-                if ready_decoded:
+                # No pending I/O: run the last, partial batch.
+                if preparing:
                     run_inference_batch()
                 fill_copy_window()
                 continue
@@ -415,10 +452,6 @@ def analyze_and_store_staged_ml(
                         ))
 
             fill_copy_window()
-
-        # Process remaining decoded tracks
-        while ready_decoded:
-            run_inference_batch()
 
     return outcomes
 
@@ -473,7 +506,7 @@ def _decode_staged(
 
 
 def _process_inference_batch(
-    batch: list[tuple[MLStagedCandidate, DecodedAudio | DecodeFailure, float]],
+    batch: list[tuple[MLStagedCandidate, ModelAudio | DecodedAudio | DecodeFailure, float]],
     model_runners: Mapping[str, Any],
     targets_by_track: Mapping[int, tuple[str, ...]],
     repository: Any,
@@ -557,7 +590,7 @@ def _process_inference_batch(
             if not runner:
                 continue
 
-            model_items = [item for item in items if model_name in item.models]
+            model_items = select_model_items(items, model_name, model_sample_rate(runner))
             if not model_items:
                 continue
 

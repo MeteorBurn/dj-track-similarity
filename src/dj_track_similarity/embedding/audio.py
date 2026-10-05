@@ -65,6 +65,27 @@ def _pad_or_trim_audio_tensor(audio: Tensor, target_samples: int, torch) -> Tens
         return torch.nn.functional.pad(window, (0, target_samples - window.numel()))
     return window
 
+def resample_decoded(decoded: DecodedAudio, target_rate: int) -> DecodedAudio:
+    """Return ``decoded`` at ``target_rate``, sample for sample as an adapter makes it.
+
+    Every adapter resamples ``audio.to(float32).unsqueeze(0)`` through the kernel
+    cached for the rate pair and skips that step for audio already at its rate,
+    so a model handed this result reads exactly the samples it would compute.
+    """
+
+    if decoded.sample_rate == target_rate:
+        return decoded
+    import torch
+    import torchaudio
+
+    audio = _resample_to(
+        decoded.audio.to(dtype=torch.float32).unsqueeze(0),
+        source_rate=decoded.sample_rate,
+        target_rate=target_rate,
+        torchaudio=torchaudio,
+    ).squeeze(0).to(dtype=torch.float32)
+    return DecodedAudio(path=decoded.path, audio=audio, sample_rate=target_rate, detail=decoded.detail)
+
 def _resample_to(waveform, *, source_rate: int, target_rate: int, torchaudio):
     """Resample through the kernel cached for this rate pair."""
 

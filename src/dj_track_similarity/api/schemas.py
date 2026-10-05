@@ -71,6 +71,9 @@ def _reject_duplicates(values: list[Any], info: ValidationInfo) -> list[Any]:
 
 _unique = AfterValidator(_reject_duplicates)
 
+# The feedback lookup carries every result of one text search.
+TEXT_SEARCH_MAX_RESULTS = 1000
+
 
 class ScanRequest(BaseModel):
     root: str
@@ -406,7 +409,7 @@ class TextSearchRequest(BaseModel):
     analysis_family: Literal["clap", "mulan"] = "clap"
     negative_queries: list[str] = Field(default_factory=list)
     negative_weight: float | None = Field(default=None, ge=0.0, le=2.0)
-    limit: int = Field(default=10, ge=1, le=1000)
+    limit: int = Field(default=10, ge=1, le=TEXT_SEARCH_MAX_RESULTS)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     device: str = Field(
         default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
@@ -540,7 +543,7 @@ class TextQueryVerdictResponse(BaseModel):
 class TextSearchFeedbackLookupRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
     run_id: str = Field(min_length=1)
-    track_uuids: list[str] = Field(min_length=1, max_length=500)
+    track_uuids: list[str] = Field(min_length=1, max_length=TEXT_SEARCH_MAX_RESULTS)
 
 
 class TextSearchFeedbackLookupResponse(BaseModel):

@@ -532,7 +532,7 @@ def test_sonara_search_enforces_the_shared_seed_contract(
     [
         {"limit": 0},
         {"limit": -1},
-        {"limit": 501},
+        {"limit": 1001},
         {"min_similarity": -0.1},
         {"min_similarity": 1.1},
         {"epsilon": -0.1},

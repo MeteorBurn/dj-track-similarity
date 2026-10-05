@@ -361,7 +361,9 @@ def analyze_and_store_staged_ml(
 
             done, _ = wait(all_futures, return_when=FIRST_COMPLETED, timeout=0.1)
 
-            for future in done:
+            # ``done`` is a set: visit it in submission order so tracks that
+            # finish in the same wait keep library order into decode and batches.
+            for future in (future for future in all_futures if future in done):
                 if future in copy_futures:
                     # Copy completed
                     candidate = copy_futures.pop(future)

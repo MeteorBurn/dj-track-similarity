@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
 from collections.abc import Mapping, Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -25,7 +26,7 @@ from .config import (
 from .job_batch import (
     AnalysisBatchItem,
     DecodeAudio,
-    decode_analysis_batch,
+    iter_decoded_batches,
 )
 from .job_state import (
     AnalysisJobStatus,
@@ -568,13 +569,16 @@ class AnalysisJobManager:
                     max(1, payload.config.sonara_batch_size),
                 )
             )
+        elif payload.config.ml_staging_config is not None:
+            # ML staged processes all candidates in one pipeline run.
+            batches = (payload.candidates,)
         else:
-            # ML models: use single batch for staged mode, chunks for direct mode
-            batches = (
-                (payload.candidates,)
-                if payload.config.ml_staging_config is not None
-                else chunks(payload.candidates, max(1, status.track_batch_size))
-            )
+            # ML Direct Mode decodes ahead of the models rather than batch by batch here.
+            if not self._run_direct_ml(job_id, lifecycle, payload, status.track_batch_size):
+                return self.get(job_id)
+            if self.get(job_id).cancel_requested:
+                return self._finish_cancelled(job_id)
+            batches = ()
         for batch in batches:
             if self.get(job_id).cancel_requested:
                 return self._finish_cancelled(job_id)
@@ -803,8 +807,8 @@ class AnalysisJobManager:
                 for candidate in batch
                 if targets_by_track.get(candidate.target.track_id)
             ]
-        # ML Staged Mode path
-        elif payload.config.ml_staging_config is not None:
+        # ML Staged Mode path; Direct Mode runs through _run_direct_ml.
+        else:
             # ML staged processes ALL candidates in one pipeline run
             config = payload.config.ml_staging_config
             self._append_event(
@@ -852,23 +856,52 @@ class AnalysisJobManager:
 
             # ML staged handles its own track processing
             return True
+        return self._run_batch_models(job_id, lifecycle, items)
 
-        # ML Direct Mode path (current)
-        else:
-            items = decode_analysis_batch(
-                batch,
-                targets_by_track,
+    def _run_direct_ml(
+        self,
+        job_id: str,
+        lifecycle: _RunnerLifecycle,
+        payload: _AnalysisPayload,
+        track_batch_size: int,
+    ) -> bool:
+        """Hand decoded batches to the models while the next batch decodes."""
+
+        batch_size = max(1, track_batch_size)
+        # One decoder per track of a batch, leaving a core to feed the models.
+        workers = min(batch_size, max(1, (os.cpu_count() or 2) - 1))
+        with closing(
+            iter_decoded_batches(
+                payload.candidates,
+                payload.targets_by_track,
                 self._decode_audio,
-                set_current_path=lambda path: self._update(
-                    job_id,
-                    current_path=path,
-                ),
+                batch_size=batch_size,
+                workers=workers,
+                set_current_path=lambda path: self._update(job_id, current_path=path),
                 mark_track_processed=lambda candidate: self._mark_track_processed(
                     job_id, candidate
                 ),
             )
+        ) as decoded_batches:
+            for items in decoded_batches:
+                if self.get(job_id).cancel_requested:
+                    return True
+                if not self._run_batch_models(job_id, lifecycle, items):
+                    return False
+                if self.get(job_id).cancel_requested:
+                    return True
+                # Drop this batch before the next is collected, so decoded audio
+                # never spans more than the batch in hand and the one decoding.
+                del items
+        return True
 
-        # Run models on decoded items (SONARA or ML direct mode)
+    def _run_batch_models(
+        self,
+        job_id: str,
+        lifecycle: _RunnerLifecycle,
+        items: list[AnalysisBatchItem],
+    ) -> bool:
+        status = self.get(job_id)
         for model in ANALYSIS_MODEL_ORDER:
             model_items = [item for item in items if model in item.models]
             if not model_items:

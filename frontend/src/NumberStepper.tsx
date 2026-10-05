@@ -9,6 +9,7 @@ export function NumberStepper({
   maximum,
   disabled,
   classPrefix,
+  hint,
   onChange,
 }: {
   label: string;
@@ -17,13 +18,15 @@ export function NumberStepper({
   maximum: number;
   disabled: boolean;
   classPrefix: string;
+  // What the value controls, shown as the control's tooltip.
+  hint?: string;
   onChange: (value: number) => void;
 }) {
   const update = (value: number) => onChange(
     Math.min(maximum, Math.max(minimum, Math.trunc(value) || minimum)),
   );
   return (
-    <div className="worker-control">
+    <div className="worker-control" title={hint}>
       <span>{label}</span>
       <div className="stepper">
         <button className={`icon-button number-stepper-decrement-button ${classPrefix}-decrement-button`} title={`Уменьшить ${label}`} disabled={disabled || value <= minimum} onClick={() => update(value - 1)} type="button"><Minus size={15} /></button>

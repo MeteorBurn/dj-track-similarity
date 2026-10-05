@@ -1094,13 +1094,9 @@ h2 {
   margin-bottom: 6px;
 }
 
-.ml-staging-path-row {
-  margin-bottom: 0;
-}
-
 .ml-staged-settings-grid {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -1150,21 +1146,17 @@ h2 {
   width: 100%;
 }
 
-.sonara-staging-path-row {
-  margin-bottom: 0;
-}
-
 .sonara-staging-path-row input:disabled {
   color: var(--text-muted);
 }
 
-.sonara-staged-settings-grid {
+.sonara-stepper-grid {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.sonara-staged-settings-grid .worker-control {
+.sonara-stepper-grid .worker-control {
   margin-bottom: 0;
   min-width: 0;
 }
@@ -1523,155 +1515,184 @@ h2 {
   color: var(--danger-text-hover);
 }
 
-.scan-import-backdrop {
+/* Settings sheets: the track import, SONARA and ML dialogs share one frame,
+   centred over the workbench and no wider than the library panel's list area
+   on a 2000px window. The height follows the content; only a window too short
+   for it makes the body scroll between the fixed header and footer. Each
+   setting reads top to bottom: title, explanation, controls; hairlines, not
+   boxes, separate the settings. */
+:is(.scan-import-backdrop, .sonara-settings-backdrop, .ml-settings-backdrop) {
   align-items: center;
   background: var(--overlay-strong);
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 16px;
+  padding: 24px;
   position: fixed;
   z-index: 1200;
 }
 
-.scan-import-dialog {
-  background: var(--surface);
-  border: 1px solid var(--button-border);
-  border-radius: 10px;
-  box-shadow: 0 18px 48px var(--shadow-dialog-strong);
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 32px);
-  max-width: min(760px, calc(100vw - 32px));
-  padding: 18px;
+  max-height: calc(100vh - 48px);
+  max-width: 690px;
+  padding: 20px 22px 18px;
   position: relative;
   width: 100%;
 }
 
-.scan-import-title {
-  border-bottom: 1px solid var(--border-soft);
+:is(.scan-import-title, .sonara-settings-title, .ml-settings-title) {
   flex: 0 0 auto;
-  padding-bottom: 12px;
-  padding-right: 44px;
+  padding-bottom: 14px;
+  padding-right: 48px;
 }
 
-.scan-import-title h2 {
-  font-size: 17px;
+:is(.scan-import-title, .sonara-settings-title, .ml-settings-title) h2 {
   margin: 0;
 }
 
-.scan-import-title-copy {
+:is(.scan-import-title-copy, .sonara-settings-title-copy, .ml-settings-title-copy) {
   display: grid;
-  gap: 3px;
+  gap: 4px;
 }
 
-.scan-import-title-copy > span {
+:is(.scan-import-title-copy, .sonara-settings-title-copy, .ml-settings-title-copy) > span {
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
-.scan-import-close-button {
+:is(.scan-import-close-button, .sonara-settings-close-button, .ml-settings-close-button) {
   position: absolute;
   right: 18px;
   top: 18px;
 }
 
-.scan-import-body {
-  display: grid;
+/* The scrolling body clips at its edges, so it reaches 4px past the content on
+   each side: a focus ring (1px outline, 2px offset) stays visible while the
+   fields still line up with the header and footer. */
+:is(.scan-import-body, .sonara-settings-body, .ml-settings-body) {
   flex: 1 1 auto;
-  gap: 12px;
+  margin: 0 -4px;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 2px;
+  padding: 0 4px;
 }
 
-.scan-import-section {
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+.settings-row {
+  border-bottom: 1px solid var(--border-soft);
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 16px 0;
 }
 
-.scan-import-section-title {
-  align-items: center;
-  color: var(--text-muted);
-  display: flex;
-  font-size: 11px;
-  font-weight: 700;
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row-text {
+  align-content: start;
+  display: grid;
   gap: 6px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
-.scan-import-dialog label,
-.scan-import-dialog .worker-control > span,
-.scan-import-dialog input {
+.settings-row-title {
+  align-items: center;
+  color: var(--text-strong);
+  display: flex;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 6px;
+  line-height: 1.3;
+  margin: 0;
+}
+
+/* The row's current value: a range, a count of selected formats. */
+.settings-row-aside {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.settings-row-aside.selected {
+  color: var(--accent);
+}
+
+.settings-row-description {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 80ch;
+}
+
+.settings-row-controls {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-row-controls .path-row {
+  margin-bottom: 0;
+}
+
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) :is(label, .worker-control > span) {
+  color: var(--text-muted);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.2;
 }
 
-.scan-import-dialog label,
-.scan-import-dialog .worker-control > span {
-  color: var(--text-muted);
-}
-
-.scan-import-dialog input {
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) input {
   color: var(--app-text);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) .path-row input {
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
 /* Chrome reserves room for the native spinner inside the field, which pulls the
    centred value off to the left. The steppers next to the field replace it. */
-.scan-import-dialog input[type="number"] {
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
 
-.scan-import-dialog input[type="number"]::-webkit-outer-spin-button,
-.scan-import-dialog input[type="number"]::-webkit-inner-spin-button {
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) input[type="number"]::-webkit-outer-spin-button,
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
 }
 
-.scan-import-section-counter {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  letter-spacing: 0;
-  margin-left: auto;
-  text-transform: none;
+:is(.scan-import-footer, .sonara-settings-footer, .ml-settings-footer) {
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  padding-top: 14px;
 }
 
-.scan-import-description {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.4;
+:is(.scan-import-footer, .sonara-settings-footer, .ml-settings-footer) button {
+  font-size: 14px;
+  justify-content: center;
   margin: 0;
-  width: 100%;
+  min-height: 38px;
+  min-width: 180px;
 }
 
-.scan-import-path-row {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  margin-bottom: 0;
-}
-
-.scan-import-path-row > input {
-  height: 34px;
-  min-height: 34px;
-  text-overflow: ellipsis;
-}
-
-.scan-import-path-row .icon-button {
-  width: 34px;
+@media (max-width: 760px) {
+  :is(.scan-import-footer, .sonara-settings-footer, .ml-settings-footer) button {
+    width: 100%;
+  }
 }
 
 .scan-import-formats {
@@ -1686,11 +1707,11 @@ h2 {
   border-radius: 6px;
   color: var(--scan-import-format-off-text);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0;
-  min-height: 32px;
+  min-height: 36px;
   min-width: 0;
-  padding: 4px 6px;
+  padding: 4px;
 }
 
 .scan-import-format-chip.selected {
@@ -1707,57 +1728,12 @@ h2 {
 .scan-import-settings {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .scan-import-settings > label {
   display: grid;
-  gap: 4px;
-}
-
-.scan-import-settings .worker-control {
-  align-content: start;
-  gap: 4px;
-  margin-bottom: 0;
-}
-
-.scan-import-settings > label,
-.scan-import-settings .worker-control {
-  grid-template-rows: 18px 36px;
-}
-
-.scan-import-settings .worker-control > span {
-  align-items: center;
-  display: flex;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.scan-import-settings .stepper {
-  align-items: stretch;
-  height: 36px;
-}
-
-.scan-import-settings > label > input,
-.scan-import-settings .stepper .icon-button,
-.scan-import-settings .stepper input {
-  height: 36px;
-  min-height: 36px;
-}
-
-.scan-import-footer {
-  border-top: 1px solid var(--border-soft);
-  flex: 0 0 auto;
-  padding-top: 12px;
-}
-
-.scan-import-ok-button {
-  font-size: 14px;
-  justify-content: center;
-  margin-bottom: 0;
-  min-height: 38px;
-  width: 100%;
+  gap: 5px;
 }
 
 @media (max-width: 620px) {
@@ -1766,178 +1742,14 @@ h2 {
   }
 }
 
+.segmented.sonara-bpm-segmented {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 @media (max-width: 560px) {
-  .scan-import-settings {
+  .segmented.sonara-bpm-segmented {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-
-/* Repeats the "Загрузить треки в базу" dialog's frame (backdrop, title, body,
-   section) so the SONARA analysis settings dialog reads as the same UI
-   language, owned independently like every other dialog in this file. */
-.sonara-settings-backdrop {
-  align-items: center;
-  background: var(--overlay-strong);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  padding: 16px;
-  position: fixed;
-  z-index: 1200;
-}
-
-.sonara-settings-dialog {
-  background: var(--surface);
-  border: 1px solid var(--button-border);
-  border-radius: 10px;
-  box-shadow: 0 18px 48px var(--shadow-dialog-strong);
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 32px);
-  max-width: min(760px, calc(100vw - 32px));
-  padding: 18px;
-  position: relative;
-  width: 100%;
-}
-
-.sonara-settings-title {
-  border-bottom: 1px solid var(--border-soft);
-  flex: 0 0 auto;
-  padding-bottom: 12px;
-  padding-right: 44px;
-}
-
-.sonara-settings-title h2 {
-  font-size: 17px;
-  margin: 0;
-}
-
-.sonara-settings-title-copy {
-  display: grid;
-  gap: 3px;
-}
-
-.sonara-settings-title-copy > span {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.sonara-settings-close-button {
-  position: absolute;
-  right: 18px;
-  top: 18px;
-}
-
-.sonara-settings-body {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 12px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 14px 2px;
-}
-
-.sonara-settings-section {
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-}
-
-.sonara-settings-section-title {
-  align-items: center;
-  color: var(--text-muted);
-  display: flex;
-  font-size: 11px;
-  font-weight: 700;
-  gap: 6px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* A proper explanation of what the setting is for, not a muted caption or a
-   dismissible hint: full app text color and a readable line length. */
-.sonara-settings-section-description {
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1.45;
-  margin: 0;
-}
-
-.sonara-settings-dialog label,
-.sonara-settings-dialog .worker-control > span,
-.sonara-settings-dialog input {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0;
-  line-height: 1.2;
-}
-
-.sonara-settings-dialog label,
-.sonara-settings-dialog .worker-control > span {
-  color: var(--text-muted);
-}
-
-.sonara-settings-dialog input {
-  color: var(--app-text);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.sonara-settings-dialog input[type="number"] {
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-.sonara-settings-dialog input[type="number"]::-webkit-outer-spin-button,
-.sonara-settings-dialog input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  appearance: none;
-  margin: 0;
-}
-
-.sonara-settings-dialog .sonara-settings-bpm-preset-chip {
-  font-size: 13px;
-  letter-spacing: 0;
-}
-
-.sonara-settings-bpm-presets {
-  display: grid;
-  gap: 6px;
-  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
-}
-
-.sonara-settings-bpm-preset-chip {
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-weight: 700;
-  min-height: 32px;
-  min-width: 0;
-  padding: 4px 9px;
-}
-
-.sonara-settings-bpm-preset-chip.selected {
-  background: var(--accent-active-bg);
-  border-color: var(--accent-active-border);
-  color: var(--accent-active-text);
-}
-
-.sonara-settings-bpm-preset-custom {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  margin-left: auto;
-}
-
-.sonara-settings-bpm-preset-custom.selected {
-  color: var(--accent);
-  font-weight: 700;
 }
 
 .sonara-settings-bpm-controls {
@@ -1948,13 +1760,7 @@ h2 {
 
 .sonara-settings-bpm-controls > label {
   display: grid;
-  gap: 4px;
-  grid-template-rows: 18px 36px;
-}
-
-.sonara-settings-bpm-controls > label > input {
-  height: 36px;
-  min-height: 36px;
+  gap: 5px;
 }
 
 /* A bound the current choice does not let you edit (a preset, no range, a
@@ -1968,150 +1774,34 @@ h2 {
 
 .sonara-settings-bpm-hint {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   margin: 0;
 }
 
-.sonara-settings-footer {
-  border-top: 1px solid var(--border-soft);
-  flex: 0 0 auto;
-  padding-top: 12px;
+/* One control rhythm in the SONARA and ML settings dialogs: every choice
+   button, field and stepper is 36px tall with 14px/600 values, under
+   13px/600 labels. */
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog)
+  :is(.segmented button, .stepper input, .stepper button, .sonara-settings-bpm-controls input,
+      .scan-import-settings input, .path-row input, .path-row .icon-button) {
+  height: 36px;
+  min-height: 36px;
 }
 
-.sonara-settings-ok-button {
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog)
+  :is(.segmented button, .stepper input, .sonara-settings-bpm-controls input, .scan-import-settings input) {
   font-size: 14px;
-  justify-content: center;
-  margin-bottom: 0;
-  min-height: 38px;
-  width: 100%;
-}
-
-/* Repeats the SONARA analysis settings dialog's own frame so the ML analysis
-   settings dialog reads as the same UI language, owned independently like
-   every other dialog in this file. */
-.ml-settings-backdrop {
-  align-items: center;
-  background: var(--overlay-strong);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  padding: 16px;
-  position: fixed;
-  z-index: 1200;
-}
-
-.ml-settings-dialog {
-  background: var(--surface);
-  border: 1px solid var(--button-border);
-  border-radius: 10px;
-  box-shadow: 0 18px 48px var(--shadow-dialog-strong);
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 32px);
-  max-width: min(760px, calc(100vw - 32px));
-  padding: 18px;
-  position: relative;
-  width: 100%;
-}
-
-.ml-settings-title {
-  border-bottom: 1px solid var(--border-soft);
-  flex: 0 0 auto;
-  padding-bottom: 12px;
-  padding-right: 44px;
-}
-
-.ml-settings-title h2 {
-  font-size: 17px;
-  margin: 0;
-}
-
-.ml-settings-title-copy {
-  display: grid;
-  gap: 3px;
-}
-
-.ml-settings-title-copy > span {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.ml-settings-close-button {
-  position: absolute;
-  right: 18px;
-  top: 18px;
-}
-
-.ml-settings-body {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 12px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 14px 2px;
-}
-
-.ml-settings-section {
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-}
-
-.ml-settings-section-title {
-  align-items: center;
-  color: var(--text-muted);
-  display: flex;
-  font-size: 11px;
-  font-weight: 700;
-  gap: 6px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* A proper explanation of what the setting is for, not a muted caption or a
-   dismissible hint: full app text color and a readable line length. */
-.ml-settings-section-description {
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1.45;
-  margin: 0;
-}
-
-.ml-settings-dialog label,
-.ml-settings-dialog .worker-control > span,
-.ml-settings-dialog input {
-  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0;
-  line-height: 1.2;
 }
 
-.ml-settings-dialog label,
-.ml-settings-dialog .worker-control > span {
-  color: var(--text-muted);
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) .stepper {
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
 }
 
-.ml-settings-dialog input {
-  color: var(--app-text);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.ml-settings-dialog input[type="number"] {
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-.ml-settings-dialog input[type="number"]::-webkit-outer-spin-button,
-.ml-settings-dialog input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  appearance: none;
-  margin: 0;
+:is(.scan-import-dialog, .sonara-settings-dialog, .ml-settings-dialog) :is(.path-row, .stepper) .icon-button {
+  min-width: 36px;
+  width: 36px;
 }
 
 .ml-settings-batch-grid {
@@ -2123,20 +1813,6 @@ h2 {
 .ml-settings-batch-grid .worker-control {
   margin-bottom: 0;
   min-width: 0;
-}
-
-.ml-settings-footer {
-  border-top: 1px solid var(--border-soft);
-  flex: 0 0 auto;
-  padding-top: 12px;
-}
-
-.ml-settings-ok-button {
-  font-size: 14px;
-  justify-content: center;
-  margin-bottom: 0;
-  min-height: 38px;
-  width: 100%;
 }
 
 .stage-action-button.stop-button {
@@ -2474,8 +2150,7 @@ h2 {
   width: 100%;
 }
 
-.analysis-limit small,
-.analysis-device small {
+.analysis-limit small {
   color: var(--text-soft);
   font-size: 11px;
   line-height: 1.35;
@@ -2494,20 +2169,6 @@ h2 {
 
 .worker-control small {
   font-size: 11px;
-}
-
-.analysis-device {
-  color: var(--text-muted);
-  display: grid;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.analysis-device > span {
-  align-items: center;
-  display: flex;
-  font-size: 12px;
-  gap: 6px;
 }
 
 .segmented {
@@ -6037,8 +5698,7 @@ button.dedup-play-button {
   font-size: 17px;
   font-weight: 600;
 }
-:is(.scan-import-section, .sonara-settings-section, .ml-settings-section,
-    .dedup-section, .custom-classifier-profile) {
+:is(.dedup-section, .custom-classifier-profile) {
   background: var(--surface-muted);
   border-color: var(--border-soft);
   border-radius: var(--workbench-radius);

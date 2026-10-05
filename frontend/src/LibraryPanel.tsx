@@ -257,7 +257,7 @@ export function LibraryPanel({
         </div>
         <div className="stage-card ml-stage">
           <div className="stage-actions">{mlAnalysisModelOrder.map(modelRow)}</div>
-          <button className="stage-settings-button" title="Открыть параметры анализа ML-моделей" disabled={stagesDisabled} onClick={onOpenMLSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа ML моделями</button>
+          <button className="stage-settings-button" title="Открыть параметры анализа ML-моделей" disabled={stagesDisabled} onClick={onOpenMLSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа ML-моделей</button>
         </div>
 
         <div className="worker-control analysis-limit" title={helpText.analyzeLimit}>

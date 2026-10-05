@@ -22,7 +22,7 @@ const bpmRangeChoices: readonly { key: SonaraBpmRangeChoice; label: string; titl
     title: `${preset.label}: ${preset.bpmMin}–${preset.bpmMax} BPM`,
   })),
   { key: "custom", label: "Свой диапазон", title: "Границы задаются в полях BPM Min и BPM Max" },
-  { key: "none", label: "Не использовать", title: "Темп SONARA без сворачивания по октавам" },
+  { key: "none", label: "Не использовать", title: "Темп SONARA как есть, без сворачивания" },
 ];
 
 export function SonaraAnalysisSettingsDialog({
@@ -80,86 +80,91 @@ export function SonaraAnalysisSettingsDialog({
         <header className="dialog-title sonara-settings-title">
           <div className="sonara-settings-title-copy">
             <h2 id="sonara-settings-title">Настройки анализа SONARA</h2>
-            <span>Режим чтения файлов и диапазон BPM решают, как проходит нативный анализ SONARA.</span>
+            <span>Диапазон BPM и чтение файлов для анализа SONARA. Считает всегда на CPU.</span>
           </div>
           <button className="icon-button sonara-settings-close-button" title="Закрыть" aria-label="Закрыть" disabled={disabled} onClick={onClose} type="button"><X size={16} /></button>
         </header>
         <div className="sonara-settings-body">
-          <section className="sonara-settings-section sonara-settings-bpm-range">
-            <div className="sonara-settings-section-title">
-              <span>Диапазон BPM для анализа SONARA</span>
-              {sonaraBpmRangeLocked && <Lock size={13} aria-hidden="true" />}
-              <span className={`sonara-settings-bpm-preset-custom ${activeBpmChoice === "custom" ? "selected" : ""}`}>
-                {sonaraBpmRange ? `${sonaraBpmRange.bpmMin}–${sonaraBpmRange.bpmMax}` : "Без диапазона"}
-              </span>
+          <section className="settings-row" aria-labelledby="sonara-bpm-range-title">
+            <div className="settings-row-text">
+              <h3 className="settings-row-title" id="sonara-bpm-range-title">
+                Диапазон BPM
+                {sonaraBpmRangeLocked && <Lock size={13} aria-hidden="true" />}
+                <span className={`settings-row-aside ${activeBpmChoice === "custom" ? "selected" : ""}`}>
+                  {sonaraBpmRange ? `${sonaraBpmRange.bpmMin}–${sonaraBpmRange.bpmMax}` : "Без диапазона"}
+                </span>
+              </h3>
+              <p className="settings-row-description">Выберите диапазон, в который SONARA приведёт темп треков. Алгоритмы определения темпа часто путают половинный и двойной темп (64 BPM вместо 128), поэтому темп ниже диапазона удваивается, выше делится пополам, а биты и сетка строятся по исправленному значению. Пресеты повторяют окна Rekordbox и Mixed In Key, чтобы BPM совпадал с этими программами. «Не использовать» оставляет темп SONARA как есть.</p>
             </div>
-            <p className="sonara-settings-section-description">SONARA выбирает темп трека без учёта диапазона. Если найденный темп выходит за границы, он сворачивается по октавам: ниже нижней границы удваивается, выше верхней делится пополам, и биты, сетка и зависящие от темпа признаки строятся уже по нему. Темп внутри диапазона не меняется. «Не использовать» оставляет темп SONARA как есть.</p>
-            <div className="sonara-settings-bpm-presets" aria-label="Диапазон BPM">
-              {bpmRangeChoices.map((choice) => {
-                const selected = activeBpmChoice === choice.key;
-                return <button
-                  key={choice.key}
-                  className={`sonara-settings-bpm-preset-chip ${selected ? "selected" : ""}`}
-                  aria-pressed={selected}
-                  disabled={disabled || sonaraBpmRangeLocked}
-                  title={choice.title}
-                  onClick={() => onSonaraSettingsChange({ ...sonaraSettings, bpmRange: choice.key })}
-                  type="button"
-                >{choice.label}</button>;
-              })}
+            <div className="settings-row-controls">
+              <div className="segmented sonara-bpm-segmented" role="group" aria-label="Диапазон BPM">
+                {bpmRangeChoices.map((choice) => {
+                  const selected = activeBpmChoice === choice.key;
+                  return <button
+                    key={choice.key}
+                    className={selected ? "active" : ""}
+                    aria-pressed={selected}
+                    disabled={disabled || sonaraBpmRangeLocked}
+                    title={choice.title}
+                    onClick={() => onSonaraSettingsChange({ ...sonaraSettings, bpmRange: choice.key })}
+                    type="button"
+                  >{choice.label}</button>;
+                })}
+              </div>
+              <div className="sonara-settings-bpm-controls">
+                <BpmBoundInput
+                  label="BPM Min"
+                  name="sonara-bpm-min"
+                  minimum={minSonaraBpm}
+                  maximum={maxSonaraBpmMin}
+                  value={sonaraBpmRange?.bpmMin ?? null}
+                  disabled={!customBpmEditable}
+                  onCommit={(bpmMin) => changeCustomBpm({ bpmMin })}
+                />
+                <BpmBoundInput
+                  label="BPM Max"
+                  name="sonara-bpm-max"
+                  minimum={minSonaraBpmMax}
+                  maximum={maxSonaraBpm}
+                  value={sonaraBpmRange?.bpmMax ?? null}
+                  disabled={!customBpmEditable}
+                  onCommit={(bpmMax) => changeCustomBpm({ bpmMax })}
+                />
+              </div>
+              <p className="sonara-settings-bpm-hint">{sonaraBpmRangeLocked
+                ? "База уже проанализирована с этим выбором. Чтобы изменить его, сбросьте анализ SONARA."
+                : activeBpmChoice === "custom"
+                  ? "Первый анализ SONARA закрепит выбор за базой. Диапазон должен охватывать октаву: BPM Max + 1 не меньше 2 × BPM Min, например 68–135."
+                  : "Первый анализ SONARA закрепит выбор за базой."}</p>
             </div>
-            <div className="sonara-settings-bpm-controls">
-              <BpmBoundInput
-                label="BPM Min"
-                name="sonara-bpm-min"
-                minimum={minSonaraBpm}
-                maximum={maxSonaraBpmMin}
-                value={sonaraBpmRange?.bpmMin ?? null}
-                disabled={!customBpmEditable}
-                onCommit={(bpmMin) => changeCustomBpm({ bpmMin })}
-              />
-              <BpmBoundInput
-                label="BPM Max"
-                name="sonara-bpm-max"
-                minimum={minSonaraBpmMax}
-                maximum={maxSonaraBpm}
-                value={sonaraBpmRange?.bpmMax ?? null}
-                disabled={!customBpmEditable}
-                onCommit={(bpmMax) => changeCustomBpm({ bpmMax })}
-              />
-            </div>
-            <p className="sonara-settings-bpm-hint">{sonaraBpmRangeLocked
-              ? "База уже проанализирована с этим выбором. Чтобы изменить его, сбросьте анализ SONARA."
-              : "Задаётся один раз: первый анализ SONARA закрепит выбор за всей базой. Свой диапазон должен охватывать октаву: верхняя граница + 1 не меньше удвоенной нижней, как 68–135 в Rekordbox."}</p>
           </section>
-          <section className="sonara-settings-section">
-            <div className="sonara-settings-section-title">
-              <span>Режим анализа</span>
+          <section className="settings-row" aria-labelledby="sonara-reading-title">
+            <div className="settings-row-text">
+              <h3 className="settings-row-title" id="sonara-reading-title">Чтение файлов</h3>
+              <p className="settings-row-description">Выберите, откуда SONARA будет читать треки. Direct читает их прямо с исходного диска и подходит, если библиотека лежит на SSD. Staged заранее копирует порции треков во временную папку и анализирует их там несколькими процессами, поэтому анализ не упирается в медленный HDD, USB-диск или сеть. Для Staged нужна папка на быстром диске (лучше SSD) со свободным местом, копии удаляются после обработки.</p>
             </div>
-            <p className="sonara-settings-section-description">Direct — треки декодируются и анализируются прямо с исходного диска. Staged ускоряет анализ за счёт временного копирования треков на более быстрый накопитель и обработки уже с него. Для Staged рекомендуется выбрать директорию на самом быстром доступном накопителе, желательно SSD. Это особенно полезно для библиотек, где исходный диск не успевает за скоростью анализа.</p>
-            <div className="analysis-device sonara-analysis-mode">
-              <span>Mode</span>
-              <div className="segmented sonara-mode-segmented">
-                <button className={`sonara-mode-button ${sonaraSettings.mode === "direct" ? "active" : ""}`} title="Читать исходные аудиофайлы напрямую" disabled={disabled} onClick={() => onSonaraSettingsChange({ ...sonaraSettings, mode: "direct" })} type="button">Direct</button>
-                <button className={`sonara-mode-button ${sonaraSettings.mode === "staged" ? "active" : ""}`} title="Копировать входные файлы во временную SSD-папку" disabled={disabled} onClick={() => onSonaraSettingsChange({ ...sonaraSettings, mode: "staged" })} type="button">Staged</button>
+            <div className="settings-row-controls">
+              <div className="segmented sonara-mode-segmented" role="group" aria-label="Чтение файлов">
+                <button className={`sonara-mode-button ${sonaraSettings.mode === "direct" ? "active" : ""}`} aria-pressed={sonaraSettings.mode === "direct"} title="Анализировать треки прямо с исходного диска" disabled={disabled} onClick={() => onSonaraSettingsChange({ ...sonaraSettings, mode: "direct" })} type="button">Direct</button>
+                <button className={`sonara-mode-button ${sonaraSettings.mode === "staged" ? "active" : ""}`} aria-pressed={sonaraSettings.mode === "staged"} title="Копировать треки во временную папку и анализировать оттуда" disabled={disabled} onClick={() => onSonaraSettingsChange({ ...sonaraSettings, mode: "staged" })} type="button">Staged</button>
               </div>
+              {sonaraSettings.mode === "staged" && (
+                <div className="path-row sonara-staging-path-row">
+                  <input name="sonara-staging-folder" value={sonaraSettings.staged.folder} readOnly placeholder="Папка для временных копий не выбрана" title="Папка для временных копий треков" />
+                  <button className="icon-button folder-picker staging-folder-picker-button" title="Выбрать папку для временных копий" aria-label="Выбрать папку для временных копий" disabled={disabled} onClick={onChooseSonaraStagingFolder} type="button"><FolderOpen size={17} /></button>
+                </div>
+              )}
+              {sonaraSettings.mode === "direct" ? (
+                <NumberStepper label="BatchSize" hint="Сколько файлов SONARA анализирует параллельно за один вызов" value={sonaraSettings.directBatchSize} minimum={1} maximum={16} disabled={disabled} classPrefix="sonara-direct-batch" onChange={(directBatchSize) => onSonaraSettingsChange({ ...sonaraSettings, directBatchSize })} />
+              ) : (
+                <div className="sonara-stepper-grid">
+                  <NumberStepper label="Processes" hint="Сколько процессов SONARA работают параллельно" value={sonaraSettings.staged.processes} minimum={1} maximum={16} disabled={disabled} classPrefix="sonara-processes" onChange={(processes) => updateStaged({ processes })} />
+                  <NumberStepper label="Threads" hint="Сколько потоков у каждого процесса" value={sonaraSettings.staged.threads} minimum={1} maximum={64} disabled={disabled} classPrefix="sonara-threads" onChange={(threads) => updateStaged({ threads })} />
+                  <NumberStepper label="BatchSize" hint="Сколько файлов каждый процесс анализирует за один вызов" value={sonaraSettings.staged.batchSize} minimum={1} maximum={16} disabled={disabled} classPrefix="sonara-staged-batch" onChange={(batchSize) => updateStaged({ batchSize })} />
+                  <NumberStepper label="StageSize" hint="Сколько скопированных треков может лежать во временной папке одновременно" value={sonaraSettings.staged.stageSize} minimum={1} maximum={512} disabled={disabled} classPrefix="sonara-stage-size" onChange={(stageSize) => updateStaged({ stageSize })} />
+                </div>
+              )}
             </div>
-            {sonaraSettings.mode === "staged" && (
-              <div className="path-row sonara-staging-path-row">
-                <input name="sonara-staging-folder" value={sonaraSettings.staged.folder} readOnly title="Папка для временных staging-копий SONARA" />
-                <button className="icon-button folder-picker staging-folder-picker-button" title="Choose Folder для staging-копий" aria-label="Choose Folder для staging-копий" disabled={disabled} onClick={onChooseSonaraStagingFolder} type="button"><FolderOpen size={17} /></button>
-              </div>
-            )}
-            {sonaraSettings.mode === "direct" ? (
-              <NumberStepper label="BatchSize" value={sonaraSettings.directBatchSize} minimum={1} maximum={16} disabled={disabled} classPrefix="sonara-direct-batch" onChange={(directBatchSize) => onSonaraSettingsChange({ ...sonaraSettings, directBatchSize })} />
-            ) : (
-              <div className="sonara-staged-settings-grid">
-                <NumberStepper label="Processes" value={sonaraSettings.staged.processes} minimum={1} maximum={16} disabled={disabled} classPrefix="sonara-processes" onChange={(processes) => updateStaged({ processes })} />
-                <NumberStepper label="Threads" value={sonaraSettings.staged.threads} minimum={1} maximum={64} disabled={disabled} classPrefix="sonara-threads" onChange={(threads) => updateStaged({ threads })} />
-                <NumberStepper label="BatchSize" value={sonaraSettings.staged.batchSize} minimum={1} maximum={16} disabled={disabled} classPrefix="sonara-staged-batch" onChange={(batchSize) => updateStaged({ batchSize })} />
-                <NumberStepper label="StageSize" value={sonaraSettings.staged.stageSize} minimum={1} maximum={512} disabled={disabled} classPrefix="sonara-stage-size" onChange={(stageSize) => updateStaged({ stageSize })} />
-              </div>
-            )}
           </section>
         </div>
         <footer className="sonara-settings-footer">
@@ -204,7 +209,6 @@ function BpmBoundInput({
       min={minimum}
       max={maximum}
       value={draft ?? value ?? ""}
-      placeholder="—"
       disabled={disabled}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}

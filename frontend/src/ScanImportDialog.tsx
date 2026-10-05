@@ -1,5 +1,7 @@
 import { useEffect } from "react";
-import { FolderOpen, Minus, Plus, X } from "lucide-react";
+import { FolderOpen, X } from "lucide-react";
+
+import { NumberStepper } from "./NumberStepper";
 import { scanFormats, type ScanImportSettings } from "./scanImportSettings";
 
 export function ScanImportDialog({
@@ -64,45 +66,56 @@ export function ScanImportDialog({
         <header className="dialog-title scan-import-title">
           <div className="scan-import-title-copy">
             <h2 id="scan-import-title">Настройка параметров загрузки треков в базу</h2>
-            <span>Форматы и длительность решают, что попадёт в базу.</span>
+            <span>Папка, форматы и длительность треков, которые попадут в базу.</span>
           </div>
           <button className="icon-button scan-import-close-button" title="Закрыть" aria-label="Закрыть" disabled={disabled} onClick={onClose} type="button"><X size={16} /></button>
         </header>
         <div className="scan-import-body">
-          <section className="scan-import-section">
-            <div className="scan-import-section-title">
-              <span>Форматы файлов</span>
-              <span className="scan-import-section-counter">{selectedFormatCount} из {scanFormats.length}</span>
+          <section className="settings-row" aria-labelledby="scan-root-title">
+            <div className="settings-row-text">
+              <h3 className="settings-row-title" id="scan-root-title">Папка с треками</h3>
+              <p className="settings-row-description">Выберите папку с музыкой, из которой треки будут загружаться в базу. Сканирование рекурсивное: учитываются все вложенные папки.</p>
             </div>
-            <div className="scan-import-formats" aria-label="Форматы треков">
-              {scanFormats.map(formatChip)}
-            </div>
-          </section>
-          <section className="scan-import-section">
-            <div className="scan-import-section-title">
-              <span>Границы отбора</span>
-            </div>
-            <div className="scan-import-settings">
-              <label>Min, сек<input name="scan-min-duration" type="number" min={1} value={settings.minDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, minDurationSeconds: event.target.value })} /></label>
-              <label>Max, сек<input name="scan-max-duration" type="number" min={1} value={settings.maxDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, maxDurationSeconds: event.target.value })} /></label>
-              <div className="worker-control">
-                <span>Workers</span>
-                <div className="stepper">
-                  <button className="icon-button scan-import-workers-decrement-button" title="Уменьшить workers" disabled={disabled || settings.workers <= 1} onClick={() => onSettingsChange({ ...settings, workers: settings.workers - 1 })} type="button"><Minus size={15} /></button>
-                  <input name="scan-workers" aria-label="Workers" type="number" min={1} max={maxWorkers} value={settings.workers} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, workers: Math.min(maxWorkers, Math.max(1, Number(event.target.value) || 1)) })} />
-                  <button className="icon-button scan-import-workers-increment-button" title="Увеличить workers" disabled={disabled || settings.workers >= maxWorkers} onClick={() => onSettingsChange({ ...settings, workers: settings.workers + 1 })} type="button"><Plus size={15} /></button>
-                </div>
+            <div className="settings-row-controls">
+              <div className="path-row">
+                <input name="scan-root" value={settings.root} readOnly placeholder="Папка не выбрана" aria-label="Папка с треками" title={settings.root || undefined} />
+                <button className="icon-button folder-picker scan-import-folder-button" title="Выбрать папку" aria-label="Выбрать папку" disabled={disabled} onClick={() => void chooseFolder()} type="button"><FolderOpen size={17} /></button>
               </div>
             </div>
           </section>
-          <section className="scan-import-section">
-            <div className="scan-import-section-title">
-              <span>Папка с треками</span>
+          <section className="settings-row" aria-labelledby="scan-formats-title">
+            <div className="settings-row-text">
+              <h3 className="settings-row-title" id="scan-formats-title">
+                Форматы файлов
+                <span className="settings-row-aside">{selectedFormatCount} из {scanFormats.length}</span>
+              </h3>
+              <p className="settings-row-description">Выберите форматы файлов, которые будут загружаться в базу. Файлы остальных форматов при сканировании пропускаются.</p>
             </div>
-            <p className="scan-import-description">Выберите папку как источник для загрузки треков в базу: сканирование папок выполняется рекурсивно.</p>
-            <div className="path-row scan-import-path-row">
-              <input name="scan-root" value={settings.root} readOnly placeholder="Папка не выбрана" aria-label="Папка с треками" />
-              <button className="icon-button folder-picker scan-import-folder-button" title="Выбрать папку на сервере" aria-label="Выбрать папку на сервере" disabled={disabled} onClick={() => void chooseFolder()} type="button"><FolderOpen size={17} /></button>
+            <div className="settings-row-controls">
+              <div className="scan-import-formats" role="group" aria-label="Форматы файлов">
+                {scanFormats.map(formatChip)}
+              </div>
+            </div>
+          </section>
+          <section className="settings-row" aria-labelledby="scan-duration-title">
+            <div className="settings-row-text">
+              <h3 className="settings-row-title" id="scan-duration-title">Длительность</h3>
+              <p className="settings-row-description">Задайте минимальную и максимальную длительность треков в секундах. Файлы короче или длиннее, например джинглы или записи целых миксов, в базу не попадут.</p>
+            </div>
+            <div className="settings-row-controls">
+              <div className="scan-import-settings">
+                <label>Min, сек<input name="scan-min-duration" type="number" min={1} value={settings.minDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, minDurationSeconds: event.target.value })} /></label>
+                <label>Max, сек<input name="scan-max-duration" type="number" min={1} value={settings.maxDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, maxDurationSeconds: event.target.value })} /></label>
+              </div>
+            </div>
+          </section>
+          <section className="settings-row" aria-labelledby="scan-speed-title">
+            <div className="settings-row-text">
+              <h3 className="settings-row-title" id="scan-speed-title">Скорость сканирования</h3>
+              <p className="settings-row-description">Выберите, сколько файлов читается параллельно. Больше параллельных чтений ускоряет загрузку, особенно с SSD; на HDD выигрыш обычно меньше.</p>
+            </div>
+            <div className="settings-row-controls">
+              <NumberStepper label="Workers" hint="Сколько файлов читается параллельно" value={settings.workers} minimum={1} maximum={maxWorkers} disabled={disabled} classPrefix="scan-import-workers" onChange={(workers) => onSettingsChange({ ...settings, workers })} />
             </div>
           </section>
         </div>

@@ -1061,9 +1061,10 @@ async function deleteSavedVariant(featureSet) {
   const profileKey = activeProfile.classifier_key;
   const recipe = recipeTokens(featureSet).map(recipeTokenLabel).join(" + ");
   if (!window.confirm(`Delete the saved training artifacts for ${recipe}? Only this recipe's local model and metrics files will be removed. Labels, predictions, the profile and promoted model stay.`)) return;
+  const deletingStatus = "Deleting saved variant…";
   deletingVariant = true;
   setWorkflowBusy(true);
-  setWorkflowStatus("Deleting saved variant…");
+  setWorkflowStatus(deletingStatus);
   try {
     const response = await fetch(`/api/profiles/${encodeURIComponent(profileKey)}/artifacts`, {
       method: "DELETE",
@@ -1077,6 +1078,10 @@ async function deleteSavedVariant(featureSet) {
     if (activeProfile?.classifier_key === profileKey) {
       setWorkflowBusy(false);
       await loadTrainingReadiness();
+    } else if (workflowStatusText === deletingStatus) {
+      // The profile changed mid-request: release only the status this delete set,
+      // not the new profile's controls or a workflow it has started since.
+      setWorkflowStatus("", "idle");
     }
   }
 }

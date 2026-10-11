@@ -187,7 +187,8 @@ def test_genre_tags_apply_api_rejects_specific_track_ids(
     )
 
     response = TestClient(create_app(db_path)).post(
-        "/api/tags/genres/apply", json={"track_ids": [identity.track_id]}
+        "/api/tags/genres/apply",
+        json={"catalog_uuid": db.catalog_uuid, "track_ids": [identity.track_id]},
     )
 
     assert response.status_code == 422
@@ -209,7 +210,8 @@ def test_genre_tag_job_api_rejects_specific_track_ids(
     )
 
     response = TestClient(create_app(db_path)).post(
-        "/api/tags/genres/jobs", json={"track_ids": [identity.track_id]}
+        "/api/tags/genres/jobs",
+        json={"catalog_uuid": db.catalog_uuid, "track_ids": [identity.track_id]},
     )
 
     assert response.status_code == 422
@@ -243,7 +245,9 @@ def test_genre_tags_apply_api_can_apply_all_maest_tracks(
         ),
     )
 
-    response = TestClient(create_app(db_path)).post("/api/tags/genres/apply", json={})
+    response = TestClient(create_app(db_path)).post(
+        "/api/tags/genres/apply", json={"catalog_uuid": db.catalog_uuid}
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -309,7 +313,7 @@ def test_genre_tag_job_api_returns_job_status(monkeypatch, tmp_path: Path) -> No
     )
 
     client = TestClient(create_app(db_path))
-    response = client.post("/api/tags/genres/jobs", json={})
+    response = client.post("/api/tags/genres/jobs", json={"catalog_uuid": db.catalog_uuid})
 
     assert response.status_code == 200
     payload = response.json()

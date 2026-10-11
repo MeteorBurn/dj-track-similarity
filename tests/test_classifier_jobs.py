@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 
@@ -321,3 +322,37 @@ def test_custom_model_path_calls_current_requirements_loader_with_database(
 
     assert calls == [(db, "test_classifier", custom_path)]
     assert manager.get(job_id).total == 0
+
+
+@pytest.mark.parametrize("method", ["load_classifier_work_batch", "save_classifier_scores"])
+def test_classifier_job_finishes_failed_after_database_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    method: str,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _clap_output()
+    db.register_analysis_outputs((output,))
+    _insert_present_classifier_inputs(db, 1)
+    requirements = _requirements("test_classifier", output)
+    manager = ClassifierJobManager(
+        db,
+        requirements_loader=lambda _key: requirements,
+        scorer_factory=_FakeScorer,
+    )
+    job_id = manager.create_job(classifier="test_classifier")
+
+    def database_error(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, method, database_error)
+    status = manager.run_job(job_id)
+
+    assert status.state == "failed"
+    assert status.finished_at is not None
+    assert status.current_path is None
+    assert status.current_model is None
+    assert any(
+        event.level == "error" and "database is locked" in event.message
+        for event in status.events
+    )

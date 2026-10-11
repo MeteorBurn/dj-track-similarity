@@ -192,10 +192,10 @@ const databaseApi = {
       method: "POST",
       body: JSON.stringify({ path, create })
     }),
-  clearDatabase: () =>
+  clearDatabase: (catalogUuid: string) =>
     request<DatabaseClearResult>("/api/database/clear", {
       method: "POST",
-      body: JSON.stringify({})
+      body: JSON.stringify({ catalog_uuid: catalogUuid })
     })
 };
 
@@ -470,10 +470,10 @@ const playlistApi = {
 };
 
 const tagApi = {
-  genreTagJobStart: () =>
+  genreTagJobStart: (catalogUuid: string) =>
     request<GenreTagJobStatus>("/api/tags/genres/jobs", {
       method: "POST",
-      body: JSON.stringify({})
+      body: JSON.stringify({ catalog_uuid: catalogUuid })
     }),
   genreTagJobLatest: () => request<GenreTagJobStatus | null>("/api/tags/genres/jobs/latest"),
   genreTagJob: (jobId: string) => request<GenreTagJobStatus>(`/api/tags/genres/jobs/${jobId}`),

@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 
 from .schemas import (
+    ClearLibraryRequest,
     ClearLibraryResponse,
     DatabaseDialogResponse,
     DatabaseStateResponse,
@@ -47,8 +48,8 @@ def register_database_routes(
         return {"path": str(selected), "exists": selected.is_file()}
 
     @app.post("/api/database/clear", response_model=ClearLibraryResponse)
-    def clear_database():
-        with state.exclusive_db("clear the library") as database:
+    def clear_database(request: ClearLibraryRequest):
+        with state.exclusive_db("clear the library", catalog_uuid=request.catalog_uuid) as database:
             try:
                 return database.clear_library()
             except RuntimeError as error:

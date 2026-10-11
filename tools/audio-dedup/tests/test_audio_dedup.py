@@ -5,6 +5,7 @@ from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from contextlib import closing
 from dataclasses import replace
 import json
+import os
 import sqlite3
 import sys
 import types
@@ -78,6 +79,7 @@ def _insert_track(
     path: str,
     size: int = 10_000_000,
     mtime: float = 100.0,
+    file_modified_ns: int | None = None,
     artist: str = "Artist",
     title: str = "Title",
     album: str | None = "Album",
@@ -102,7 +104,8 @@ def _insert_track(
             """,
             (
                 track_id, track_uuid, resolved_file_path(path), size,
-                int(mtime * 1_000_000_000), duration, scanned_at, scanned_at, scanned_at,
+                int(mtime * 1_000_000_000) if file_modified_ns is None else file_modified_ns,
+                duration, scanned_at, scanned_at, scanned_at,
             ),
         )
         connection.execute(
@@ -477,8 +480,12 @@ def _two_copy_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     duplicate_path.write_bytes(b"duplicate")
     monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
     _create_library_db(db_path)
-    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, fingerprint=DUPLICATE_FINGERPRINT)
-    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, fingerprint=DUPLICATE_FINGERPRINT)
+    for track_id, path in enumerate((keeper_path, duplicate_path), start=1):
+        facts = path.stat()
+        _insert_track(
+            db_path, track_id=track_id, path=str(path), size=facts.st_size,
+            file_modified_ns=facts.st_mtime_ns, fingerprint=DUPLICATE_FINGERPRINT,
+        )
     result = core_module.run_report(
         db_path=db_path,
         path_contains=[],
@@ -490,9 +497,11 @@ def _two_copy_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return db_path, audio_dir, keeper_path, duplicate_path, result
 
 
+@pytest.mark.parametrize("candidate_change", (None, "size", "mtime"))
 def test_apply_duplicate_deletions_deletes_the_reviewer_selection_including_the_keeper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    candidate_change: str | None,
 ) -> None:
     db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
         tmp_path,
@@ -500,6 +509,12 @@ def test_apply_duplicate_deletions_deletes_the_reviewer_selection_including_the_
     )
     keeper_track_id = int(result.payload["groups"][0]["suggested_keeper"]["track_id"])
     assert keeper_track_id == 1
+    facts = keeper_path.stat()
+    if candidate_change == "size":
+        keeper_path.write_bytes(b"different audio at the same path")
+        os.utime(keeper_path, ns=(facts.st_atime_ns, facts.st_mtime_ns))
+    elif candidate_change == "mtime":
+        os.utime(keeper_path, ns=(facts.st_atime_ns, facts.st_mtime_ns + 1_000_000_000))
 
     apply_result = deletion_module.apply_duplicate_deletions(
         db_path=db_path,
@@ -507,31 +522,42 @@ def test_apply_duplicate_deletions_deletes_the_reviewer_selection_including_the_
         selected_track_ids=[keeper_track_id],
     )
 
-    assert apply_result.deleted_track_ids == (keeper_track_id,)
-    assert not keeper_path.exists()
+    assert apply_result.deleted_track_ids == (() if candidate_change else (keeper_track_id,))
+    assert keeper_path.exists() is bool(candidate_change)
     assert duplicate_path.exists()
+    if candidate_change:
+        assert apply_result.skipped
     connection = sqlite3.connect(db_path)
     try:
         assert connection.execute(
             "SELECT track_id FROM tracks ORDER BY track_id"
-        ).fetchall() == [(2,)]
+        ).fetchall() == ([(1,), (2,)] if candidate_change else [(2,)])
     finally:
         connection.close()
 
 
+@pytest.mark.parametrize("survivor_change", (None, "file", "identity", "missing"))
 def test_apply_duplicate_deletions_refuses_an_emptied_group_or_a_library_without_timeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    survivor_change: str | None,
 ) -> None:
     db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
         tmp_path,
         monkeypatch,
     )
+    if survivor_change == "file":
+        duplicate_path.write_bytes(b"different music replacing the surviving copy")
+    elif survivor_change == "identity":
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            connection.execute("UPDATE tracks SET track_uuid = ? WHERE track_id = 2", (str(uuid.uuid4()),))
+    elif survivor_change == "missing":
+        LibraryDatabase(db_path).mark_missing(2)
 
     apply_result = deletion_module.apply_duplicate_deletions(
         db_path=db_path,
         payload=result.payload,
-        selected_track_ids=[1, 2],
+        selected_track_ids=[1] if survivor_change else [1, 2],
     )
 
     assert apply_result.deleted_track_ids == ()
@@ -616,9 +642,13 @@ def test_apply_duplicate_deletions_drops_only_rhythm_lab_rows_naming_deleted_fil
     # The group also admits the copy with a different fingerprint.
     monkeypatch.setattr(fingerprints_module, "_native_fingerprint_match", lambda left, right: 1.0)
     _create_library_db(db_path)
-    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, fingerprint=DUPLICATE_FINGERPRINT)
-    _insert_track(db_path, track_id=2, path=str(same_path), size=8_000_000, mtime=200, fingerprint=DUPLICATE_FINGERPRINT)
-    _insert_track(db_path, track_id=3, path=str(other_path), size=8_000_000, mtime=300, fingerprint=other_fingerprint)
+    for track_id, path in enumerate((keeper_path, same_path, other_path), start=1):
+        facts = path.stat()
+        _insert_track(
+            db_path, track_id=track_id, path=str(path), size=facts.st_size,
+            file_modified_ns=facts.st_mtime_ns,
+            fingerprint=other_fingerprint if track_id == 3 else DUPLICATE_FINGERPRINT,
+        )
     result = core_module.run_report(
         db_path=db_path,
         path_contains=[],

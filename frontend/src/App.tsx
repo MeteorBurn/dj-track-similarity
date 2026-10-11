@@ -1108,10 +1108,10 @@ export function App() {
     });
   }
 
-  async function handleClearDatabase() {
+  async function handleClearDatabase(catalogUuid: string) {
     appendActivity("warn", "Очистка базы запущена", "Удаляем только данные SQLite, аудиофайлы не трогаем");
     await run(
-      () => api.clearDatabase(),
+      () => api.clearDatabase(catalogUuid),
       (value) => {
         resetLibraryState();
         resetSearchPlaylistState();
@@ -1289,6 +1289,7 @@ export function App() {
   // Writing genres rewrites the source audio files, so it starts only after an
   // explicit confirmation that names the file count and the replaced tag.
   function handleGenreTagsApply() {
+    if (!databaseCatalogUuid) return;
     if (!librarySummary.maest_analysis) {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
       return;
@@ -1299,16 +1300,16 @@ export function App() {
       message:
         `Записать жанры MAEST в тег Genre у ${count} аудиофайлов? ` +
         "Текущее значение Genre в этих файлах будет заменено. Запись идёт прямо в файлы на диске.",
-      onConfirm: () => startGenreTagJob(count),
+      onConfirm: () => startGenreTagJob(count, databaseCatalogUuid),
     });
   }
 
-  async function startGenreTagJob(count: number) {
+  async function startGenreTagJob(count: number, catalogUuid: string) {
     const targetText = `${count} MAEST треков`;
     appendActivity("warn", "Запись жанров в теги файлов запущена", `${targetText} · standard Genre`);
     setProcessLogKind("genre_tags");
     setGenreTagJob(null);
-    await run(() => api.genreTagJobStart(), (job) => {
+    await run(() => api.genreTagJobStart(catalogUuid), (job) => {
       setGenreTagJob(job);
       appendActivity("ok", "Genre tag job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков`);
       return `Genre tag job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
@@ -1491,11 +1492,14 @@ export function App() {
           onOpenMLSettingsDialog={() => setMlSettingsDialogOpen(true)}
           onRefreshTags={() => void handleRefreshTags()}
           onWriteMaestGenres={handleGenreTagsApply}
-          onClearDatabase={() => requestConfirmation({
-            title: "Очистить базу?",
-            message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
-            onConfirm: () => handleClearDatabase()
-          })}
+          onClearDatabase={() => {
+            if (!databaseCatalogUuid) return;
+            requestConfirmation({
+              title: "Очистить базу?",
+              message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
+              onConfirm: () => handleClearDatabase(databaseCatalogUuid)
+            });
+          }}
           onValidateDatabase={() => void handleValidateDatabase()}
           onOpenAudioDedup={() => setAudioDedupOpen(true)}
           rhythmLabRunning={rhythmLabRunning}

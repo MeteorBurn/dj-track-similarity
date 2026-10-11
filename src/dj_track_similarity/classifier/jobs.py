@@ -195,6 +195,23 @@ class ClassifierJobManager:
         return self.get(job_id)
 
     def run_job(self, job_id: str) -> ClassifierJobStatus:
+        try:
+            return self._execute_job(job_id)
+        except Exception as error:
+            LOGGER.exception("Classifier job failed job_id=%s", job_id)
+            self._update(
+                job_id,
+                state="failed",
+                finished_at=time.time(),
+                current_path=None,
+                current_model=None,
+            )
+            self._append_event(
+                job_id, "error", f"Classifier execution failed: {exception_summary(error)}"
+            )
+            return self.get(job_id)
+
+    def _execute_job(self, job_id: str) -> ClassifierJobStatus:
         status = self.get(job_id)
         payload = cast(_ClassifierPayload, self._store.payload(job_id))
         if status.cancel_requested:

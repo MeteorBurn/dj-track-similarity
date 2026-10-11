@@ -347,7 +347,7 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
   }
 });
 
-test("liked mutation serializes the exact optimistic track identity", async () => {
+test("library mutations serialize the confirmed catalog and optimistic track identity", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
@@ -384,6 +384,17 @@ test("liked mutation serializes the exact optimistic track identity", async () =
     track_uuid: "track-current",
     liked: true
   });
+
+  await api.clearDatabase("catalog-confirmed");
+  await api.genreTagJobStart("catalog-confirmed");
+  assert.deepEqual(calls.slice(1).map(({ path }) => path), [
+    "/api/database/clear",
+    "/api/tags/genres/jobs",
+  ]);
+  for (const { options } of calls.slice(1)) {
+    assert.equal(options.method, "POST");
+    assert.deepEqual(JSON.parse(options.body), { catalog_uuid: "catalog-confirmed" });
+  }
 });
 
 test("MuQ search and analysis resets serialize current family identities", async () => {

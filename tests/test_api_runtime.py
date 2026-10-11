@@ -308,8 +308,9 @@ def test_start_is_refused_with_409_while_the_same_or_a_conflicting_job_is_active
     scan_root.mkdir()
     client = _client(monkeypatch, tmp_path / "library.sqlite")
 
-    first = client.post("/api/tags/genres/jobs", json={})
-    second = client.post("/api/tags/genres/jobs", json={})
+    request = {"catalog_uuid": client.get("/api/database/current").json()["catalog_uuid"]}
+    first = client.post("/api/tags/genres/jobs", json=request)
+    second = client.post("/api/tags/genres/jobs", json=request)
     scan = client.post("/api/library/scan", json={"root": str(scan_root), "workers": 1})
     latest = client.get("/api/tags/genres/jobs/latest")
     latest_scan = client.get("/api/library/scan/jobs/latest")

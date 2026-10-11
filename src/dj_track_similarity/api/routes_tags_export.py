@@ -35,8 +35,8 @@ def register_tags_export_routes(
         "/api/tags/genres/apply",
         response_model=list[GenreTagApplyResultResponse],
     )
-    def genre_tags_apply(_request: GenreTagRequest):
-        with state.exclusive_db("write genre tags") as database:
+    def genre_tags_apply(request: GenreTagRequest):
+        with state.exclusive_db("write genre tags", catalog_uuid=request.catalog_uuid) as database:
             candidates = database.list_genre_tag_candidates()
             results = apply_genre_tags_to_tracks(database, candidates)
         candidate_by_id = {
@@ -57,8 +57,10 @@ def register_tags_export_routes(
         ]
 
     @app.post("/api/tags/genres/jobs")
-    def genre_tags_job_start(_request: GenreTagRequest):
-        with state.job_start(state.require_genre_tag_jobs, "write genre tags") as genre_tag_jobs:
+    def genre_tags_job_start(request: GenreTagRequest):
+        with state.job_start(
+            state.require_genre_tag_jobs, "write genre tags", catalog_uuid=request.catalog_uuid
+        ) as genre_tag_jobs:
             return genre_tag_jobs.start()
 
     @app.get("/api/tags/genres/jobs/latest")

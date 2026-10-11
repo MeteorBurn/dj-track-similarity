@@ -275,6 +275,35 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
         next(row.vector for row in first if row.target.track_id == kept.track_id),
     )
 
+    returning = _add_track(db, tmp_path, output, "returning.wav", [0.0, 1.0, 0.0])
+    anchor, disappearing, returning = sorted(
+        (kept, moved, returning), key=lambda target: target.track_uuid, reverse=True,
+    )
+    with foreign.connect() as connection:
+        connection.execute(
+            "UPDATE tracks SET updated_at = ? WHERE track_id = ?",
+            ("2026-07-25T12:00:00.000000Z", anchor.track_id),
+        )
+    foreign.mark_missing(returning.track_id, missing_at=_NOW)
+    before_swap = db.load_analysis_vectors(output)
+    assert {row.target for row in before_swap} == {anchor, disappearing}
+
+    foreign.mark_missing(disappearing.track_id, missing_at=_NOW)
+    returned_file = foreign.get_track_file_states_by_ids(
+        (returning.track_id,), include_missing=True,
+    )[0]
+    foreign.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=returned_file.file_path,
+            file_size_bytes=returned_file.file_size_bytes,
+            file_modified_ns=returned_file.file_modified_ns,
+        ),
+        tags=FileTags(),
+        scanned_at=_NOW,
+    )
+    after_swap = db.load_analysis_vectors(output)
+    assert {row.target for row in after_swap} == {anchor, returning}
+
 
 class _FullDepthBackend(ExactVectorSearchBackend):
     """Ignores the requested depth and ranks the whole library."""

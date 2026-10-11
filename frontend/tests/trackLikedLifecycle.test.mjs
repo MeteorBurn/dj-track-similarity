@@ -136,29 +136,35 @@ test("a missing library file is opened only after confirmation, and then created
   assert.equal(ui.library.busy, false);
 });
 
-test("genres are written into the source audio files only after confirmation", async () => {
-  const h = harness();
-  const genreStarts = [];
-  h.api.librarySummary = async () => ({ maest_analysis: 3 });
-  h.api.genreTagJobStart = async () => {
-    genreStarts.push(true);
-    return { job_id: "genre-job", total: 3, status: "running", events: [], errors: [] };
-  };
-  let ui = await h.choose("A");
+test("library clear and genre writes keep the catalog captured by their confirmation", async () => {
+  for (const [action, request] of [
+    ["onClearDatabase", "clearDatabase"],
+    ["onWriteMaestGenres", "genreTagJobStart"],
+  ]) {
+    const h = harness();
+    const confirmedCatalogs = [];
+    h.api.librarySummary = async () => ({ maest_analysis: 3 });
+    h.api[request] = async (catalogUuid) => {
+      confirmedCatalogs.push(catalogUuid);
+      return { job_id: "genre-job", total: 3, status: "running", events: [], errors: [] };
+    };
+    let ui = await h.choose("A");
 
-  ui.library.onWriteMaestGenres();
-  ui = h.render();
-  assert.ok(ui.confirmation, "writing into source files asks first");
-  assert.equal(genreStarts.length, 0, "nothing is written before the answer");
-  ui.confirmation.onCancel();
-  ui = h.render();
-  assert.equal(ui.confirmation, undefined);
-  assert.equal(genreStarts.length, 0, "a declined write never starts");
+    ui.library[action]();
+    ui = h.render();
+    assert.ok(ui.confirmation, "destructive operations ask first");
+    assert.equal(confirmedCatalogs.length, 0, "nothing is written before the answer");
+    ui.confirmation.onCancel();
+    ui = h.render();
+    assert.equal(ui.confirmation, undefined);
+    assert.equal(confirmedCatalogs.length, 0, "a declined operation never starts");
 
-  ui.library.onWriteMaestGenres();
-  h.render().confirmation.onConfirm();
-  await flush();
-  assert.equal(genreStarts.length, 1);
+    ui.library[action]();
+    ui = await h.choose("B");
+    ui.confirmation.onConfirm();
+    await flush();
+    assert.deepEqual(confirmedCatalogs, ["A"], "a changed current catalog cannot replace the confirmed target");
+  }
 });
 
 test("like responses only update tracks in the current catalog with matching identity", async () => {

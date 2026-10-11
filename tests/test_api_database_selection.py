@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dj_track_similarity.api import application as api_module
+from dj_track_similarity.api import routes_tags_export
 from dj_track_similarity.api import state as api_state
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
@@ -70,7 +71,7 @@ def test_app_without_db_starts_unselected_and_blocks_database_endpoints() -> Non
 @pytest.mark.parametrize(
     ("method", "path", "json_payload"),
     [
-        ("post", "/api/database/clear", {}),
+        ("post", "/api/database/clear", {"catalog_uuid": "unselected"}),
         ("get", "/api/library/summary", None),
         ("get", "/api/tracks", None),
         ("post", "/api/tracks/filtered", {"query": "", "liked": False}),
@@ -95,6 +96,7 @@ def test_selected_database_required_endpoints_return_api_error_without_traceback
 
 
 def test_database_switch_reads_existing_current_bundle_and_identity(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "existing.sqlite"
@@ -119,6 +121,40 @@ def test_database_switch_reads_existing_current_bundle_and_identity(
     assert tracks["items"][0]["catalog_uuid"] == identity.catalog_uuid
     assert tracks["items"][0]["track_uuid"] == identity.track_uuid
     assert tracks["items"][0]["title"] == "Stored Track"
+
+    replacement = LibraryDatabase(tmp_path / "replacement.sqlite")
+    _add_track(replacement, tmp_path / "replacement.wav", title="Other Track")
+    assert client.post(
+        "/api/database/switch", json={"path": str(replacement.path)}
+    ).status_code == 200
+    tag_calls: list[str] = []
+
+    def apply_tags(database, candidates):
+        tag_calls.append(database.catalog_uuid)
+        return []
+
+    def start_tags(manager):
+        tag_calls.append(manager.repository.catalog_uuid)
+        return {"job_id": "genre-job"}
+
+    monkeypatch.setattr(routes_tags_export, "apply_genre_tags_to_tracks", apply_tags)
+    monkeypatch.setattr(api_state.GenreTagJobManager, "start", start_tags)
+    endpoints = ("/api/database/clear", "/api/tags/genres/apply", "/api/tags/genres/jobs")
+    for endpoint in endpoints:
+        stale = client.post(endpoint, json={"catalog_uuid": database.catalog_uuid})
+        assert stale.status_code == 409
+        assert client.post(endpoint, json={}).status_code == 422
+    assert tag_calls == []
+    assert client.get("/api/tracks").json()["total"] == 1
+    assert len(database.list_track_paths()) == 1
+
+    for endpoint in reversed(endpoints):
+        assert client.post(
+            endpoint, json={"catalog_uuid": replacement.catalog_uuid}
+        ).status_code == 200
+    assert tag_calls == [replacement.catalog_uuid, replacement.catalog_uuid]
+    assert client.get("/api/tracks").json()["total"] == 0
+    assert len(database.list_track_paths()) == 1
 
 
 def test_database_file_dialog_returns_the_choice_without_switching(

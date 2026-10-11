@@ -249,11 +249,15 @@ class AppDatabaseState:
     def exclusive_db(
         self,
         operation: str,
+        *,
+        catalog_uuid: str | None = None,
     ) -> Iterator[LibraryDatabase]:
         """Reserve the selected database for one synchronous maintenance task."""
 
         with self._lock:
             database = self.require_idle_db(operation)
+            if catalog_uuid is not None and database.catalog_uuid != catalog_uuid:
+                raise DatabaseBusy("Selected library changed; confirm the operation again")
             if self._exclusive_operation is not None:
                 raise DatabaseBusy(
                     f"Cannot {operation} while "
@@ -271,6 +275,8 @@ class AppDatabaseState:
         self,
         require_manager: Callable[[], _JobManager],
         operation: str,
+        *,
+        catalog_uuid: str | None = None,
     ) -> Iterator[_JobManager]:
         """Admit one job of a manager and keep the state stable until it is queued.
 
@@ -281,6 +287,8 @@ class AppDatabaseState:
 
         with self._lock:
             manager = require_manager()
+            if catalog_uuid is not None and self.require_db().catalog_uuid != catalog_uuid:
+                raise DatabaseBusy("Selected library changed; confirm the operation again")
             for blocking in self._admission_group(manager):
                 active = _active_job(blocking)
                 if active is not None:

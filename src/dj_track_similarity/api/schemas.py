@@ -156,6 +156,12 @@ class DatabaseSwitchRequest(BaseModel):
     create: bool = False
 
 
+class ClearLibraryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_uuid: str = Field(min_length=1)
+
+
 class DatabaseDialogResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -648,6 +654,8 @@ class ExportRequest(BaseModel):
 
 class GenreTagRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    catalog_uuid: str = Field(min_length=1)
 
 
 class EvaluationPairFeedbackRequest(BaseModel):

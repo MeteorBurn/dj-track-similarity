@@ -413,13 +413,12 @@ def _library_vector_fingerprint(
     place, a vector row appears or disappears, or a track enters or leaves the
     current set — and the last one also reorders every row, because identities
     are ordered by file path. The write generation catches the first from any
-    writer; the row counts catch the second and third, and they also catch a
-    database file swapped underneath us, which a counter cannot.
+    writer, embedding metadata catches the second, and the ordered current
+    identities catch the third even when one missing track replaces another.
 
-    Everything here reads a covering index or the file header. Dating the rows
-    by ``MAX(analyzed_at)`` instead cost 113 ms of the 153 ms this check used
-    to take, because the column is not indexed and the scan walks 45,000 rows
-    of embedding blobs to find it.
+    Read only embedding metadata and track identities, never vector blobs.
+    The identity order matches the full load's file-path order so a relocation
+    also invalidates a cached ordering.
     """
 
     spec = current_embedding_spec(output.analysis_family)
@@ -434,16 +433,10 @@ def _library_vector_fingerprint(
         FROM {table}
         """
     ).fetchone()
-    tracks = connection.execute(
-        """
-        SELECT
-            COUNT(*),
-            COALESCE(MAX(updated_at), ''),
-            COALESCE(MAX(track_uuid), '')
-        FROM tracks
-        WHERE missing_since IS NULL
-        """
-    ).fetchone()
+    tracks = tuple(
+        (int(row[0]), str(row[1]))
+        for row in read_current_track_identities(connection)
+    )
     return (
         catalog_uuid,
         output.key,
@@ -451,7 +444,7 @@ def _library_vector_fingerprint(
         spec.normalization,
         generation,
         tuple(embeddings),
-        tuple(tracks),
+        tracks,
     )
 
 
@@ -828,6 +821,7 @@ class AnalysisRepository:
         layers = EMBEDDING_LAYERS.get(output.analysis_family)
         with self._write_lock:
             with closing(self.connect()) as connection:
+                connection.execute("BEGIN")
                 catalog_uuid = _catalog_uuid(connection)
                 normalize_analysis_outputs((output,))
                 table = table_for_output(output)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+import stat
 from typing import Callable, Collection, Iterable
 
 from dj_track_similarity.database import LibraryDatabase
@@ -46,12 +47,11 @@ def apply_duplicate_deletions(
     skipped: list[str] = []
     failed: list[str] = []
     candidates = report_selection_module.selected_delete_candidates(payload, selected_track_ids)
-    retained_paths = _selection_retained_paths(
+    retained_entries = _selection_retained_entries(
         payload,
         {report_selection_module._candidate_track_id(candidate) for candidate in candidates},
     )
     retained_missing_reason = "group would lose every copy"
-    retained_on_disk: dict[str, bool] = {}
     deleted_identities: list[TrackIdentity] = []
     deleted_files: list[tuple[str, str]] = []
     for candidate in candidates:
@@ -61,46 +61,12 @@ def apply_duplicate_deletions(
             skipped.append(f"track_id={track_id}: path outside the review filter")
             continue
         try:
-            expected = report_selection_module._candidate_identity(candidate)
-        except (KeyError, TypeError, ValueError) as error:
-            skipped.append(f"track_id={track_id}: invalid report identity ({error})")
-            continue
-        try:
-            current = selected_database.get_track_file_states_by_ids(
-                (track_id,),
-                include_missing=True,
-            )[0]
-        except (IndexError, KeyError, ValueError):
-            skipped.append(f"track_id={track_id}: track identity unavailable")
-            continue
-        if (
-            current.catalog_uuid != expected.catalog_uuid
-            or current.track_uuid != expected.track_uuid
-            or canonical_file_path(current.file_path)
-            != canonical_file_path(path_text)
-        ):
-            skipped.append(f"track_id={track_id}: report identity is stale")
-            continue
-        try:
-            reported_size = int(candidate["size"])
-            reported_modified_ns = int(candidate["file_modified_ns"])
-        except (KeyError, TypeError, ValueError):
-            skipped.append(f"track_id={track_id}: report file facts are missing")
-            continue
-        if (
-            current.file_size_bytes != reported_size
-            or current.file_modified_ns != reported_modified_ns
-        ):
-            skipped.append(f"track_id={track_id}: report file facts are stale")
+            expected = _require_current_report_file(selected_database, candidate)
+        except (OSError, KeyError, TypeError, ValueError) as error:
+            skipped.append(f"track_id={track_id}: {error}")
             continue
         file_path = Path(path_text)
-        if not file_path.exists():
-            skipped.append(f"track_id={track_id}: file missing")
-            continue
-        if not file_path.is_file():
-            skipped.append(f"track_id={track_id}: path is not a file")
-            continue
-        if not _any_path_on_disk(retained_paths.get(track_id, ()), retained_on_disk):
+        if not _any_current_copy(selected_database, retained_entries.get(track_id, ())):
             skipped.append(f"track_id={track_id}: {retained_missing_reason}")
             continue
         try:
@@ -144,39 +110,64 @@ def apply_duplicate_deletions(
         rhythm_lab_deleted_rows=rhythm_lab_deleted_rows,
     )
 
-def _selection_retained_paths(
+def _require_current_report_file(
+    database: LibraryDatabase,
+    entry: dict[str, object],
+) -> TrackIdentity:
+    """Bind a report entry to both its current library row and on-disk file."""
+    expected = report_selection_module._candidate_identity(entry)
+    current = database.get_track_file_states_by_ids((expected.track_id,))[0]
+    path_text = str(entry.get("path", ""))
+    if (
+        current.catalog_uuid != expected.catalog_uuid
+        or current.track_uuid != expected.track_uuid
+        or canonical_file_path(current.file_path) != canonical_file_path(path_text)
+    ):
+        raise ValueError("report identity is stale")
+    reported_facts = (int(entry["size"]), int(entry["file_modified_ns"]))
+    if (current.file_size_bytes, current.file_modified_ns) != reported_facts:
+        raise ValueError("report file facts are stale")
+    file_stat = Path(path_text).stat()
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise ValueError("path is not a file")
+    if (file_stat.st_size, file_stat.st_mtime_ns) != reported_facts:
+        raise ValueError("source file changed after the report")
+    return expected
+
+
+def _selection_retained_entries(
     payload: dict[str, object],
     deletion_targets: Collection[int],
-) -> dict[int, tuple[str, ...]]:
+) -> dict[int, tuple[dict[str, object], ...]]:
     """Copies that survive an explicit selection, per group.
 
     A reviewer may delete the suggested keeper, so the surviving set is whatever
     the selection left behind rather than one nominated file.
     """
-    retained: dict[int, tuple[str, ...]] = {}
+    retained: dict[int, tuple[dict[str, object], ...]] = {}
     for group in report_selection_module._payload_groups(payload):
         members = report_selection_module._group_member_entries(group)
-        survivors: list[str] = []
+        survivors: list[dict[str, object]] = []
         for entry in members:
             if report_selection_module._candidate_track_id(entry) in deletion_targets:
                 continue
-            path_text = str(entry.get("path", ""))
-            if path_text:
-                survivors.append(path_text)
-        surviving_paths = tuple(survivors)
+            survivors.append(entry)
+        surviving_entries = tuple(survivors)
         for entry in members:
-            retained[report_selection_module._candidate_track_id(entry)] = surviving_paths
+            retained[report_selection_module._candidate_track_id(entry)] = surviving_entries
     return retained
 
 
-def _any_path_on_disk(paths: Iterable[str], cache: dict[str, bool]) -> bool:
-    for path_text in paths:
-        on_disk = cache.get(path_text)
-        if on_disk is None:
-            on_disk = bool(path_text) and Path(path_text).is_file()
-            cache[path_text] = on_disk
-        if on_disk:
-            return True
+def _any_current_copy(
+    database: LibraryDatabase,
+    entries: Iterable[dict[str, object]],
+) -> bool:
+    for entry in entries:
+        try:
+            _require_current_report_file(database, entry)
+        except (OSError, KeyError, TypeError, ValueError):
+            continue
+        return True
     return False
 
 

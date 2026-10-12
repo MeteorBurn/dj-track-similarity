@@ -5,7 +5,7 @@ description: "Use for dj-track-similarity codebase questions, architecture, file
 
 # Graphify for dj-track-similarity
 
-This is the project adaptation of Graphify 0.9.73. Work only from
+This is the project adaptation of Graphify 0.9.88. Work only from
 `C:\projects\dj-track-similarity` in PowerShell 7. Read `AGENTS.md` and
 `docs/agent-guides/graphify.md` before graph work; their corpus, freshness,
 memory, and verification rules govern this skill.
@@ -62,8 +62,8 @@ unavailable, report that limit and inspect source; a question alone does not
 authorize installing Graphify or building a new graph.
 
 Read [references/query.md](references/query.md) for vocabulary selection,
-bounded navigation, budgets and truncation, the `path` limitation, source
-verification, and the project memory loop.
+bounded navigation, budgets and truncation, `path` endpoints and direction,
+source verification, and the project memory loop.
 
 ```powershell
 & .\.tools\graphify\bin\graphify.exe query '<expanded vocabulary tokens>' --budget 8000

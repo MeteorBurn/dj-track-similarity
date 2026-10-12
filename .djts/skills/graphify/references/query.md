@@ -1,6 +1,6 @@
 # Graphify reference: project queries and work memory
 
-Project adaptation for Graphify 0.9.73. Follow `../SKILL.md` and
+Project adaptation for Graphify 0.9.88. Follow `../SKILL.md` and
 `docs/agent-guides/graphify.md`; run commands from the repository root in
 PowerShell 7 after the skill's runtime check.
 
@@ -65,20 +65,27 @@ reporting that CLI navigation could not be checked.
 if ($LASTEXITCODE -ne 0) { throw 'Graphify explain failed.' }
 & .\.tools\graphify\bin\graphify.exe affected '<exact node ID>' --relation calls --depth 1
 if ($LASTEXITCODE -ne 0) { throw 'Graphify affected query failed.' }
+& .\.tools\graphify\bin\graphify.exe path '<source path::Symbol>' '<target path::Symbol>'
+if ($LASTEXITCODE -ne 0) { throw 'Graphify path query failed.' }
 ```
 
 Use depth `2` only when the next caller level is relevant. Resolve ambiguous
-labels with exact IDs in `graph.json`; use its `links` array when inspecting
-directed relationships.
+labels with exact IDs in `graph.json`. Each `links` entry stores direction as
+`source` to `target` even though the graph says `directed: false`; legacy
+`_src`/`_tgt` markers take precedence. For Python graph inspection, use
+`graphify.paths.load_node_link_graph()` so loading preserves that direction.
 
-`path` uses fuzzy endpoint matching in 0.9.73: it picks endpoints by token
-scoring instead of exact-ID lookup, splits a full node ID into tokens, does
-not recognize `path::Symbol`, and often resolves an endpoint to a module,
-parent class, or other code node. `No path` or `No directed path` is therefore
-not evidence that a relationship is absent. To trace a connection, use a
-scoped `explain` with the exact ID or `path::Symbol`, or inspect exact node
-IDs and directed `links` in `graph.json` with the project Graphify interpreter,
-then verify the source. For incoming calls, use `affected`.
+`path` accepts exact node IDs and `path::Symbol` endpoints. Prefer these when
+a bare symbol is ambiguous; a qualified file that does not define the symbol
+is rejected instead of matching another file. Search follows stored direction
+by default. Add `--undirected` only for connectivity regardless of direction;
+the displayed arrows still show each relationship's direction. `No path` or
+`No directed path` is not proof that a relationship is absent: the direction
+or missing static evidence can explain it. Verify the cited source.
+
+For incoming calls, use `affected`. In nested TypeScript functions it can
+report both the nested and enclosing function for one call site. Inspect the
+cited source before treating those rows as separate callers.
 
 Read each relevant `source_file` and `source_location`. Graph edges, including
 `EXTRACTED` and `INFERRED` edges, are navigation leads. Distinguish graph output,

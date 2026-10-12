@@ -1,6 +1,6 @@
 # Graphify reference: project Git and agent hooks
 
-Project adaptation for Graphify 0.9.73. Read `docs/agent-guides/agent-layer.md`
+Project adaptation for Graphify 0.9.88. Read `docs/agent-guides/agent-layer.md`
 and `docs/agent-guides/graphify.md` before changing integrations. Use the local
 CLI from the repository root in PowerShell 7.
 

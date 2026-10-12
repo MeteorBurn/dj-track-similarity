@@ -1,6 +1,6 @@
 # Graphify reference: project graph maintenance
 
-Project adaptation for Graphify 0.9.73. Follow `../SKILL.md` and
+Project adaptation for Graphify 0.9.88. Follow `../SKILL.md` and
 `docs/agent-guides/graphify.md`; commands run from the repository root in
 PowerShell 7 after validating the local runtime.
 

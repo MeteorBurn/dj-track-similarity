@@ -19,11 +19,11 @@ edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
 `AGENTS.md` and this guide own the query-first rule for source discovery.
 Tasks confined to instructions, configuration, locks, Git state, or the excluded
 agent layer use direct inspection; those files are outside the code graph.
-Codex's `.codex/hooks.json` has no Graphify search reminder: the native guard
-cannot distinguish these exceptions and emits an unconditional instruction.
-Claude deliberately keeps its native search/read guards; they are equally
-unconditional: the read guard also fires on project `.md` files and the search
-guard on any `rg`/`grep`. Their reminder never overrides this guide: excluded
+Codex's `.codex/hooks.json` uses `hook-guard search` with the `Bash` matcher
+to remind the agent before recognized shell searches. Claude keeps its native
+search/read guards. These guards do not distinguish the excluded-file
+exceptions: the read guard also fires on project `.md` files and the search
+guard on `rg`/`grep`. Their reminder never overrides this guide: excluded
 files are inspected directly, and graph commands follow the invocation rule
 below and the budget and `path` rules of the query reference,
 `.djts/skills/graphify/references/query.md`. Hook setup belongs to the
@@ -58,7 +58,7 @@ in source; mention graph limitations only when they affect the result.
 | Narrow a query to call relationships | `graphify query "<expanded tokens>" --context call --budget 8000` |
 | Inspect a graph node and its neighbors | `graphify explain "<path::Symbol>"`; inspect exact IDs in `graph.json` when ambiguous |
 | Inspect affected callers | `graphify affected "<node_id>" --relation calls --depth 1` (use depth `2` for the next caller level) |
-| Trace a connection | Inspect exact-node neighbors and the cited source; see the query reference's `path` limitation |
+| Trace a connection | `graphify path "<source path::Symbol>" "<target path::Symbol>"` (or exact node IDs); directed by default, `--undirected` for general connectivity |
 | Orient in unfamiliar architecture | `graphify god-nodes`, then `explain` |
 
 Run graph commands through the repository-local CLI
@@ -67,7 +67,7 @@ this project uses no Graphify MCP server. Never register Graphify globally,
 add it to user/system PATH, or run `graphify install`, which can overwrite
 project instructions and hooks. Follow
 `.djts/skills/graphify/references/query.md` for token selection, budgets and
-truncation, the `path` limitation, exact-symbol inspection, and saving
+truncation, `path` endpoints and direction, exact-symbol inspection, and saving
 results. Pass the relevant graph rules to code-exploration workers explicitly;
 do not assume their prompts or tool access match the parent session.
 

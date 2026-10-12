@@ -115,12 +115,7 @@ graphify-out/????-??-??/
 # .agents/ is not ours either: it is the path Codex scans, and it holds one link.
 .claude/*
 /.agents/
-.workspace/audits/
-.workspace/handoffs/
-.workspace/ideas/
-.workspace/reports/
-.workspace/specs/
-.workspace/tools/
+/.workspace/
 
 # img/ ships only what README renders: the two hero boards. The .html sources
 # that render them stay local, together with the Rhythm Lab workspace captures

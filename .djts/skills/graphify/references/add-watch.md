@@ -1,6 +1,6 @@
 # graphify reference: add a URL and watch a folder
 
-> Inactive upstream reference retained from Graphify 0.9.73 for maintenance
+> Inactive upstream reference retained from Graphify 0.9.88 for maintenance
 > comparison. Do not execute this workflow in the project. Follow the active
 > procedures in [the project skill](../SKILL.md).
 

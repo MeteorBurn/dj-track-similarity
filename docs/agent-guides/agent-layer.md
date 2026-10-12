@@ -53,10 +53,11 @@ are relative to this file. These guides are read by task, not imported as a batc
   `Bash|Grep` and `PowerShell` run `hook-guard search`, `Read|Glob` runs
   `hook-guard read`, each through this checkout's
   `.tools/graphify/bin/graphify.exe` by absolute path with forward slashes.
-  Codex follows the [Graphify guide](graphify.md) without a search hook: the
-  native reminder cannot honor the guide's excluded-file exceptions. Do not
-  restore that reminder, the `hook-check` no-op, or a custom
-  wrapper/SessionStart script.
+  Codex's `.codex/hooks.json` calls the same native `hook-guard search` with
+  the `Bash` matcher, absolute local CLI path and a 10-second timeout. It adds
+  a reminder before recognized shell searches; the [Graphify guide](graphify.md)
+  still governs excluded-file exceptions. Do not replace it with the
+  `hook-check` no-op or a custom wrapper/SessionStart script.
   Graphify's automatic skill refresh covers upstream-managed installation
   paths, not `.djts/skills/graphify/` or the Codex plugin cache. After a
   package upgrade, review upstream skill changes against our project overrides

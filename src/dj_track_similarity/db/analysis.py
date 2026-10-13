@@ -1048,42 +1048,49 @@ class AnalysisRepository:
                         """,
                         (json.dumps(list(selected_by_id), separators=(",", ":")),),
                     ).fetchall()
-                result: list[SonaraFeatureRow] = []
-                for row in rows:
-                    target = selected_by_id.get(int(row["track_id"]))
-                    if target is None:
-                        continue
-                    valid, _reason = validate_sonara_core_row(
-                        row,
-                        expected_track_id=target.track_id,
+        # The fetched rows need no connection: checking a whole library takes
+        # seconds, and under the lock it would stall every other read.
+        result: list[SonaraFeatureRow] = []
+        for row in rows:
+            target = selected_by_id.get(int(row["track_id"]))
+            if target is None:
+                continue
+            valid, _reason = validate_sonara_core_row(
+                row,
+                expected_track_id=target.track_id,
+            )
+            if not valid:
+                continue
+            values: dict[str, object] = {}
+            for column in SONARA_CORE_COLUMNS:
+                if column in _SONARA_IDENTITY_COLUMNS:
+                    continue
+                value = row[column]
+                dim = SONARA_CORE_VECTOR_DIMS.get(column)
+                if dim is not None:
+                    vector = np.frombuffer(
+                        value,
+                        dtype=FLOAT32_LE,
                     )
-                    if not valid:
-                        continue
-                    values: dict[str, object] = {}
-                    for column in SONARA_CORE_COLUMNS:
-                        if column in _SONARA_IDENTITY_COLUMNS:
-                            continue
-                        value = row[column]
-                        dim = SONARA_CORE_VECTOR_DIMS.get(column)
-                        if dim is not None:
-                            vector = np.frombuffer(
-                                value,
-                                dtype=FLOAT32_LE,
-                            )
-                            values[column] = tuple(float(item) for item in vector)
-                        else:
-                            values[column] = value
-                    result.append(
-                        SonaraFeatureRow(
-                            target=target,
-                            output=output,
-                            values=MappingProxyType(values),
-                        )
-                    )
-                return tuple(result)
+                    values[column] = tuple(float(item) for item in vector)
+                else:
+                    values[column] = value
+            result.append(
+                SonaraFeatureRow(
+                    target=target,
+                    output=output,
+                    values=MappingProxyType(values),
+                )
+            )
+        return tuple(result)
 
-    def sonara_analysis_stamp(self) -> tuple[str, int, str | None, str | None]:
-        """Catalog, SONARA track count and newest Core/Timeline write: changes on any reanalysis."""
+    def sonara_analysis_stamp(self) -> tuple[str, int, str | None]:
+        """Catalog, SONARA track count and newest SONARA write: changes on any reanalysis.
+
+        One write stores Core and Timeline together, so the Core date stands
+        for both. The Timeline's own date sits behind its JSON, and reading it
+        walks the whole table: 4 GB at 43,000 tracks.
+        """
 
         with self._write_lock:
             with closing(self.connect()) as connection:
@@ -1095,10 +1102,7 @@ class AnalysisRepository:
                     """
                 ).fetchone()
                 require_sonara_timeline(connection)
-                (timeline_at,) = connection.execute(
-                    "SELECT max(analyzed_at) FROM sonara_timeline"
-                ).fetchone()
-                return _catalog_uuid(connection), int(count), core_at, timeline_at
+                return _catalog_uuid(connection), int(count), core_at
 
     def load_sonara_timelines(
         self,

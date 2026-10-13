@@ -124,6 +124,7 @@ def register_search_routes(
                 request.analysis_family,
                 analysis_output=analysis_output,
                 layer=request.layer,
+                blend_layer=request.blend_layer,
             )
             results = searcher.search(
                 searcher.resolve_targets(request.seed_track_ids),
@@ -227,6 +228,7 @@ def register_search_routes(
                 request.analysis_family,
                 analysis_output=analysis_output,
                 layer=request.layer,
+                blend_layer=request.blend_layer,
             )
             seeds = searcher.resolve_targets(request.seed_track_ids)
             # The shown candidates are the prefix /api/search returns; the
@@ -291,6 +293,7 @@ def register_search_routes(
             catalog_uuid=database.catalog_uuid,
             analysis_family=request.analysis_family,
             layer=validate_embedding_layer(request.analysis_family, request.layer),
+            blend_layer=request.blend_layer,
             library_similarity=library_similarity,
             background_count=cluster_map.background_count,
             library_count=cluster_map.library_count,

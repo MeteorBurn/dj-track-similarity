@@ -384,6 +384,17 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
             )
         with closing(database.connect()) as connection, connection:
             connection.execute("DROP TRIGGER fail_layer")
+            connection.execute(
+                f"CREATE TRIGGER fail_layer BEFORE INSERT ON {family}_embeddings "
+                "WHEN NEW.layer=7 BEGIN SELECT RAISE(ROLLBACK, 'transaction rolled back'); END"
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="transaction rolled back"):
+            _save_embedding_output(database, write_target, replacement)
+        with closing(database.connect()) as connection, connection:
+            assert [(row[0], row[1]) for row in connection.execute(
+                f"SELECT layer, embedding_blob FROM {family}_embeddings ORDER BY layer"
+            )] == [(layer, vector.tobytes()) for layer, vector in enumerate(stack, start=1)]
+            connection.execute("DROP TRIGGER fail_layer")
     with pytest.raises(ValueError, match="not supported for clap"):
         database.load_analysis_vectors(AnalysisOutput("clap", "embedding"), layer=12)
 

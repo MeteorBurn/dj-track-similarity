@@ -26,7 +26,7 @@ from .schemas import (
     TrackSummaryResponse,
 )
 from .state import AppDatabaseState, DatabaseBusy
-from ..analysis_models import EMBEDDING_LAYER_HINTS, EMBEDDING_LAYERS
+from ..analysis_models import EMBEDDING_LAYER_BLENDS, EMBEDDING_LAYER_HINTS, EMBEDDING_LAYERS
 from ..library_models import SheetSage2Timeline
 from ..track_models import TrackIdentity
 
@@ -227,6 +227,15 @@ def register_library_routes(
                             "source": hint.source if hint else None,
                         }
                         for layer in range(1, layers.count + 1)
+                    ],
+                    # A blend ranks only the tracks stored at both of its layers.
+                    "blends": [
+                        {
+                            "layer": layer,
+                            "blend_layer": blend_layer,
+                            "track_count": min(counts[layer], counts[blend_layer]),
+                        }
+                        for layer, blend_layer in EMBEDDING_LAYER_BLENDS.get(family, ())
                     ],
                 }
         except (DatabaseBusy, RuntimeError) as error:

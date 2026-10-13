@@ -244,6 +244,13 @@ EMBEDDING_LAYERS: Mapping[str, EmbeddingLayers] = MappingProxyType(
     }
 )
 
+# Pairs of stored layers the layer selector offers as one search space: each
+# track's two unit vectors side by side, so a score is the mean of the two
+# layer cosines. Nothing is stored for a blend.
+EMBEDDING_LAYER_BLENDS: Mapping[str, tuple[tuple[int, int], ...]] = MappingProxyType(
+    {"maest": ((13, 12),)}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingLayerHint:

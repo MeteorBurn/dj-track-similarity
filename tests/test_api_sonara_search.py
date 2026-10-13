@@ -138,6 +138,11 @@ def test_generic_search_endpoint_returns_muq_result_shape(
             assert len(selected_layer.json()) == 1
             assert selected_layer.json()[0]["track"]["track_id"] == candidate.track_id
             assert selected_layer.json()[0]["score"] == pytest.approx(0.0)
+            # A blend scores a track by the mean of its two layer cosines.
+            blended = client.post("/api/search", json={**layer_request, "blend_layer": layer_count})
+            assert blended.status_code == 200
+            assert blended.json()[0]["score"] == pytest.approx(0.9 / np.hypot(0.9, 0.1) / 2)
+            assert client.post("/api/search", json={**layer_request, "blend_layer": 12}).status_code == 422
         # A family that stores one vector per track has no layer to select.
         assert client.post(
             "/api/search", json={"analysis_family": "clap", "seed_track_ids": [1], "layer": 1}
@@ -280,7 +285,8 @@ def test_cluster_map_explains_the_current_search_by_sonara_alone(
         assert point["similarity"] == pytest.approx(result["score"], abs=1e-5)
         assert point["track"]["track_uuid"] == result["track"]["track_uuid"]
     assert {point["track"]["track_id"] for point in payload["points"] if point["seed"]} == {s.track_id for s in seeds}
-    assert payload["catalog_uuid"] == db.catalog_uuid and payload["layer"] == 5
+    assert payload["catalog_uuid"] == db.catalog_uuid
+    assert (payload["layer"], payload["blend_layer"]) == (5, None)
     assert payload["background_count"] == len(rows)
     # The pool is every track the model could have returned, references aside.
     assert payload["summary"]["pool_size"] == payload["summary"]["pool_count"] == len(ordinary) + 3

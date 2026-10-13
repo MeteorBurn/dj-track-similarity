@@ -31,7 +31,7 @@ from ..analysis.config import (
     parse_sonara_bpm_range,
 )
 from ..analysis_models import EMBEDDING_LAYERS
-from ..db.embedding_layers import validate_embedding_layer
+from ..db.embedding_layers import validate_embedding_blend, validate_embedding_layer
 from ..library_models import SheetSage2Features
 from ..scanner import SUPPORTED_AUDIO_EXTENSIONS
 
@@ -342,6 +342,8 @@ class SearchRequest(BaseModel):
     analysis_family: Literal["maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"] = "mert_v2"
     # None reads the family's default layer.
     layer: int | None = Field(default=None, strict=True)
+    # A second stored layer scored together with ``layer``; None searches one layer.
+    blend_layer: int | None = Field(default=None, strict=True)
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1)
     limit: int = Field(default=10, ge=1, le=1000)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -351,6 +353,7 @@ class SearchRequest(BaseModel):
     @model_validator(mode="after")
     def _layer_belongs_to_family(self) -> "SearchRequest":
         validate_embedding_layer(self.analysis_family, self.layer)
+        validate_embedding_blend(self.analysis_family, self.layer, self.blend_layer)
         return self
 
 
@@ -1125,6 +1128,7 @@ class ClusterMapResponse(_ResponseModel):
     catalog_uuid: str
     analysis_family: Literal["maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"]
     layer: int | None
+    blend_layer: int | None
     library_similarity: float
     background_count: int = Field(ge=0)
     library_count: int = Field(ge=0)
@@ -1155,9 +1159,16 @@ class EmbeddingLayerCountResponse(_ResponseModel):
     source: str | None
 
 
+class EmbeddingLayerBlendResponse(_ResponseModel):
+    layer: int = Field(ge=1)
+    blend_layer: int = Field(ge=1)
+    track_count: int = Field(ge=0)
+
+
 class EmbeddingLayersResponse(_ResponseModel):
     catalog_uuid: str
     family: str
     default_layer: int = Field(ge=1)
     note: str | None
     layers: list[EmbeddingLayerCountResponse]
+    blends: list[EmbeddingLayerBlendResponse]

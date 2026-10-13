@@ -91,5 +91,13 @@ test("embedding layer coverage binds selection and pending requests to the curre
   coverageCalls.at(-1).resolve(counts("b", 24, [12, 24])); await flush();
   picker = coverage.render("mert_v2", "db-b", "b", "refreshed-summary");
   assert.equal(picker.layer, 24);
+  // Only a blend the server declares, with stored tracks, can be selected.
+  coverage.render("mert_v2", "db-b", "b", "blends");
+  coverageCalls.at(-1).resolve({ ...counts("b", 24, [12, 24]), blends: [{ layer: 24, blend_layer: 12, track_count: 7 }] }); await flush();
+  picker = coverage.render("mert_v2", "db-b", "b", "blends");
+  picker.selectLayer(24, 11); picker = coverage.render("mert_v2", "db-b", "b", "blends");
+  assert.deepEqual([picker.layer, picker.blendLayer, picker.label], [24, null, "L24"]);
+  picker.selectLayer(24, 12); picker = coverage.render("mert_v2", "db-b", "b", "blends");
+  assert.deepEqual([picker.layer, picker.blendLayer, picker.label, picker.trackCount], [24, 12, "L24+L12", 7]);
   coverage.unmount();
 });

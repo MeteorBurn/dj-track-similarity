@@ -282,7 +282,7 @@ export function SearchPlaylistPanel({
   useEffect(() => {
     setEmbeddingSearchErrors({});
     setEmbeddingSearchPending({});
-  }, [databaseIdentity, embeddingLayers.layer]);
+  }, [databaseIdentity, embeddingLayers.label]);
 
   function handlePrimaryTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const target = tabAfterKey(primarySearchTabs, activeSearchTab, event.key);
@@ -637,7 +637,7 @@ export function SearchPlaylistPanel({
           <div className="generic-search-results">
             {genericSearchResultOrigin === "text" && textExecution ? <TextExecutionDetails execution={textExecution} /> : null}
             <div className="generic-search-result-provenance" role="status">
-              {searchResultOriginLabel(genericSearchResultOrigin)}{genericSearchResultOrigin === seedSearchModel && embeddingLayers.layer !== null ? ` L${embeddingLayers.layer}` : ""} results
+              {searchResultOriginLabel(genericSearchResultOrigin)}{genericSearchResultOrigin === seedSearchModel && embeddingLayers.label !== null ? ` ${embeddingLayers.label}` : ""} results
               <span>{results.length}</span>
               <SearchCandidatesAddButton
                 results={results}

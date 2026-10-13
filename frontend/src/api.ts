@@ -57,6 +57,8 @@ export type EmbeddingLayersResponse = {
   default_layer: number;
   note: string | null;
   layers: { layer: number; track_count: number; label: string | null; source: string | null }[];
+  /** Pairs of stored layers offered as one search space; a score is the mean of the two layer cosines. */
+  blends: { layer: number; blend_layer: number; track_count: number }[];
 };
 
 export type MaestMelExportRequest = TrackMutationIdentity & {
@@ -274,6 +276,7 @@ export type SearchResult = {
 export type EmbeddingSearchPayload = {
   analysis_family: EmbeddingSource;
   layer?: number | null;
+  blend_layer?: number | null;
   seed_track_ids: number[];
   limit: number;
   min_similarity?: number | null;
@@ -359,6 +362,7 @@ export type ClusterMapResponse = {
   catalog_uuid: string;
   analysis_family: EmbeddingSource;
   layer: number | null;
+  blend_layer: number | null;
   library_similarity: number;
   background_count: number;
   library_count: number;

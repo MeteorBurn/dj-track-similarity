@@ -3,7 +3,7 @@ import { api, type EmbeddingLayersResponse, type LayeredEmbeddingFamily } from "
 import { errorText, isAbortError } from "./errors";
 import type { SeedSearchModel } from "./searchSurfaceState";
 
-// Families with a layer list; its count, default and labels come from the server.
+// Families with a layer list; its count, default, labels and blends come from the server.
 const layeredFamilies: readonly LayeredEmbeddingFamily[] = ["mert_v2", "sheetsage2", "muq", "maest"];
 
 export function useEmbeddingLayers(family: SeedSearchModel, databasePath: string | null, catalogUuid: string | null, refreshKey: unknown) {
@@ -11,16 +11,19 @@ export function useEmbeddingLayers(family: SeedSearchModel, databasePath: string
   const identity = JSON.stringify([family, databasePath, catalogUuid]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
-  const [selection, setSelection] = useState<{ identity: string; layer: number | null }>({ identity, layer: null });
+  // blendLayer is the second layer of a blended search; null searches one layer.
+  const [selection, setSelection] = useState<{ identity: string; layer: number | null; blendLayer: number | null }>({ identity, layer: null, blendLayer: null });
   const [result, setResult] = useState<{ identity: string; data: EmbeddingLayersResponse } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const layer = selection.identity === identity ? selection.layer : null;
+  const blendLayer = selection.identity === identity ? selection.blendLayer : null;
   const coverage = result?.identity === identity ? result.data : null;
   const layers = coverage?.layers ?? null;
+  const blends = coverage?.blends ?? [];
 
   useEffect(() => {
-    setSelection({ identity, layer: null });
+    setSelection({ identity, layer: null, blendLayer: null });
   }, [identity]);
 
   useEffect(() => {
@@ -34,24 +37,30 @@ export function useEmbeddingLayers(family: SeedSearchModel, databasePath: string
       if (!current()) return;
       if (data.catalog_uuid !== catalogUuid) throw new Error("Список слоёв относится к другой базе. Обновите библиотеку.");
       setResult({ identity, data });
-      setSelection(chosen => chosen.identity === identity && chosen.layer !== null ? chosen : { identity, layer: data.default_layer });
+      setSelection(chosen => chosen.identity === identity && chosen.layer !== null ? chosen : { identity, layer: data.default_layer, blendLayer: null });
     }).catch(cause => {
       if (current() && !isAbortError(cause)) setError(errorText(cause));
     }).finally(() => { if (current()) setLoading(false); });
     return () => controller.abort();
   }, [identity, refreshKey]);
 
-  function selectLayer(value: number) {
-    if (identityRef.current !== identity || !layers?.some(row => row.layer === value && row.track_count > 0)) return;
-    setSelection({ identity, layer: value });
+  function selectLayer(value: number, blend: number | null = null) {
+    if (identityRef.current !== identity) return;
+    const stored = blend === null
+      ? layers?.some(row => row.layer === value && row.track_count > 0)
+      : blends.some(row => row.layer === value && row.blend_layer === blend && row.track_count > 0);
+    if (stored) setSelection({ identity, layer: value, blendLayer: blend });
   }
 
   return {
     layered: layeredFamily !== null,
-    layer, layers, loading, error, selectLayer,
+    layer, blendLayer, layers, blends, loading, error, selectLayer,
+    label: layer === null ? null : blendLayer === null ? `L${layer}` : `L${layer}+L${blendLayer}`,
     defaultLayer: coverage?.default_layer ?? null,
     note: coverage?.note ?? null,
-    trackCount: layers?.find(row => row.layer === layer)?.track_count ?? 0,
+    trackCount: (blendLayer === null
+      ? layers?.find(row => row.layer === layer)
+      : blends.find(row => row.layer === layer && row.blend_layer === blendLayer))?.track_count ?? 0,
   };
 }
 

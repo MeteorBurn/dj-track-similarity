@@ -52,7 +52,7 @@ export function SimilaritySearchTab({
         ? ""
         : showSonara
           ? "No SONARA analysis is available in the selected catalog. Run SONARA analysis first."
-          : `No current ${label}${layerState.layer !== null ? ` L${layerState.layer}` : ""} embeddings are available in the selected catalog. Run ${label} analysis first.`;
+          : `No current ${label}${layerState.label !== null ? ` ${layerState.label}` : ""} embeddings are available in the selected catalog. Run ${label} analysis first.`;
   const requestTitle = missingReason || (showSonara
     ? "Найти похожие треки через SONARA по выбранным seed-трекам"
     : `Find acoustically similar tracks with current ${label} embeddings.`);
@@ -65,7 +65,7 @@ export function SimilaritySearchTab({
     || ((clusterMap.status === "idle" || clusterMap.status === "error") && (busy || pending)
       ? "Дождитесь окончания текущего поиска."
       : "");
-  const clusterMapTitle = clusterMapBlocked || clusterMapButtonTitle(clusterMap, label, layerState.layer);
+  const clusterMapTitle = clusterMapBlocked || clusterMapButtonTitle(clusterMap, label, layerState.label);
   const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
     { key: "timbre", label: "Timbre", title: helpText.sonaraMixerTimbre },
     { key: "rhythm", label: "Rhythm", title: helpText.sonaraMixerRhythm },
@@ -260,11 +260,11 @@ export function SimilaritySearchTab({
   );
 }
 
-function clusterMapButtonTitle({ status, entry }: ClusterMapState, label: string, layer: number | null) {
+function clusterMapButtonTitle({ status, entry }: ClusterMapState, label: string, layerLabel: string | null) {
   if (status === "loading") return "Строим карту выдачи по измерениям SONARA. Откройте, чтобы следить за ходом.";
   if (status === "ready") return "Открыть построенную карту выдачи; она живёт, пока не сменятся библиотека, модель, слой, референсы или лимит.";
   if (status === "error") return `Карта не построилась: ${(entry?.error ?? "").replace(/[.\s]+$/, "")}. Нажмите, чтобы попробовать снова.`;
-  return `Карта выдачи ${label}${layer !== null ? ` L${layer}` : ""}: какие свойства SONARA она сохраняет и чем кандидаты отличаются от референсов.`;
+  return `Карта выдачи ${label}${layerLabel !== null ? ` ${layerLabel}` : ""}: какие свойства SONARA она сохраняет и чем кандидаты отличаются от референсов.`;
 }
 
 function formatSigned(value: number) {

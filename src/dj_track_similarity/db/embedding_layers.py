@@ -30,6 +30,20 @@ def validate_embedding_layer(family: str, layer: int | None) -> int | None:
     return layer
 
 
+def validate_embedding_blend(
+    family: str,
+    layer: int | None,
+    blend_layer: int | None,
+) -> int | None:
+    """Resolve the second stored layer a search reads together with *layer*."""
+
+    if blend_layer is None:
+        return None
+    if validate_embedding_layer(family, blend_layer) == validate_embedding_layer(family, layer):
+        raise ValueError(f"{family} blend layer must differ from the search layer")
+    return blend_layer
+
+
 def _compact_sql(sql: str) -> str:
     return re.sub(r"\s+", "", sql).rstrip(";").lower()
 

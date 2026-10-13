@@ -16,7 +16,7 @@ from ..analysis_models import (
     AnalysisVectorRow,
     current_embedding_spec,
 )
-from ..db.embedding_layers import validate_embedding_layer
+from ..db.embedding_layers import validate_embedding_blend, validate_embedding_layer
 from .arguments import (
     merge_targets,
     optional_targets,
@@ -50,6 +50,7 @@ FEEDBACK_IRRELEVANT_WEIGHT: Final = 0.25
 # Below this the centroid is one person's afternoon rather than an opinion, and
 # a query pulled by it moves for no reason it could defend.
 FEEDBACK_MINIMUM_TRACKS: Final = 3
+_BLEND_SCALE: Final = np.float32(math.sqrt(0.5))
 _EMBEDDING_FAMILIES = frozenset({"maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"})
 
 
@@ -133,6 +134,7 @@ class SimilaritySearch:
         analysis_output: AnalysisOutput,
         vector_backend: ExactVectorSearchBackend | None = None,
         layer: int | None = None,
+        blend_layer: int | None = None,
     ) -> None:
         family = str(analysis_family).strip().lower()
         if family not in _EMBEDDING_FAMILIES:
@@ -145,6 +147,8 @@ class SimilaritySearch:
         # None leaves the repository on the family's default layer.
         validate_embedding_layer(family, layer)
         self._layer_options = {} if layer is None else {"layer": layer}
+        # A second layer makes every row both of a track's vectors side by side.
+        self._blend_layer = validate_embedding_blend(family, layer, blend_layer)
         self.analysis_family: EmbeddingFamily = family  # type: ignore[assignment]
         if analysis_output.key != (family, "embedding"):
             raise ValueError(
@@ -450,7 +454,7 @@ class SimilaritySearch:
         cached = self._full_rows
         if cached is not None and cached[0] == output:
             return cached[1]
-        rows = self.repository.load_analysis_vectors(output, targets=None, **self._layer_options)
+        rows = self._vectors(output, None)
         _validate_rows(
             rows,
             output=output,
@@ -458,6 +462,33 @@ class SimilaritySearch:
         )
         self._full_rows = (output, rows)
         return rows
+
+    def _vectors(
+        self,
+        output: AnalysisOutput,
+        targets: Sequence[AnalysisTarget] | None,
+    ) -> tuple[AnalysisVectorRow, ...]:
+        rows = self.repository.load_analysis_vectors(output, targets=targets, **self._layer_options)
+        if self._blend_layer is None:
+            return rows
+        blend = {
+            row.target: row.vector
+            for row in self.repository.load_analysis_vectors(
+                output, targets=targets, layer=self._blend_layer,
+            )
+        }
+        # Two unit vectors side by side, scaled back to unit length: the cosine
+        # of two such rows is the mean of their two layer cosines. A track
+        # stored at one of the layers only is not in the blend's pool.
+        return tuple(
+            AnalysisVectorRow(
+                row.target,
+                output,
+                np.concatenate((row.vector, blend[row.target])) * _BLEND_SCALE,
+            )
+            for row in rows
+            if row.target in blend
+        )
 
     def _load_rows(
         self,
@@ -472,22 +503,14 @@ class SimilaritySearch:
                 # that rejects a seed whose identity no longer matches the
                 # library, which the full load below cannot distinguish from a
                 # seed that simply has no vector.
-                seed_rows = self.repository.load_analysis_vectors(
-                    output,
-                    targets=seeds,
-                    **self._layer_options,
-                )
+                seed_rows = self._vectors(output, seeds)
                 _validate_rows(
                     seed_rows,
                     output=output,
                     catalog_uuid=self.repository.catalog_uuid,
                 )
             return output, self._load_full_rows(output)
-        rows = self.repository.load_analysis_vectors(
-            output,
-            targets=merge_targets(seeds, candidate_targets),
-            **self._layer_options,
-        )
+        rows = self._vectors(output, merge_targets(seeds, candidate_targets))
         _validate_rows(
             rows,
             output=output,
@@ -772,7 +795,8 @@ def _stack(
             for row in rows
         ]
     ).astype(np.float32, copy=False)
-    if matrix.shape != (len(rows), dim):
+    # A layer blend carries two stored vectors per row.
+    if matrix.shape[0] != len(rows) or matrix.shape[1] not in (dim, 2 * dim):
         raise ValueError(
             "Analysis repository returned an embedding matrix with "
             f"shape {matrix.shape}; expected {(len(rows), dim)}"

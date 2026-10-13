@@ -179,7 +179,13 @@ def _savepoint(connection: sqlite3.Connection, index: int) -> str:
     return name
 
 
-def _rollback_savepoint(connection: sqlite3.Connection, name: str) -> None:
+def _rollback_savepoint(
+    connection: sqlite3.Connection, name: str, error: Exception,
+) -> None:
+    # SQLite can roll back the whole transaction (for example on SQLITE_NOMEM).
+    # Abort the batch with its original error; earlier items were rolled back too.
+    if not connection.in_transaction:
+        raise error
     connection.execute(f"ROLLBACK TO {name}")
     connection.execute(f"RELEASE {name}")
 
@@ -686,7 +692,7 @@ class AnalysisRepository:
                                 write=write,
                             )
                         except Exception as error:
-                            _rollback_savepoint(connection, name)
+                            _rollback_savepoint(connection, name, error)
                             results.append(_error_result(write.target, error))
                         else:
                             _release_savepoint(connection, name)
@@ -746,7 +752,7 @@ class AnalysisRepository:
                                     output=write.embedding,
                                 )
                         except Exception as error:
-                            _rollback_savepoint(connection, name)
+                            _rollback_savepoint(connection, name, error)
                             results.append(_error_result(write.target, error))
                         else:
                             _release_savepoint(connection, name)
@@ -812,7 +818,7 @@ class AnalysisRepository:
                             upsert_sheetsage2_analysis(connection, write)
                             _write_embedding_output(connection, target=write.target, output=write.embedding)
                         except Exception as error:
-                            _rollback_savepoint(connection, name)
+                            _rollback_savepoint(connection, name, error)
                             results.append(_error_result(write.target, error))
                         else:
                             _release_savepoint(connection, name)
@@ -864,7 +870,7 @@ class AnalysisRepository:
                                 output=write.output,
                             )
                         except Exception as error:
-                            _rollback_savepoint(connection, name)
+                            _rollback_savepoint(connection, name, error)
                             results.append(_error_result(write.target, error))
                         else:
                             _release_savepoint(connection, name)
@@ -1373,7 +1379,7 @@ class AnalysisRepository:
                                 write.score,
                             )
                         except Exception as error:
-                            _rollback_savepoint(core_connection, name)
+                            _rollback_savepoint(core_connection, name, error)
                             results.append(_error_result(write.target, error))
                         else:
                             _release_savepoint(core_connection, name)

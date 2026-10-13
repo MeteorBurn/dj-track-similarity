@@ -50,7 +50,9 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, prev
   const seeds = useMemo(() => response?.points.filter((point) => point.seed) ?? [], [response]);
   const selected = response?.points.find((point) => point.track.track_id === selectedTrackId) ?? null;
   const layer = payload.layer ?? null;
-  const layerRow = layerState.layers?.find((row) => row.layer === layer);
+  const blendLayer = payload.blend_layer ?? null;
+  // A layer hint describes one layer, so a blend shows none.
+  const layerRow = blendLayer === null ? layerState.layers?.find((row) => row.layer === layer) : undefined;
   const seedCount = payload.seed_track_ids.length;
   const summaryText = `${seedCount} ${pluralRu(seedCount, "референс", "референса", "референсов")} · ${response ? candidates.length : `до ${payload.limit}`} кандидатов`;
 
@@ -116,7 +118,7 @@ export function ClusterMapDialog({ entry, open, layerState, playingTrackId, prev
           <div className="cluster-map-heading">
             <h2 id="cluster-map-title">Карта выдачи</h2>
             <span className="cluster-map-chip">{seedSearchModelPresentation[payload.analysis_family].label}</span>
-            {layer !== null ? <span className="cluster-map-chip" title={[layerRow?.source, layerState.note].filter(Boolean).join("\n") || undefined}>L{layer}</span> : null}
+            {layer !== null ? <span className="cluster-map-chip" title={[layerRow?.source, layerState.note].filter(Boolean).join("\n") || undefined}>L{layer}{blendLayer !== null ? `+L${blendLayer}` : ""}</span> : null}
             {layerRow?.label ? <span className="cluster-map-layer-hint">{layerRow.label}</span> : null}
           </div>
           <p id="cluster-map-summary" className="cluster-map-summary">{summaryText} · свойства по SONARA вокруг референсов</p>

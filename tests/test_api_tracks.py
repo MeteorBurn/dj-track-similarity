@@ -122,12 +122,15 @@ def test_embedding_layers_returns_current_stored_row_counts(monkeypatch, tmp_pat
         connection.execute("UPDATE mert_v2_embeddings SET embedding_blob = ? WHERE track_id = ? AND layer = 24", (np.full(1024, np.nan, dtype=np.float32).tobytes(), identities[6].track_id))
         connection.execute("DELETE FROM mert_v2_embeddings WHERE track_id = ? AND layer = 12", (identities[6].track_id,))
 
+    monkeypatch.setattr("dj_track_similarity.api.routes_library.EMBEDDING_LAYER_BLENDS", {"mert_v2": ((24, 12),)})
     with _client(monkeypatch, db_path) as client:
         response = client.get("/api/library/embedding-layers/mert_v2")
         assert response.status_code == 200
         payload = response.json()
         assert (payload["catalog_uuid"], payload["family"], payload["default_layer"]) == (database.catalog_uuid, "mert_v2", 24)
-        assert set(payload) == {"catalog_uuid", "family", "default_layer", "note", "layers"}
+        assert set(payload) == {"catalog_uuid", "family", "default_layer", "note", "layers", "blends"}
+        # A blend counts only the tracks stored at both of its layers.
+        assert payload["blends"] == [{"layer": 24, "blend_layer": 12, "track_count": 4}]
         assert [(row["layer"], row["track_count"]) for row in payload["layers"]] == [
             (layer, 4 if layer == 12 else 5) for layer in range(1, 25)
         ]

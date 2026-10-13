@@ -279,6 +279,7 @@ export function App() {
     textEmbeddingFamily,
     seedSearchModel,
     embeddingLayer: embeddingLayers.layer,
+    embeddingBlendLayer: embeddingLayers.blendLayer,
     setResults,
     addSeed,
     setNotice,

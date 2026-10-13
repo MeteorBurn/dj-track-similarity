@@ -29,6 +29,7 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
     databaseIdentity,
     model,
     layerState.layer,
+    layerState.blendLayer,
     [...seedTracks]
       .sort((left, right) => left.track_id - right.track_id)
       .map((track) => [track.track_id, track.track_uuid]),
@@ -55,6 +56,7 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
     : {
       analysis_family: model,
       ...(layerState.layer !== null ? { layer: layerState.layer } : {}),
+      ...(layerState.blendLayer !== null ? { blend_layer: layerState.blendLayer } : {}),
       seed_track_ids: seedTracks.map((track) => track.track_id),
       limit,
       epsilon: null,
@@ -131,8 +133,8 @@ function responseMismatch(response: ClusterMapResponse, payload: EmbeddingSearch
   if (response.analysis_family !== payload.analysis_family) {
     return "Карта пришла для другой модели. Постройте карту заново.";
   }
-  if (payload.layer != null && response.layer !== payload.layer) {
-    return `Карта пришла не для слоя L${payload.layer}. Постройте карту заново.`;
+  if (payload.layer != null && (response.layer !== payload.layer || (response.blend_layer ?? null) !== (payload.blend_layer ?? null))) {
+    return `Карта пришла не для слоя L${payload.layer}${payload.blend_layer != null ? `+L${payload.blend_layer}` : ""}. Постройте карту заново.`;
   }
   return "";
 }

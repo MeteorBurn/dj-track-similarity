@@ -45,6 +45,8 @@ type SearchRequestsOptions = {
   seedSearchModel: SeedSearchModel;
   /** Layer of the selected seed model; null for a family without layers or before its list loads. */
   embeddingLayer: number | null;
+  /** Second layer of a blended search; null searches one layer. */
+  embeddingBlendLayer: number | null;
   setResults: (results: SearchResult[]) => void;
   addSeed: (track: Track) => void;
   setNotice: (notice: SearchNotice) => void;
@@ -64,6 +66,7 @@ export function useSearchRequests({
   textEmbeddingFamily,
   seedSearchModel,
   embeddingLayer,
+  embeddingBlendLayer,
   setResults,
   addSeed,
   setNotice,
@@ -95,6 +98,7 @@ export function useSearchRequests({
       text_embedding_family: textEmbeddingFamily,
       seed_search_model: seedSearchModel,
       layer: embeddingLayer,
+      blend_layer: embeddingBlendLayer,
     }),
     [
       analysisDevice,
@@ -104,6 +108,7 @@ export function useSearchRequests({
       textEmbeddingFamily,
       seedSearchModel,
       embeddingLayer,
+      embeddingBlendLayer,
       databaseCatalogUuid,
       databasePath,
       filters,
@@ -309,6 +314,7 @@ export function useSearchRequests({
       const value = await api.search({
         analysis_family: analysisFamily,
         ...(analysisFamily === seedSearchModel && embeddingLayer !== null ? { layer: embeddingLayer } : {}),
+        ...(analysisFamily === seedSearchModel && embeddingBlendLayer !== null ? { blend_layer: embeddingBlendLayer } : {}),
         seed_track_ids: seeds,
         limit: filters.limit,
         epsilon: null,

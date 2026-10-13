@@ -40,6 +40,16 @@ work unverified rather than inventing its instructions.
   reports require renewed checking, not a restated explanation. Continue
   available checks instead of ending with "unverified"; report concrete blockers.
   Keep checks proportional and delegated work within the same scope.
+- Use Graphify first for source discovery as required by the Graphify guide,
+  then use the available LSP for the file's language to resolve definitions and
+  references when working with symbols. Before renaming a symbol, inspect its
+  references and use LSP rename preparation when supported; review all resulting
+  edits. After code changes, run LSP diagnostics on the affected files. For
+  Python, also run the shared `C:\Utils\tools\ruff\ruff.exe` with the project's
+  configuration and verification scope; do not install a project-local Ruff.
+  If LSP is unavailable or lacks the needed capability, report the concrete
+  limitation and continue with source inspection and the applicable checks.
+  Simple prose or cosmetic edits do not require extra LSP checks.
 - Work from the repository root in PowerShell 7. Use the verified root `uv`
   `.venv`, never an unverified system Python. Read the environment guide before
   application/runtime commands; do not sync, upgrade or recreate it for inspection.

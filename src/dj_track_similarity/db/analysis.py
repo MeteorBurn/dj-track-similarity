@@ -433,10 +433,20 @@ def _library_vector_fingerprint(
         FROM {table}
         """
     ).fetchone()
-    tracks = tuple(
-        (int(row[0]), str(row[1]))
-        for row in read_current_track_identities(connection)
-    )
+    # Keep the exact ordered identities, but avoid rebuilding tens of thousands
+    # of Python rows and tuples on every cache hit. JSON preserves boundaries
+    # and types without a lossy hash, including the empty-library case.
+    tracks = connection.execute(
+        """
+        SELECT json_group_array(json_array(track_id, track_uuid))
+        FROM (
+            SELECT track_id, track_uuid
+            FROM tracks
+            WHERE missing_since IS NULL
+            ORDER BY file_path COLLATE NOCASE, track_id
+        )
+        """
+    ).fetchone()[0]
     return (
         catalog_uuid,
         output.key,

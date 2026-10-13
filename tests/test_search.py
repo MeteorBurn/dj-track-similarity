@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +21,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.search.engine import SearchFilters, SimilaritySearch
-from dj_track_similarity.search.vector_index import ExactVectorSearchBackend
+from dj_track_similarity.search.vector_index import ExactVectorQuery, ExactVectorSearchBackend, VectorSearchHit
 from dj_track_similarity.track_models import FileTags, ScannedFile
 from embedding_test_support import same_vector_layers
 
@@ -260,7 +261,7 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
                 output=EmbeddingOutput(
                     family=output.analysis_family,
                     vector=rewritten,
-                    analyzed_at="2026-07-24T13:00:00.000000Z",
+                    analyzed_at=_NOW,
                     layer_vectors=same_vector_layers(output.analysis_family, rewritten),
                 ),
             ),
@@ -304,12 +305,66 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
     after_swap = db.load_analysis_vectors(output)
     assert {row.target for row in after_swap} == {anchor, returning}
 
+    # Relocation changes the exact row order, without changing IDs or vectors.
+    reversed_targets = [row.target for row in reversed(after_swap)]
+    for ordered_targets, names in (
+        (reversed_targets, ("a.wav", "z.wav")),
+        (sorted(reversed_targets, key=lambda target: target.track_id), ("tie.wav", "TIE.wav")),
+    ):
+        with closing(foreign.connect()) as connection, connection:
+            connection.executemany(
+                "UPDATE tracks SET file_path = ? WHERE track_id = ?",
+                [(str(tmp_path / name), target.track_id) for target, name in zip(ordered_targets, names)],
+            )
+        assert [row.target for row in db.load_analysis_vectors(output)] == ordered_targets
 
-class _FullDepthBackend(ExactVectorSearchBackend):
-    """Ignores the requested depth and ranks the whole library."""
+    # Same IDs, embedding COUNT/MAX and generation: only the current UUID differs.
+    with closing(foreign.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE tracks SET track_uuid = ? WHERE track_id = ?",
+            ("00000000-0000-4000-8000-000000000002", returning.track_id),
+        )
+    assert [row.target for row in db.load_analysis_vectors(output)] == [anchor]
+    with closing(foreign.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE tracks SET track_uuid = ? WHERE track_id = ?",
+            (returning.track_uuid, returning.track_id),
+        )
+    assert {row.target for row in db.load_analysis_vectors(output)} == {anchor, returning}
 
-    def search(self, matrix, targets, query, limit):  # noqa: ANN001, ANN201
-        return super().search(matrix, targets, query, len(targets))
+    with closing(foreign.connect()) as connection, connection:
+        connection.execute("UPDATE tracks SET missing_since = ?", (_NOW,))
+    assert db.load_analysis_vectors(output) == ()
+    with closing(foreign.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE tracks SET missing_since = NULL WHERE track_id IN (?, ?)",
+            (anchor.track_id, returning.track_id),
+        )
+    assert {row.target for row in db.load_analysis_vectors(output)} == {anchor, returning}
+
+    with closing(foreign.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE library SET catalog_uuid = ?",
+            ("00000000-0000-4000-8000-000000000003",),
+        )
+    with pytest.raises(RuntimeError, match="catalog"):
+        db.load_analysis_vectors(output)
+
+
+class _FullDepthQuery(ExactVectorQuery):
+    """Independent full stable sort, bypassing the optimized selector."""
+
+    def search(self, limit):  # noqa: ANN001, ANN201
+        return [
+            VectorSearchHit(self.targets[index], float(self.scores[index]), int(index))
+            for index in np.argsort(-self.scores, kind="stable")
+        ]
+
+
+class _FullDepthSearch(SimilaritySearch):
+    def _rank(self, prepared, query, **kwargs):  # noqa: ANN001, ANN201
+        scores = query.scores if isinstance(query, ExactVectorQuery) else prepared.matrix @ query
+        return super()._rank(prepared, _FullDepthQuery(prepared.targets, scores), **kwargs)
 
 
 class _DepthRecordingBackend(ExactVectorSearchBackend):
@@ -323,6 +378,7 @@ class _DepthRecordingBackend(ExactVectorSearchBackend):
 
 def test_bounded_ranking_depth_matches_ranking_the_whole_library(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     """Reading a prefix of the ranking must not change the answer.
 
@@ -331,39 +387,98 @@ def test_bounded_ranking_depth_matches_ranking_the_whole_library(
     result kept. This pins that bound against the ranking it approximates.
     """
 
-    db, output = _library(tmp_path, "muq")
+    from dj_track_similarity.search import engine
+
+    db, output = _library(tmp_path, "clap")
     seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
     # Six tracks packed inside the noise band, where the jitter decides the
     # order, and six far below it, where it cannot.
+    tracks = []
     for index in range(12):
         cosine = 0.99 - index * 0.01 if index < 6 else 0.30 - index * 0.02
-        _add_track(
+        tracks.append(_add_track(
             db,
             tmp_path,
             output,
             f"track-{index}.wav",
             [cosine, (1.0 - cosine * cosine) ** 0.5, 0.0],
-        )
+        ))
+
+    # Force a later near candidate into the result, independent of random UUIDs.
+    favored = frozenset(tracks[3:6])
+    monkeypatch.setattr(
+        engine, "_ranking_score",
+        lambda target, score, noise: score + (noise / 2 if target in favored else -noise / 2),
+    )
 
     filters = SearchFilters(noise=0.2, epsilon=1.0)
     recorder = _DepthRecordingBackend()
     bounded = SimilaritySearch(
         db,
-        "muq",
+        "clap",
         analysis_output=output,
         vector_backend=recorder,
     ).search((seed,), filters=filters, limit=3)
-    whole = SimilaritySearch(
+    whole = _FullDepthSearch(
         db,
-        "muq",
+        "clap",
         analysis_output=output,
-        vector_backend=_FullDepthBackend(),
     ).search((seed,), filters=filters, limit=3)
 
-    assert [(r.target.track_id, r.score) for r in bounded] == [
-        (r.target.track_id, r.score) for r in whole
-    ]
+    assert bounded == whole
+    assert len(recorder.requested) > 1
     assert max(recorder.requested) < 13
+
+    # The contrast path bypasses the vector backend, but must obey the same bound.
+    positive = [_query(output, [1.0, 0.0, 0.0]), _query(output, [1.0, 0.05, 0.0])]
+    negative = [_query(output, [0.0, 1.0, 0.0]), _query(output, [0.0, 0.0, 1.0])]
+    history = {"relevant": [target.track_id for target in tracks[:engine.FEEDBACK_MINIMUM_TRACKS]], "irrelevant": []}
+    for active_filters, limit, candidates, feedback in (
+        (SearchFilters(), 3, None, None),
+        (filters, 3, None, None),
+        (SearchFilters(noise=0.2, epsilon=0.015), 3, None, None),
+        (SearchFilters(noise=0.2, min_similarity=0.95), 3, None, None),
+        (SearchFilters(min_similarity=1.0), 3, None, None),
+        (SearchFilters(), 0, None, None),
+        (SearchFilters(), 30, None, None),
+        (filters, 3, tuple(tracks[:7]), history),
+    ):
+        searcher = SimilaritySearch(db, "clap", analysis_output=output)
+        reference = _FullDepthSearch(db, "clap", analysis_output=output)
+        arguments = dict(
+            positive_vectors=positive, negative_vectors=negative, negative_weight=0.5,
+            candidate_targets=candidates, filters=active_filters, limit=limit,
+            feedback_track_ids=feedback,
+        )
+        bounded = searcher.search_contrast_vectors(**arguments)
+        whole = reference.search_contrast_vectors(**arguments)
+        assert bounded == whole
+        assert searcher.text_eligible_count == reference.text_eligible_count
+        assert searcher.text_feedback_status == reference.text_feedback_status
+        assert searcher.text_feedback_track_ids == reference.text_feedback_track_ids
+        if feedback is not None:
+            assert searcher.text_feedback_status["applied"]
+
+        # Derive expected breakdowns by target, independently of result position.
+        rows = db.load_analysis_vectors(output, targets=candidates)
+        matrix = np.stack([row.vector for row in rows])
+        shifted = engine._apply_relevance_feedback(
+            positive, matrix=matrix, rows=rows, output=output, feedback_track_ids=feedback,
+        )
+        positive_scores, negative_scores, scores, weight = engine._contrast_vector_scores(
+            matrix, output=output, positive_vectors=shifted,
+            negative_vectors=negative, negative_weight=0.5,
+        )
+        indices = {row.target: index for index, row in enumerate(rows)}
+        for result in bounded:
+            index = indices[result.target]
+            assert result.score == float(scores[index])
+            assert result.score_breakdown == {
+                "positive": float(positive_scores[index]),
+                "negative": float(negative_scores[index]),
+                "contrast": float(scores[index]),
+                "negative_weight": weight,
+            }
 
 
 def _library(root: Path, family: str) -> tuple[LibraryDatabase, AnalysisOutput]:

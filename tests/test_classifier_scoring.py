@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import types
 import uuid
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -755,6 +756,28 @@ def test_classifier_writer_valid_numbers_round_trip_through_reader(
             "SELECT feature_spec_id FROM classifier_scores ORDER BY track_id"
         )]
     assert len(shared_ids) == 2 and shared_ids[0] == shared_ids[1]
+
+    # A shared recipe is reusable within one read, never across external changes.
+    for current_names, expected_names in (
+        (names, names),
+        (tuple(reversed(names)), tuple(reversed(names))),
+        (("clap:0", "clap:0"), None),
+        (names, names),
+    ):
+        with closing(sqlite3.connect(db.path)) as connection, connection:
+            connection.execute(
+                "UPDATE classifier_feature_specs SET feature_names_json = ? WHERE feature_spec_id = ?",
+                (json.dumps(current_names), shared_ids[0]),
+            )
+        summaries = db.get_track_summaries((target.track_id, other_target.track_id))
+        for summary, stored_write in zip(summaries, (ordered, shared)):
+            details = db.get_track_detail(summary.track_id).classifier_scores_detail
+            assert tuple(score.feature_names for score in details) == (
+                () if expected_names is None else (expected_names,)
+            )
+            assert [(score.classifier_key, score.score) for score in summary.classifier_scores] == (
+                [] if expected_names is None else [(stored_write.score.classifier_key, numeric_score)]
+            )
 
     reversed_names = tuple(reversed(names))
     reordered = replace(

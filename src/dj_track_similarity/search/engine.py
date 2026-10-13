@@ -27,6 +27,7 @@ from .arguments import (
 )
 from .vector_index import (
     ExactVectorSearchBackend,
+    ExactVectorQuery,
     VectorIndexUnavailable,
     VectorSearchHit,
 )
@@ -385,11 +386,12 @@ class SimilaritySearch:
             if feedback_track_ids is not None:
                 self.text_feedback_status["reason"] = "insufficient_relevant"
             return []
-        matrix = _PREPARED.prepared(
+        prepared = _PREPARED.prepared(
             rows,
             output,
             self.repository.catalog_uuid,
-        ).matrix
+        )
+        matrix = prepared.matrix
         shifted_positive = _apply_relevance_feedback(
             positive_vectors,
             matrix=matrix,
@@ -411,62 +413,26 @@ class SimilaritySearch:
             negative_vectors=negative_vectors or (),
             negative_weight=negative_weight,
         )
-        active_filters = filters or SearchFilters()
-        candidates: list[
-            tuple[
-                AnalysisTarget,
-                float,
-                float,
-                Mapping[str, float],
-            ]
-        ] = []
-        for raw_index in np.argsort(
-            -contrast_scores,
-            kind="stable",
-        ):
-            index = int(raw_index)
-            target = rows[index].target
-            score = float(contrast_scores[index])
-            if not _passes_score_filter(score, active_filters):
-                continue
-            breakdown = _contrast_score_breakdown(
-                positive_scores,
-                negative_scores,
-                contrast_scores,
-                bounded_weight,
-                index,
-            )
-            candidates.append(
-                (
-                    target,
-                    score,
-                    _ranking_score(
-                        target,
-                        score,
-                        active_filters.noise,
-                    ),
-                    breakdown,
-                )
-            )
-
-        candidates = _apply_epsilon(
-            candidates,
-            epsilon=active_filters.epsilon,
-            score_index=1,
+        ranked = self._rank(
+            prepared,
+            ExactVectorQuery(prepared.targets, contrast_scores),
+            excluded=frozenset(),
+            filters=filters or SearchFilters(),
+            limit=limit,
         )
-        bounded_limit = result_limit(limit)
-        ranked = sorted(
-            candidates,
-            key=lambda item: item[2],
-            reverse=True,
-        )[:bounded_limit]
         return [
             SimilaritySearchResult(
-                target=target,
-                score=score,
-                score_breakdown=breakdown,
+                target=result.target,
+                score=result.score,
+                score_breakdown=_contrast_score_breakdown(
+                    positive_scores,
+                    negative_scores,
+                    contrast_scores,
+                    bounded_weight,
+                    prepared.target_to_index[result.target],
+                ),
             )
-            for target, score, _ranking, breakdown in ranked
+            for result in ranked
         ]
 
     def _load_full_rows(
@@ -532,13 +498,13 @@ class SimilaritySearch:
     def _rank(
         self,
         prepared: _Prepared,
-        query: FloatArray,
+        query: FloatArray | ExactVectorQuery,
         *,
         excluded: frozenset[AnalysisTarget],
         filters: SearchFilters,
         limit: int,
     ) -> list[SimilaritySearchResult]:
-        """Rank the library against *query*, reading only as deep as needed.
+        """Read only as deep into the descending score order as needed.
 
         Asking the backend for k = N built a hit object for all 45,000 tracks
         in order to return fifty of them. How deep the answer actually reaches
@@ -553,18 +519,29 @@ class SimilaritySearch:
         bounded_limit = result_limit(limit)
         total = len(prepared.targets)
         requested = min(total, bounded_limit + len(excluded))
+        check_finite = not isinstance(query, ExactVectorQuery)
+        if isinstance(query, ExactVectorQuery) and not bool(
+            np.all(np.isfinite(query.scores))
+        ):
+            # Contrast previously sorted the full array without rejecting
+            # non-finite arithmetic. Such values cannot use the prefix proof.
+            requested = total
         while True:
-            hits = self.vector_backend.search(
-                prepared.matrix,
-                prepared.targets,
-                query,
-                limit=requested,
-            )
+            if isinstance(query, ExactVectorQuery):
+                hits = query.search(requested)
+            else:
+                hits = self.vector_backend.search(
+                    prepared.matrix,
+                    prepared.targets,
+                    query,
+                    limit=requested,
+                )
             candidates, below_threshold = self._candidates(
                 hits,
                 prepared,
                 excluded=excluded,
                 filters=filters,
+                check_finite=check_finite,
             )
             if requested >= total or _ranking_is_settled(
                 hits,
@@ -598,6 +575,7 @@ class SimilaritySearch:
         *,
         excluded: frozenset[AnalysisTarget],
         filters: SearchFilters,
+        check_finite: bool = True,
     ) -> tuple[list[tuple[AnalysisTarget, float, float]], bool]:
         targets = prepared.targets
         target_to_index = prepared.target_to_index
@@ -612,7 +590,7 @@ class SimilaritySearch:
             if target in excluded:
                 continue
             score = float(hit.score)
-            if not math.isfinite(score):
+            if check_finite and not math.isfinite(score):
                 raise ValueError(
                     "Vector search backend returned a non-finite score"
                 )

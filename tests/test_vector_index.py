@@ -2,12 +2,14 @@ from __future__ import annotations
 
 
 import numpy as np
+import pytest
 
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
 )
 from dj_track_similarity.search.vector_index import (
     ExactVectorSearchBackend,
+    ExactVectorQuery,
 )
 
 
@@ -16,41 +18,52 @@ _CATALOG_UUID = "00000000-0000-4000-8000-000000000001"
 
 
 def test_exact_backend_preserves_stable_input_order_for_ties() -> None:
-    matrix = np.stack(
-        (
-            _small_unit_vector(1.0, 0.0),
-            _small_unit_vector(1.0, 0.0),
-            _small_unit_vector(0.0, 1.0),
-            _small_unit_vector(1.0, 0.0),
-        )
-    )
-    targets = _targets(101, 102, 103, 104)
     query = _small_unit_vector(1.0, 0.0)
-    scores = matrix @ query
-    manual_indices = [
-        int(index)
-        for index in np.argsort(-scores, kind="stable")
-    ]
     backend = ExactVectorSearchBackend()
+    nearby = np.nextafter(np.float32(0.5), np.float32(1.0))
+    for cosines in (
+        [],
+        [1.0],
+        [0.5] * 24,
+        [0.5, -0.5, 1.0, 0.5, 0.0, 0.5, nearby, -1.0] * 3,
+        [0.0, -0.0, -0.5, 0.5, -1.0, 1.0] * 4,
+    ):
+        matrix = np.asarray(
+            [(value, (1.0 - value * value) ** 0.5) for value in cosines],
+            dtype=np.float32,
+        ).reshape(-1, 2)
+        targets = _targets(*range(101, 101 + len(matrix)))
+        scores = matrix @ query
+        prepared = ExactVectorQuery(targets, scores.copy())
+        for limit in (0, 1, 2, 3, len(targets) // 2, len(targets), len(targets) + 3):
+            indices = np.argsort(-scores, kind="stable")[:limit].tolist()
+            expected = [(index, targets[index], float(scores[index])) for index in indices]
+            for hits in (
+                backend.search(matrix, targets, query, limit=limit),
+                prepared.search(limit),
+                prepared.search(limit),
+            ):
+                assert [(hit.index, hit.target, hit.score) for hit in hits] == expected
+        np.testing.assert_array_equal(prepared.scores, scores)
 
-    first_hits = backend.search(
-        matrix,
-        targets,
-        query,
-        limit=len(targets),
-    )
-    second_hits = backend.search(
-        matrix,
-        targets,
-        query,
-        limit=len(targets),
-    )
+    # Empty output still validates matrix and identities, but never the query.
+    matrix = np.asarray([[1.0, 0.0]], dtype=np.float32)
+    assert backend.search(matrix, _targets(101), np.asarray([np.nan]), limit=0) == []
+    with pytest.raises(ValueError, match="targets length mismatch"):
+        backend.search(matrix, (), query, limit=0)
+    with pytest.raises(ValueError, match="unit-normalized matrix"):
+        backend.search(matrix * 2, _targets(101), query, limit=0)
 
-    assert [hit.index for hit in first_hits] == manual_indices
-    assert [hit.index for hit in second_hits] == manual_indices
-    assert [hit.target for hit in first_hits] == [
-        targets[index] for index in manual_indices
-    ]
+    # Contrast scores retain the old full-sort ordering for non-finite values.
+    scores = np.asarray([np.nan, 0.5, np.inf, -np.inf, 0.5, np.nan], dtype=np.float32)
+    targets = _targets(*range(101, 107))
+    prepared = ExactVectorQuery(targets, scores)
+    for limit in (0, 1, 2, len(scores), len(scores) + 1):
+        indices = np.argsort(-scores, kind="stable")[:limit].tolist()
+        hits = prepared.search(limit)
+        assert [hit.index for hit in hits] == indices
+        assert [hit.target for hit in hits] == [targets[index] for index in indices]
+        np.testing.assert_array_equal([hit.score for hit in hits], scores[indices])
 
 
 def _targets(*track_ids: int) -> tuple[AnalysisTarget, ...]:

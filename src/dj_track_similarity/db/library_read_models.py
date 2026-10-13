@@ -387,6 +387,7 @@ def _current_classifier_details(
             cs.score_bucket,
             cs.confidence,
             cs.probabilities_json,
+            cs.feature_spec_id,
             spec.feature_set,
             spec.feature_names_json,
             cs.positive_label,
@@ -421,8 +422,14 @@ def _current_classifier_details(
             params,
         )
     grouped: defaultdict[int, list[ClassifierScoreDetail]] = defaultdict(list)
+    # A feature spec is shared by many tracks in this read snapshot. Validate
+    # it once here; the next call reads and validates its current contents again.
+    feature_specs: dict[int, tuple[str, ...] | None] = {}
     for row in rows:
-        feature_names = _parse_feature_names(row["feature_names_json"])
+        spec_id = int(row["feature_spec_id"])
+        if spec_id not in feature_specs:
+            feature_specs[spec_id] = _parse_feature_names(row["feature_names_json"])
+        feature_names = feature_specs[spec_id]
         if feature_names is None:
             continue
         classifier_key = str(row["classifier_key"])

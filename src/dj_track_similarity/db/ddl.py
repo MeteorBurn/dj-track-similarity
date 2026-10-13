@@ -289,6 +289,103 @@ CREATE TABLE mert_v2_embeddings (
 );
 """
 
+SHEETSAGE2_TABLES = (
+    "sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings",
+)
+
+SHEETSAGE2_FEATURE_COLUMNS = (
+    ("beat_count", "INTEGER"),
+    ("downbeat_count", "INTEGER"),
+    ("bpm_median", "REAL"),
+    ("bpm_min", "REAL"),
+    ("bpm_max", "REAL"),
+    ("bpm_std", "REAL"),
+    ("dominant_meter", "TEXT"),
+    ("meter_change_count", "INTEGER"),
+    ("meter_durations_s", "TEXT"),
+    ("chord_segment_count", "INTEGER"),
+    ("chord_unique_count", "INTEGER"),
+    ("chord_change_count", "INTEGER"),
+    ("chord_change_rate_per_minute", "REAL"),
+    ("dominant_chord", "TEXT"),
+    ("chord_durations_s", "TEXT"),
+    ("dominant_key", "TEXT"),
+    ("key_change_count", "INTEGER"),
+    ("major_fraction", "REAL"),
+    ("minor_fraction", "REAL"),
+    ("key_durations_s", "TEXT"),
+    ("section_count", "INTEGER"),
+    ("section_counts", "TEXT"),
+    ("section_durations_s", "TEXT"),
+    ("intro_end_s", "REAL"),
+    ("outro_start_s", "REAL"),
+    ("first_chorus_start_s", "REAL"),
+    *(
+        (f"melody_{source}_{name}", sql_type)
+        for source in ("all", "vocal", "instrumental")
+        for name, sql_type in (
+            ("event_count", "INTEGER"),
+            ("pitch_min", "REAL"),
+            ("pitch_median", "REAL"),
+            ("pitch_max", "REAL"),
+            ("pitch_range", "REAL"),
+            ("duration_min", "REAL"),
+            ("duration_median", "REAL"),
+            ("duration_mean", "REAL"),
+            ("duration_max", "REAL"),
+            ("duration_std", "REAL"),
+            ("density_per_second", "REAL"),
+            ("coverage_fraction", "REAL"),
+            ("interval_pair_count", "INTEGER"),
+            ("interval_abs_mean", "REAL"),
+            ("interval_histogram", "TEXT"),
+        )
+    ),
+)
+SHEETSAGE2_JSON_FEATURES = frozenset({
+    "meter_durations_s", "chord_durations_s", "key_durations_s",
+    "section_counts", "section_durations_s",
+    *(f"melody_{source}_interval_histogram" for source in ("all", "vocal", "instrumental")),
+})
+
+_DDL_SHEETSAGE2_TIMELINE = """
+CREATE TABLE sheetsage2_timeline (
+    track_id INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid TEXT NOT NULL,
+    timeline_json TEXT NOT NULL CHECK(json_valid(timeline_json) AND json_type(timeline_json) = 'object'),
+    analyzed_at TEXT NOT NULL
+);
+"""
+
+_DDL_SHEETSAGE2_FEATURES = """
+CREATE TABLE sheetsage2_features (
+    track_id INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid TEXT NOT NULL,
+""" + "\n".join(
+    f"    {name} {sql_type}"
+    + (
+        f" NOT NULL CHECK(json_valid({name}) AND json_type({name}) = 'object')"
+        if name in SHEETSAGE2_JSON_FEATURES else ""
+    ) + ","
+    for name, sql_type in SHEETSAGE2_FEATURE_COLUMNS
+) + """
+    analyzed_at TEXT NOT NULL
+);
+"""
+
+_SHEETSAGE2_EMBEDDINGS_TABLE = """
+CREATE TABLE sheetsage2_embeddings (
+    track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+    layer INTEGER NOT NULL CHECK(layer BETWEEN 1 AND 24),
+    track_uuid TEXT NOT NULL,
+    dim INTEGER NOT NULL CHECK(dim = 1024),
+    normalization TEXT NOT NULL CHECK(normalization = 'l2'),
+    embedding_blob BLOB NOT NULL CHECK(length(embedding_blob) = dim * 4),
+    analyzed_at TEXT NOT NULL,
+    PRIMARY KEY(track_id, layer)
+);
+"""
+
 _MUQ_EMBEDDINGS_TABLE = """
 CREATE TABLE muq_embeddings (
     track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
@@ -308,6 +405,7 @@ LAYERED_EMBEDDINGS_DDL = MappingProxyType(
     {
         "maest": _MAEST_EMBEDDINGS_TABLE,
         "mert_v2": _MERT_V2_EMBEDDINGS_TABLE,
+        "sheetsage2": _SHEETSAGE2_EMBEDDINGS_TABLE,
         "muq": _MUQ_EMBEDDINGS_TABLE,
     }
 )
@@ -325,6 +423,10 @@ CREATE INDEX IF NOT EXISTS idx_maest_embeddings_default
 CREATE INDEX IF NOT EXISTS idx_mert_v2_embeddings_default
     ON mert_v2_embeddings(track_id, track_uuid) WHERE layer = 24;
 """,
+        "sheetsage2": """
+CREATE INDEX IF NOT EXISTS idx_sheetsage2_embeddings_default
+    ON sheetsage2_embeddings(track_id, track_uuid, analyzed_at) WHERE layer = 24;
+""",
         "muq": """
 CREATE INDEX IF NOT EXISTS idx_muq_embeddings_default
     ON muq_embeddings(track_id, track_uuid) WHERE layer = 13;
@@ -339,6 +441,10 @@ CREATE INDEX idx_maest_embeddings_track_uuid ON maest_embeddings(track_uuid);
 _DDL_MERT_V2_EMBEDDINGS = _MERT_V2_EMBEDDINGS_TABLE + """
 CREATE INDEX idx_mert_v2_embeddings_track_uuid ON mert_v2_embeddings(track_uuid);
 """ + LAYERED_EMBEDDINGS_DEFAULT_INDEX_DDL["mert_v2"]
+
+_DDL_SHEETSAGE2_EMBEDDINGS = _SHEETSAGE2_EMBEDDINGS_TABLE + """
+CREATE INDEX idx_sheetsage2_embeddings_track_uuid ON sheetsage2_embeddings(track_uuid);
+""" + LAYERED_EMBEDDINGS_DEFAULT_INDEX_DDL["sheetsage2"]
 
 _DDL_MUQ_EMBEDDINGS = _MUQ_EMBEDDINGS_TABLE + """
 CREATE INDEX idx_muq_embeddings_track_uuid ON muq_embeddings(track_uuid);
@@ -481,6 +587,9 @@ _ALL_DDL: list[str] = [
     _DDL_MAEST_GENRES,
     _DDL_MAEST_EMBEDDINGS,
     _DDL_MERT_V2_EMBEDDINGS,
+    _DDL_SHEETSAGE2_TIMELINE,
+    _DDL_SHEETSAGE2_FEATURES,
+    _DDL_SHEETSAGE2_EMBEDDINGS,
     _DDL_MUQ_EMBEDDINGS,
     _DDL_MULAN_EMBEDDINGS,
     _DDL_CLAP_EMBEDDINGS,

@@ -17,6 +17,7 @@ class AnalysisCoverage:
     maest_analysis: bool = False
     maest_embedding: bool = False
     mert_v2: bool = False
+    sheetsage2: bool = False
     muq: bool = False
     mulan: bool = False
     clap: bool = False
@@ -188,6 +189,126 @@ class TrackSummary:
 
 
 @dataclass(frozen=True)
+class SheetSage2Interval:
+    label: str
+    end_s: float
+
+
+@dataclass(frozen=True)
+class SheetSage2Rhythm:
+    eighth_position: int
+    numerator: int | None
+    denominator: int | None
+
+
+@dataclass(frozen=True)
+class SheetSage2Note:
+    start_s: float
+    end_s: float
+    pitch_midi: int
+    source_track: Literal["vocal", "instrumental"]
+
+
+@dataclass(frozen=True)
+class SheetSage2Event:
+    time_s: float
+    rhythm: SheetSage2Rhythm | None
+    chord: SheetSage2Interval | None
+    key: SheetSage2Interval | None
+    structure: SheetSage2Interval | None
+    melody: tuple[SheetSage2Note, ...]
+
+
+@dataclass(frozen=True)
+class SheetSage2Timeline:
+    catalog_uuid: str
+    track_id: int
+    track_uuid: str
+    analyzed_at: str
+    duration_s: float
+    events: tuple[SheetSage2Event, ...]
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SheetSage2Features:
+    """Stored whole-track summaries from one current SheetSage2 analysis."""
+
+    beat_count: int
+    downbeat_count: int
+    bpm_median: float | None
+    bpm_min: float | None
+    bpm_max: float | None
+    bpm_std: float | None
+    dominant_meter: str | None
+    meter_change_count: int
+    meter_durations_s: dict[str, float]
+    chord_segment_count: int
+    chord_unique_count: int
+    chord_change_count: int
+    chord_change_rate_per_minute: float
+    dominant_chord: str | None
+    chord_durations_s: dict[str, float]
+    dominant_key: str | None
+    key_change_count: int
+    major_fraction: float
+    minor_fraction: float
+    key_durations_s: dict[str, float]
+    section_count: int
+    section_counts: dict[str, int]
+    section_durations_s: dict[str, float]
+    intro_end_s: float | None
+    outro_start_s: float | None
+    first_chorus_start_s: float | None
+    melody_all_event_count: int
+    melody_all_pitch_min: float | None
+    melody_all_pitch_median: float | None
+    melody_all_pitch_max: float | None
+    melody_all_pitch_range: float | None
+    melody_all_duration_min: float | None
+    melody_all_duration_median: float | None
+    melody_all_duration_mean: float | None
+    melody_all_duration_max: float | None
+    melody_all_duration_std: float | None
+    melody_all_density_per_second: float
+    melody_all_coverage_fraction: float
+    melody_all_interval_pair_count: int
+    melody_all_interval_abs_mean: float | None
+    melody_all_interval_histogram: dict[str, int]
+    melody_vocal_event_count: int
+    melody_vocal_pitch_min: float | None
+    melody_vocal_pitch_median: float | None
+    melody_vocal_pitch_max: float | None
+    melody_vocal_pitch_range: float | None
+    melody_vocal_duration_min: float | None
+    melody_vocal_duration_median: float | None
+    melody_vocal_duration_mean: float | None
+    melody_vocal_duration_max: float | None
+    melody_vocal_duration_std: float | None
+    melody_vocal_density_per_second: float
+    melody_vocal_coverage_fraction: float
+    melody_vocal_interval_pair_count: int
+    melody_vocal_interval_abs_mean: float | None
+    melody_vocal_interval_histogram: dict[str, int]
+    melody_instrumental_event_count: int
+    melody_instrumental_pitch_min: float | None
+    melody_instrumental_pitch_median: float | None
+    melody_instrumental_pitch_max: float | None
+    melody_instrumental_pitch_range: float | None
+    melody_instrumental_duration_min: float | None
+    melody_instrumental_duration_median: float | None
+    melody_instrumental_duration_mean: float | None
+    melody_instrumental_duration_max: float | None
+    melody_instrumental_duration_std: float | None
+    melody_instrumental_density_per_second: float
+    melody_instrumental_coverage_fraction: float
+    melody_instrumental_interval_pair_count: int
+    melody_instrumental_interval_abs_mean: float | None
+    melody_instrumental_interval_histogram: dict[str, int]
+    analyzed_at: str
+
+
+@dataclass(frozen=True)
 class TrackDetail(TrackSummary):
     file: FileTechnical
     file_tags: FileTags | None
@@ -195,6 +316,7 @@ class TrackDetail(TrackSummary):
     maest: MaestAnalysis | None
     embeddings: tuple[EmbeddingSummary, ...]
     classifier_scores_detail: tuple[ClassifierScoreDetail, ...]
+    sheetsage2_features: SheetSage2Features | None = None
 
 
 @dataclass(frozen=True)
@@ -244,6 +366,7 @@ class LibrarySummary:
     maest_analysis: int
     maest_embedding: int
     mert_v2: int
+    sheetsage2: int
     muq: int
     mulan: int
     clap: int

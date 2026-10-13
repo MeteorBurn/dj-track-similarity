@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Iterable
 
 from ..timestamps import utc_timestamp
+from .ddl import SHEETSAGE2_TABLES
 
 
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
@@ -48,11 +49,9 @@ def validate_library_schema(
     expected_catalog_uuid: str | None = None,
     database_path: str = "<connected library database>",
 ) -> str:
-    """Validate only the library identity needed to bind the open database.
+    """Bind the catalog and refuse an obsolete SheetSage2 storage layout.
 
-    The application intentionally does not maintain an allow-list of tables,
-    columns, indexes, or triggers.  New database capabilities may add schema
-    without making existing libraries fail this open-time check.
+    This check never creates missing tables or changes the schema version.
     """
 
     try:
@@ -70,6 +69,19 @@ def validate_library_schema(
         raise RuntimeError("library.catalog_uuid must be non-empty")
     if expected_catalog_uuid is not None and catalog_uuid != expected_catalog_uuid:
         raise RuntimeError("Library database belongs to another library catalog")
+    present = {
+        str(row[0]) for row in connection.execute(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN (?, ?, ?)",
+            SHEETSAGE2_TABLES,
+        )
+    }
+    missing = tuple(table for table in SHEETSAGE2_TABLES if table not in present)
+    if missing:
+        raise RuntimeError(
+            "This library database is missing SheetSage2 tables: "
+            + ", ".join(missing)
+            + "; use a new database or an explicitly requested one-time migration"
+        )
     return catalog_uuid
 
 

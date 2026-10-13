@@ -36,6 +36,7 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
         "sonara": frozenset({"core", "embedding", "fingerprint", "timeline"}),
         "maest": frozenset({"analysis", "embedding"}),
         "mert_v2": frozenset({"embedding"}),
+        "sheetsage2": frozenset({"timeline", "features", "embedding"}),
         "muq": frozenset({"embedding"}),
         "mulan": frozenset({"embedding"}),
         "clap": frozenset({"embedding"}),
@@ -44,6 +45,7 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
 
 MAEST_MODEL_NAME = "discogs-maest-30s-pw-129e-519l"
 MERT_V2_MODEL_NAME = "m-a-p/MERT-v2-FullSong"
+SHEETSAGE2_MODEL_NAME = "m-a-p/SheetSage2"
 MUQ_MODEL_NAME = "OpenMuQ/MuQ-large-msd-iter"
 MULAN_MODEL_NAME = "OpenMuQ/MuQ-MuLan-large"
 MULAN_TEXT_MODEL_NAME = "xlm-roberta-base"
@@ -52,6 +54,7 @@ CLAP_TEXT_MODEL_NAME = "roberta-base"
 
 MAEST_MODEL_VERSION = "v0.0.0-beta"
 MERT_V2_MODEL_REVISION = "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42"
+SHEETSAGE2_MODEL_REVISION = "b83c3d79a6d98bcffaf8f9ed112c90aa887887bc"
 MUQ_MODEL_REVISION = "0562a57814f6f8bbd9fdea0a25921a2fce1a841a"
 MULAN_MODEL_REVISION = "57b8af8e903a6fa28b6ba1d7a1578b4d68fcc918"
 MULAN_TEXT_MODEL_REVISION = "e73636d4f797dec63c3081bb6ed5c7b0bb3f2089"
@@ -63,6 +66,9 @@ MAEST_CHECKPOINT_ID = (
 )
 MERT_V2_CHECKPOINT_ID = (
     "sha256:e6dd2ab187d6dd62b6521cd7d8f932e237acf0c5757745a7232082e28391350d"
+)
+SHEETSAGE2_CHECKPOINT_ID = (
+    "sha256:b235f68091a5f5b644000f2b5acb57d1e70432aca2b34ab1b9cf27236e1f4274"
 )
 MUQ_CHECKPOINT_ID = (
     "sha256:273febab2be02872c37d2c37e48a9d6c52c1c9392f3eeeabd498efa281ccb7a6"
@@ -92,6 +98,22 @@ MERT_V2_SNAPSHOT_SHA256 = (
         "fc7337f113b71062b8efd03f8a43a07aa769ce85c6a53fdc0b3bb90c299fe63f",
     ),
     ("model.safetensors", MERT_V2_CHECKPOINT_ID.removeprefix("sha256:")),
+)
+SHEETSAGE2_SNAPSHOT_SHA256 = (
+    ("config.json", "a986e63f5d831ecb823c11d19cfb371d763f25ae2e614ec9acd714c0b8bb87fd"),
+    ("generation_sheetsage2.py", "b58dbbfaebfba2a441a79b8c36183f0e4956acdd3aaf7c655c559933b4c20afd"),
+    ("tokenization_sheetsage2.py", "2ad9f7734e3d9f750fe575f22fd9ec03a9a4ab52497a6314e76f53ed9024fa75"),
+    ("chord_spelling_sheetsage2.py", "5a673e3c8caa6d0a4cda19227ce5587c611a2bf85343f6bc623e3d66d99ed8b1"),
+    ("durations_sheetsage2.py", "abbc297b70b63a86f8509b1db74d0e85d7b46dcb83867cf33741c43f9d49db83"),
+    ("labels_sheetsage2.py", "4a80870695dd91da6070e7d8d0ce6b50f3bf71c3f629417a86cf12f4ef4f97e0"),
+    ("schema_sheetsage2.py", "3ee069f0d4dcfb8080f730c43676318d471ab6b3cfef86c6c225aa63a9db182f"),
+    ("exports_sheetsage2.py", "11782cff50f96dac1bf1eedefed86b3cd60222e31b8456bee366eeb373b6a7e5"),
+    ("midi_sheetsage2.py", "32f80d13592c669e56683ebb4c415f13bf8278c8ad1fe43afa500347bed35099"),
+    ("notation_sheetsage2.py", "f75f0e8b268cd9e9c622d791d3fd77d2e68ad355a4e67018c7e15aeb2bc05af7"),
+    ("io_sheetsage2.py", "afb5b4d4a52b513b11cfdad40e7b9d2286dd4ff6585b89688dbb31b3d5376da6"),
+    ("model.safetensors", SHEETSAGE2_CHECKPOINT_ID.removeprefix("sha256:")),
+    ("LICENSE", "73593d6cad4ca80f3ab1448a4908f92ab802dfffe029561e3b12fa7d07c8b87c"),
+    ("THIRD_PARTY_NOTICES.md", "ab8b195c2c1475f254a04181a9841db2f2581c579b95858c78ee0040eb495a29"),
 )
 MUQ_SNAPSHOT_SHA256 = (
     (
@@ -158,12 +180,14 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
 
 MAEST_PREPROCESSING = "shared-mono/maest-16khz-native-full-track"
 MERT_V2_PREPROCESSING = "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted"
+SHEETSAGE2_PREPROCESSING = "shared-mono/sheetsage2-24khz-native-300s-accepted-time-layer-pooling"
 MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-consecutive-windows"
 MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track"
 CLAP_PREPROCESSING = "shared-mono/clap-48khz-native-full-signal"
 
 MAEST_EMBEDDING_DIM = 768
 MERT_V2_EMBEDDING_DIM = 1024
+SHEETSAGE2_EMBEDDING_DIM = 1024
 MUQ_EMBEDDING_DIM = 1024
 MULAN_EMBEDDING_DIM = 512
 CLAP_EMBEDDING_DIM = 512
@@ -183,6 +207,7 @@ CURRENT_EMBEDDING_SPECS: Mapping[str, EmbeddingFamilySpec] = MappingProxyType(
     {
         "maest": EmbeddingFamilySpec(MAEST_EMBEDDING_DIM, "l2"),
         "mert_v2": EmbeddingFamilySpec(MERT_V2_EMBEDDING_DIM, "l2"),
+        "sheetsage2": EmbeddingFamilySpec(SHEETSAGE2_EMBEDDING_DIM, "l2"),
         "muq": EmbeddingFamilySpec(MUQ_EMBEDDING_DIM, "l2"),
         "mulan": EmbeddingFamilySpec(MULAN_EMBEDDING_DIM, "l2"),
         "clap": EmbeddingFamilySpec(CLAP_EMBEDDING_DIM, "l2"),
@@ -214,6 +239,7 @@ EMBEDDING_LAYERS: Mapping[str, EmbeddingLayers] = MappingProxyType(
     {
         "maest": EmbeddingLayers(count=13, default=13),
         "mert_v2": EmbeddingLayers(count=24, default=24),
+        "sheetsage2": EmbeddingLayers(count=24, default=24),
         "muq": EmbeddingLayers(count=13, default=13),
     }
 )
@@ -781,6 +807,55 @@ class MaestWrite:
             separators=(",", ":"),
             ensure_ascii=False,
             allow_nan=False,
+        )
+
+
+@dataclass(frozen=True)
+class SheetSage2Write:
+    """A complete musical analysis and layer set for one unchanged track."""
+
+    target: AnalysisTarget
+    file_path: str
+    file_size_bytes: int
+    file_modified_ns: int
+    timeline: Mapping[str, object]
+    features: Mapping[str, object]
+    embedding: EmbeddingOutput
+
+    def __post_init__(self) -> None:
+        from .analysis.sheetsage2_features import (
+            derive_sheetsage2_features,
+            validate_sheetsage2_timeline,
+        )
+
+        if not isinstance(self.target, AnalysisTarget):
+            raise TypeError("SheetSage2 target must be an AnalysisTarget")
+        object.__setattr__(self, "file_path", _required_text(self.file_path, "file_path"))
+        for field_name in ("file_size_bytes", "file_modified_ns"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{field_name} must be a non-negative integer")
+        if not isinstance(self.embedding, EmbeddingOutput):
+            raise TypeError("SheetSage2 embedding must be an EmbeddingOutput")
+        if self.embedding.family != "sheetsage2":
+            raise ValueError("SheetSage2 embedding must use family='sheetsage2'")
+        timeline = validate_sheetsage2_timeline(self.timeline)
+        features = derive_sheetsage2_features(timeline)
+        if not isinstance(self.features, Mapping) or dict(self.features) != features:
+            raise ValueError("SheetSage2 features must be derived from the same timeline")
+        object.__setattr__(self, "timeline", MappingProxyType(timeline))
+        object.__setattr__(self, "features", MappingProxyType(features))
+
+    @property
+    def analyzed_at(self) -> str:
+        return self.embedding.analyzed_at
+
+    @property
+    def outputs(self) -> tuple[AnalysisOutput, ...]:
+        return (
+            AnalysisOutput("sheetsage2", "timeline"),
+            AnalysisOutput("sheetsage2", "features"),
+            AnalysisOutput("sheetsage2", "embedding"),
         )
 
 

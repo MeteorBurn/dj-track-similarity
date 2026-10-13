@@ -13,6 +13,7 @@ from ..analysis_models import (
 )
 from .embeddings import EmbeddingTrackIdentity
 from .embedding_layers import require_embedding_layers
+from .sheetsage2 import ready_sheetsage2_target_keys
 
 
 _TABLE_BY_OUTPUT = {
@@ -20,6 +21,9 @@ _TABLE_BY_OUTPUT = {
     ("maest", "analysis"): "maest_genres",
     ("maest", "embedding"): "maest_embeddings",
     ("mert_v2", "embedding"): "mert_v2_embeddings",
+    ("sheetsage2", "timeline"): "sheetsage2_timeline",
+    ("sheetsage2", "features"): "sheetsage2_features",
+    ("sheetsage2", "embedding"): "sheetsage2_embeddings",
     ("muq", "embedding"): "muq_embeddings",
     ("mulan", "embedding"): "mulan_embeddings",
     ("clap", "embedding"): "clap_embeddings",
@@ -142,11 +146,17 @@ def ready_target_keys_by_output(
     normalized = normalize_analysis_outputs(outputs)
     current_tracks = _current_tracks(connection, catalog_uuid=catalog_uuid)
     ready: dict[tuple[str, str], set[tuple[int, str]]] = {}
+    sheetsage2_ready = None
     for output in normalized:
         # Like embeddings, SONARA and MAEST readiness is the stored row of the
         # current track: the writer validated the payload, and checking every
         # stored row per status request or job start would dominate large libraries.
-        if output.key in {("sonara", "core"), ("maest", "analysis")}:
+        if output.analysis_family == "sheetsage2":
+            if sheetsage2_ready is None:
+                require_embedding_layers(connection, "sheetsage2")
+                sheetsage2_ready = ready_sheetsage2_target_keys(connection)
+            rows = sheetsage2_ready
+        elif output.key in {("sonara", "core"), ("maest", "analysis")}:
             rows = _current_track_rows(
                 connection,
                 table=_TABLE_BY_OUTPUT[output.key],

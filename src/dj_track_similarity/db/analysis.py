@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 from collections.abc import Mapping, Sequence
 from contextlib import closing
+from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,7 @@ from ..analysis_models import (
     EmbeddingOutput,
     EmbeddingWrite,
     MaestWrite,
+    SheetSage2Write,
     OUTPUT_KINDS_BY_FAMILY,
     SonaraFeatureRow,
     SonaraWrite,
@@ -67,7 +69,8 @@ from .classifier_storage import (
 )
 from .library_queries import _stored_sonara_range
 from .search_fts import upsert_track_search_fts
-from .tracks import utc_now_text
+from .tracks import TrackRepository, utc_now_text
+from .sheetsage2 import upsert_sheetsage2_analysis
 from ..maest_analysis_validation import validate_maest_analysis_row
 from .ddl import FLOAT32_LE
 from .sonara_core_validation import (
@@ -761,6 +764,67 @@ class AnalysisRepository:
                     raise
         return tuple(results)
 
+    def save_sheetsage2_results(
+        self,
+        writes: Sequence[SheetSage2Write],
+    ) -> tuple[AnalysisWriteResult, ...]:
+        """Replace one track's timeline, summaries and all layers atomically."""
+        from ..track_models import TrackFileState
+
+        selected = tuple(writes)
+        if any(not isinstance(write, SheetSage2Write) for write in selected):
+            raise TypeError("writes must contain only SheetSage2Write values")
+        if not selected:
+            return ()
+        results: list[AnalysisWriteResult] = []
+        self._discard_library_vectors()
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    catalog_uuid = _catalog_uuid(connection)
+                    for index, write in enumerate(selected):
+                        name = _savepoint(connection, index)
+                        try:
+                            _require_current_target(connection, write.target, catalog_uuid=catalog_uuid)
+                            TrackRepository._require_expected_file_state(
+                                self,
+                                connection,
+                                TrackFileState(
+                                    catalog_uuid=write.target.catalog_uuid,
+                                    track_id=write.target.track_id,
+                                    track_uuid=write.target.track_uuid,
+                                    file_path=write.file_path,
+                                    file_size_bytes=write.file_size_bytes,
+                                    file_modified_ns=write.file_modified_ns,
+                                    missing_since=None,
+                                ),
+                            )
+                            try:
+                                file_stat = Path(write.file_path).stat()
+                            except OSError as error:
+                                raise StaleAnalysisTargetError("SheetSage2 source file is unavailable") from error
+                            if (
+                                file_stat.st_size != write.file_size_bytes
+                                or file_stat.st_mtime_ns != write.file_modified_ns
+                            ):
+                                raise StaleAnalysisTargetError("SheetSage2 source file changed after candidate selection")
+                            upsert_sheetsage2_analysis(connection, write)
+                            _write_embedding_output(connection, target=write.target, output=write.embedding)
+                        except Exception as error:
+                            _rollback_savepoint(connection, name)
+                            results.append(_error_result(write.target, error))
+                        else:
+                            _release_savepoint(connection, name)
+                            results.append(AnalysisWriteResult(target=write.target, written_outputs=write.outputs))
+                    _bump_write_generation(connection)
+                    connection.commit()
+                except BaseException:
+                    if connection.in_transaction:
+                        connection.rollback()
+                    raise
+        return tuple(results)
+
     def save_embedding_results(
         self,
         writes: Sequence[EmbeddingWrite],
@@ -1326,6 +1390,15 @@ class AnalysisRepository:
         outputs: Sequence[AnalysisOutput],
     ) -> AnalysisResetResult:
         normalized = normalize_analysis_outputs(outputs)
+        if any(output.analysis_family == "sheetsage2" for output in normalized):
+            normalized = tuple(dict.fromkeys(
+                child
+                for output in normalized
+                for child in (
+                    tuple(AnalysisOutput("sheetsage2", kind) for kind in ("timeline", "features", "embedding"))
+                    if output.analysis_family == "sheetsage2" else (output,)
+                )
+            ))
         self._discard_library_vectors()
         with self._write_lock:
             with closing(self.connect()) as connection:

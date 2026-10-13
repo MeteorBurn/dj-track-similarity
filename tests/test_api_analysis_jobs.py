@@ -7,10 +7,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api_test_support import create_api_client
+from sheetsage2_test_support import complete_sheetsage2_write
 import dj_track_similarity.api.application as api
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
-from dj_track_similarity.analysis_models import EMBEDDING_LAYERS
+from dj_track_similarity.analysis_models import AnalysisTarget, EMBEDDING_LAYERS
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -67,7 +68,7 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
         json={
-            "models": ["maest", "muq", "mert_v2"],
+            "models": ["maest", "muq", "sheetsage2", "mert_v2"],
             "limit": 0,
             "device": "cpu",
             "top_k": 4,
@@ -77,11 +78,11 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
     )
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["maest", "mert_v2", "muq"]
+    assert set(response.json()["models"]) == {"maest", "mert_v2", "sheetsage2", "muq"}
     assert "classifier_keys" not in response.json()
     assert calls == [
         {
-            "models": ["maest", "mert_v2", "muq"],
+            "models": response.json()["models"],
             "limit": 0,
             "track_batch_size": 5,
             "inference_batch_size": 18,
@@ -201,7 +202,7 @@ def test_api_pipeline_builds_staged_ml_settings(
         json={
             "stage": "ml",
             "ml": {
-                "models": ["muq"],
+                "models": ["sheetsage2"],
                 "device": "cpu",
                 "top_k": 3,
                 "track_batch_size": 2,
@@ -221,6 +222,7 @@ def test_api_pipeline_builds_staged_ml_settings(
     assert response.status_code == 200
     settings = captured[0]["ml"]
     assert isinstance(settings, dict)
+    assert settings["models"] == ["sheetsage2"]
     assert settings["mode"] == "staged"
     staging = settings["ml_staging_config"]
     assert staging.root == staging_root
@@ -446,11 +448,14 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
     sonara_tables = ("sonara_features", "sonara_timeline", "sonara_embeddings", "sonara_fingerprints")
     track_uuid = "00000000-0000-0000-0000-000000000009"
     stamp = "2026-09-15T00:00:00Z"
+    path = tmp_path / "track.wav"
+    path.write_bytes(b"x")
+    stat = path.stat()
     with closing(database.connect()) as connection, connection:
         track_id = connection.execute(
             "INSERT INTO tracks(track_uuid, file_path, file_size_bytes, file_modified_ns, "
-            "last_scanned_at, created_at, updated_at) VALUES (?, ?, 1, 1, ?, ?, ?)",
-            (track_uuid, (tmp_path / "track.wav").as_posix(), stamp, stamp, stamp),
+            "last_scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (track_uuid, path.as_posix(), stat.st_size, stat.st_mtime_ns, stamp, stamp, stamp),
         ).lastrowid
         connection.execute(
             "INSERT INTO sonara_features(track_id, mfcc_mean_blob, chroma_mean_blob, "
@@ -503,3 +508,24 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
         "embedding_rows_deleted": 1,
         "classifier_rows_deleted": 0,
     }
+
+    write = complete_sheetsage2_write(
+        database, AnalysisTarget(database.catalog_uuid, track_id, track_uuid),
+    )
+    assert database.save_sheetsage2_results((write,))[0].error is None
+    assert client.get("/api/library/summary").json()["sheetsage2"] == 1
+    detail = client.get(f"/api/tracks/{track_id}").json()
+    assert detail["analysis_coverage"]["sheetsage2"] is True
+
+    sheetsage = client.post("/api/analysis/reset", json={"analysis_family": "sheetsage2"})
+    assert sheetsage.status_code == 200
+    assert sheetsage.json() == {
+        "feature_rows_deleted": 2, "embedding_rows_deleted": 1, "classifier_rows_deleted": 0,
+    }
+    assert client.get("/api/library/summary").json()["sheetsage2"] == 0
+    assert client.get(f"/api/tracks/{track_id}").json()["analysis_coverage"]["sheetsage2"] is False
+    with closing(database.connect()) as connection:
+        assert [
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings")
+        ] == [0, 0, 0]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
@@ -12,7 +13,9 @@ from types import MappingProxyType
 
 from ..analysis.config import normalize_sonara_bpm_range
 from ..analysis_models import CURRENT_EMBEDDING_SPECS, EMBEDDING_LAYERS, FingerprintOutput
+from ..analysis.sheetsage2_features import derive_sheetsage2_features, validate_sheetsage2_timeline
 from .connection import connect_database_read_only
+from .ddl import SHEETSAGE2_FEATURE_COLUMNS, SHEETSAGE2_JSON_FEATURES
 from .embeddings import EmbeddingTrackIdentity, validate_embedding_row_payload
 from .schema import validate_library_schema
 from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_row
@@ -170,7 +173,7 @@ class DatabaseValidator:
                 count(finding)
                 # Every stored row produced exactly one finding naming its
                 # table, so coverage falls out of the pass already made.
-                if finding.table is not None and finding.table != "tracks":
+                if finding.table is not None and finding.table != "tracks" and finding.code != "sheetsage2_missing":
                     coverage[finding.table] += 1
             tracks_checked += 1
             if on_track is not None:
@@ -216,7 +219,7 @@ class DatabaseValidator:
                 if cancelled is not None and cancelled():
                     is_cancelled = True
                     break
-                deliver(self._validate_track(row, catalog_uuid))
+                deliver(self._validate_track(row, catalog_uuid, connection))
             if not is_cancelled and tracks_checked:
                 record(_coverage_finding(coverage, tracks_checked))
 
@@ -230,6 +233,7 @@ class DatabaseValidator:
         cls,
         row: sqlite3.Row,
         catalog_uuid: str,
+        connection: sqlite3.Connection,
     ) -> TrackValidation:
         """Check one track and every row the rest of the library stores for it.
 
@@ -240,6 +244,7 @@ class DatabaseValidator:
         identity_finding, identity = cls._track_finding(row[0:3], catalog_uuid)
         findings = [identity_finding]
         if identity is not None:
+            findings.extend(cls._sheetsage2_findings(connection, identity))
             for family, base in _TRACK_QUERY.embedding_bases.items():
                 track_uuid, dim, normalization, blob = row[base : base + 4]
                 if track_uuid is None:
@@ -286,6 +291,75 @@ class DatabaseValidator:
             path=identity_finding.path,
             findings=tuple(findings),
         )
+
+    @staticmethod
+    def _sheetsage2_findings(
+        connection: sqlite3.Connection,
+        track: EmbeddingTrackIdentity,
+    ) -> tuple[ValidationFinding, ...]:
+        timeline = connection.execute(
+            "SELECT * FROM sheetsage2_timeline WHERE track_id = ?", (track.track_id,),
+        ).fetchone()
+        features = connection.execute(
+            "SELECT * FROM sheetsage2_features WHERE track_id = ?", (track.track_id,),
+        ).fetchone()
+        embeddings = connection.execute(
+            "SELECT * FROM sheetsage2_embeddings WHERE track_id = ? ORDER BY layer", (track.track_id,),
+        ).fetchall()
+        if timeline is None and features is None and not embeddings:
+            return ()
+        stamp = None if timeline is None else timeline["analyzed_at"]
+        findings = []
+        expected_features = None
+        for table, row in (("sheetsage2_timeline", timeline), ("sheetsage2_features", features)):
+            if row is None:
+                findings.append(ValidationFinding(
+                    "error", "sheetsage2_missing", "sheetsage2", "incomplete SheetSage2 analysis: missing " + table,
+                    table=table, track_id=track.track_id,
+                ))
+                continue
+            try:
+                if row["track_uuid"] != track.track_uuid:
+                    raise ValueError("track_uuid mismatch")
+                if not isinstance(stamp, str) or not stamp.strip() or row["analyzed_at"] != stamp:
+                    raise ValueError("SheetSage2 analyzed_at mismatch")
+                if table == "sheetsage2_timeline":
+                    payload = validate_sheetsage2_timeline(json.loads(row["timeline_json"]))
+                    expected_features = derive_sheetsage2_features(payload)
+                else:
+                    stored = {
+                        name: json.loads(row[name]) if name in SHEETSAGE2_JSON_FEATURES else row[name]
+                        for name, _kind in SHEETSAGE2_FEATURE_COLUMNS
+                    }
+                    if expected_features is None or stored != expected_features:
+                        raise ValueError("SheetSage2 features do not match the timeline")
+            except (TypeError, ValueError, KeyError) as error:
+                findings.append(ValidationFinding(
+                    "error", "sheetsage2_invalid", "sheetsage2", str(error), table=table, track_id=track.track_id,
+                ))
+            else:
+                findings.append(ValidationFinding(
+                    "ok", "sheetsage2_valid", "sheetsage2", "SheetSage2 row matches its timeline",
+                    table=table, track_id=track.track_id,
+                ))
+        reason = None
+        if [row["layer"] for row in embeddings] != list(range(1, EMBEDDING_LAYERS["sheetsage2"].count + 1)):
+            reason = "SheetSage2 requires all 24 embedding layers"
+        else:
+            for row in embeddings:
+                valid, detail = validate_embedding_row_payload(family="sheetsage2", row=row, expected_track=track)
+                if not valid:
+                    reason = f"SheetSage2 layer {row['layer']}: {detail}"
+                    break
+                if stamp is None or row["analyzed_at"] != stamp:
+                    reason = f"SheetSage2 layer {row['layer']}: analyzed_at mismatch"
+                    break
+        findings.append(ValidationFinding(
+            "error" if reason else "ok", "sheetsage2_invalid" if reason else "sheetsage2_valid",
+            "sheetsage2", reason or "SheetSage2 layer set is complete and valid",
+            table="sheetsage2_embeddings", track_id=track.track_id,
+        ))
+        return tuple(findings)
 
     @staticmethod
     def _library_range_finding(connection: sqlite3.Connection) -> ValidationFinding:
@@ -414,6 +488,10 @@ def _build_track_query() -> _TrackQuery:
     joins: list[str] = []
     embedding_bases: dict[str, int] = {}
     for family in CURRENT_EMBEDDING_SPECS:
+        if family == "sheetsage2":
+            # This family is checked as one complete three-output analysis,
+            # including every layer rather than only its default vector.
+            continue
         embedding_bases[family] = len(selects)
         selects += [
             f"{family}.track_uuid",

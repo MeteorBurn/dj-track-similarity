@@ -26,6 +26,7 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write, save_sonara_writes
+from sheetsage2_test_support import complete_sheetsage2_write
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
     ClassifierScoreDetail,
@@ -132,6 +133,12 @@ def test_embedding_layers_returns_current_stored_row_counts(monkeypatch, tmp_pat
         ]
         assert all(set(row) == {"layer", "track_count", "label", "source"} for row in payload["layers"])
         assert client.get("/api/library/embedding-layers/clap").status_code == 404
+        # A layered family without published layer hints answers with null hints.
+        sheetsage2 = client.get("/api/library/embedding-layers/sheetsage2").json()
+        assert (sheetsage2["family"], sheetsage2["default_layer"], sheetsage2["note"]) == ("sheetsage2", 24, None)
+        assert sheetsage2["layers"] == [
+            {"layer": layer, "track_count": 0, "label": None, "source": None} for layer in range(1, 25)
+        ]
 
 
 def test_tracks_endpoint_returns_paginated_typed_current_summaries(
@@ -553,6 +560,84 @@ def test_track_detail_endpoint_returns_full_typed_tags(
     assert payload["file"]["file_size_bytes"] == 5
     for field in ("file_size_bytes", "audio_format", "sample_rate_hz", "bit_rate_bps", "bit_depth"):
         assert payload[field] == payload["file"][field]
+    assert payload["sheetsage2_features"] is None
+
+    database = LibraryDatabase(db_path)
+    client = _client(monkeypatch, db_path)
+    timeline_url = f"/api/tracks/{identity.track_id}/sheetsage2-timeline"
+    timeline_params = {"catalog_uuid": identity.catalog_uuid, "track_uuid": identity.track_uuid}
+    assert client.get(timeline_url, params=timeline_params).status_code == 404
+    write = complete_sheetsage2_write(
+        database,
+        AnalysisTarget(identity.catalog_uuid, identity.track_id, identity.track_uuid),
+    )
+    assert database.save_sheetsage2_results((write,))[0].ok
+    response = client.get(f"/api/tracks/{identity.track_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["analysis_coverage"]["sheetsage2"] is True
+    assert payload["sheetsage2_features"] == {
+        **write.features,
+        "analyzed_at": write.analyzed_at,
+    }
+    assert payload["sheetsage2_features"]["melody_vocal_pitch_min"] is None
+    assert payload["sheetsage2_features"]["melody_vocal_event_count"] == 0
+    assert "sheetsage2_timeline" not in payload
+    response = client.get(timeline_url, params=timeline_params)
+    assert response.status_code == 200
+    assert response.json() == {
+        **timeline_params,
+        "track_id": identity.track_id,
+        "analyzed_at": write.analyzed_at,
+        "duration_s": 2.0,
+        "warnings": [],
+        "events": [
+            {
+                "time_s": 0.0,
+                "rhythm": {"eighth_position": 0, "numerator": 4, "denominator": 4},
+                "chord": {"label": "C:maj", "end_s": 2.0},
+                "key": {"label": "C:major", "end_s": 2.0},
+                "structure": {"label": "intro", "end_s": 2.0},
+                "melody": [{"start_s": 0.0, "end_s": 0.5, "pitch_midi": 60,
+                            "source_track": "instrumental"}],
+            },
+            {
+                "time_s": 0.5,
+                "rhythm": {"eighth_position": 2, "numerator": 4, "denominator": 4},
+                "chord": None, "key": None, "structure": None, "melody": [],
+            },
+        ],
+    }
+    for identity_field in ("catalog_uuid", "track_uuid"):
+        assert client.get(
+            timeline_url, params={**timeline_params, identity_field: "stale"},
+        ).status_code == 409
+    assert client.get(timeline_url).status_code == 422
+    with closing(database.connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "UPDATE sheetsage2_timeline SET timeline_json = '{}' WHERE track_id = ?",
+            (identity.track_id,),
+        )
+    response = client.get(timeline_url, params=timeline_params)
+    assert response.status_code == 422
+    assert "Stored SheetSage2 timeline is invalid" in response.json()["detail"]
+
+    # A retained feature row cannot outlive its current, complete analysis.
+    for invalidation in (
+        "UPDATE sheetsage2_features SET track_uuid = 'stale' WHERE track_id = ?",
+        "UPDATE sheetsage2_timeline SET analyzed_at = 'different-run' WHERE track_id = ?",
+        "DELETE FROM sheetsage2_embeddings WHERE track_id = ? AND layer = 24",
+    ):
+        assert database.save_sheetsage2_results((write,))[0].ok
+        with closing(database.connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(invalidation, (identity.track_id,))
+        response = client.get(f"/api/tracks/{identity.track_id}")
+        assert response.status_code == 200
+        assert response.json()["analysis_coverage"]["sheetsage2"] is False
+        assert response.json()["sheetsage2_features"] is None
+        assert client.get(timeline_url, params=timeline_params).status_code == 404
 
 
 def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(

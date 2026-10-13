@@ -50,6 +50,7 @@ from .model_runners import (
     AnalysisWriteRepository,
     EmbeddingModelRunner,
     MaestModelRunner,
+    SheetSage2ModelRunner,
     RunnerFactory,
     SonaraModelRunner,
 )
@@ -88,6 +89,7 @@ class _AnalysisPayload:
     candidates: list[AnalysisCandidate] = field(default_factory=list)
     targets_by_track: dict[int, tuple[str, ...]] = field(default_factory=dict)
     track_outcomes: dict[int, AnalysisTrackOutcome] = field(default_factory=dict)
+    processed_track_ids: set[int] = field(default_factory=set)
 
 
 @dataclass
@@ -465,10 +467,12 @@ class AnalysisJobManager:
                     if payload is not None:
                         working_data = (
                             payload.candidates, payload.targets_by_track, payload.track_outcomes,
+                            payload.processed_track_ids,
                         )
                         payload.candidates = []
                         payload.targets_by_track = {}
                         payload.track_outcomes = {}
+                        payload.processed_track_ids = set()
             try:
                 # Keep configuration for run_job replay; release library-sized
                 # data only after the final consumer exits, outside owner locks.
@@ -823,7 +827,9 @@ class AnalysisJobManager:
                         continue
                     runner_locks.enter_context(handle.lock)
                     runner = handle.runner
-                    if isinstance(runner, EmbeddingModelRunner) and runner.cancellable:
+                    if isinstance(runner, SheetSage2ModelRunner) or (
+                        isinstance(runner, EmbeddingModelRunner) and runner.cancellable
+                    ):
                         runner.cancelled = lambda: self.get(job_id).cancel_requested
                 results = analyze_and_store_staged_ml(
                     repository=self.db,
@@ -837,7 +843,7 @@ class AnalysisJobManager:
                         job_id, result
                     ),
                     progress_callback=lambda phase, done, total: self._ml_staged_progress(
-                        job_id, phase, done, total
+                        job_id, phase, done, total, lifecycle.runners,
                     ),
                     set_current_path=lambda path: self._update(
                         job_id, current_path=path
@@ -889,8 +895,17 @@ class AnalysisJobManager:
             for items in decoded_batches:
                 if self.get(job_id).cancel_requested:
                     return True
-                if not self._run_batch_models(job_id, lifecycle, items):
-                    return False
+                try:
+                    if not self._run_batch_models(job_id, lifecycle, items):
+                        return False
+                except EmbeddingCancelledError:
+                    for item in items:
+                        outcome = self._track_outcome(job_id, item.candidate.target.track_id)
+                        if outcome is not None and (
+                            outcome.successes + outcome.failures >= outcome.target_count > 0
+                        ):
+                            self._mark_track_processed(job_id, item.candidate)
+                    raise
                 if self.get(job_id).cancel_requested:
                     return True
                 # Drop this batch before the next is collected, so decoded audio
@@ -912,7 +927,7 @@ class AnalysisJobManager:
             if not model_items:
                 continue
             if self.get(job_id).cancel_requested:
-                return True
+                break
             runner = lifecycle.runners[model]
             self._update(
                 job_id,
@@ -921,7 +936,9 @@ class AnalysisJobManager:
                 device=runner.device,
             )
             with lifecycle.handles[model].lock:
-                if isinstance(runner, EmbeddingModelRunner) and runner.cancellable:
+                if isinstance(runner, SheetSage2ModelRunner) or (
+                    isinstance(runner, EmbeddingModelRunner) and runner.cancellable
+                ):
                     runner.cancelled = lambda: self.get(job_id).cancel_requested
                 if not self._run_model_batch(
                     job_id,
@@ -931,7 +948,7 @@ class AnalysisJobManager:
                 ):
                     return False
             if self.get(job_id).cancel_requested:
-                return True
+                break
 
         sonara_runner = lifecycle.runners.get("sonara")
         if (
@@ -941,7 +958,14 @@ class AnalysisJobManager:
         ):
             return True
 
+        cancelled = self.get(job_id).cancel_requested
         for item in items:
+            if cancelled:
+                outcome = self._track_outcome(job_id, item.candidate.target.track_id)
+                if outcome is None or not (
+                    outcome.successes + outcome.failures >= outcome.target_count > 0
+                ):
+                    continue
             self._mark_track_processed(job_id, item.candidate)
         return True
 
@@ -1033,6 +1057,35 @@ class AnalysisJobManager:
         runner: AnalysisModelRunner,
         items: list[AnalysisBatchItem],
     ) -> bool:
+        if isinstance(runner, SheetSage2ModelRunner):
+            self._update(
+                job_id,
+                current_path=items[0].candidate.file_path if len(items) == 1 else None,
+            )
+
+            def track_result(candidate: AnalysisCandidate, error: Exception | None) -> None:
+                if error is None:
+                    self._record_model_success(
+                        job_id, model, candidate,
+                        decode_method=self._runner_decode_method(model, runner, candidate),
+                    )
+                else:
+                    self._record_model_failure(job_id, model, candidate, error)
+                outcome = self._track_outcome(job_id, candidate.target.track_id)
+                if outcome is not None and (
+                    outcome.successes + outcome.failures >= outcome.target_count > 0
+                ):
+                    self._mark_track_processed(job_id, candidate)
+                if len(items) > 1:
+                    self._update(job_id, current_path=None)
+
+            previous_callback = runner.track_result
+            runner.track_result = track_result
+            try:
+                _validated_runner_results(runner.analyze_batch(self.db, items), items)
+            finally:
+                runner.track_result = previous_callback
+            return True
         try:
             results = _validated_runner_results(
                 runner.analyze_batch(self.db, items),
@@ -1163,10 +1216,8 @@ class AnalysisJobManager:
         for model in models:
             if model in result.model_errors:
                 error = result.model_errors[model]
-            elif not result.track_complete:
-                continue
             else:
-                error = result.error or RuntimeError(f"{model} did not return a staged result")
+                continue
             if error is None:
                 self._record_model_success(job_id, model, result.candidate)
             else:
@@ -1178,8 +1229,15 @@ class AnalysisJobManager:
         phase: str,
         done: int,
         total: int,
+        runners: Mapping[str, AnalysisModelRunner],
     ) -> None:
         """Progress callback for ML staged pipeline phases."""
+        if phase.startswith("inference:") and done == 0:
+            model = phase.split(":", 1)[1]
+            runner = runners[model]
+            self._update(
+                job_id, current_model=model, model_name=runner.model_name, device=runner.device,
+            )
         if done == 1 or done == total or done % 10 == 0:
             phase_label = {
                 "copy": "Copy",
@@ -1299,7 +1357,11 @@ class AnalysisJobManager:
     ) -> None:
         track_id = candidate.target.track_id
         outcome = self._track_outcome(job_id, track_id)
+        processed = self._payload(job_id).processed_track_ids
         with self._store.locked(job_id) as status:
+            if track_id in processed:
+                return
+            processed.add(track_id)
             analyzed = apply_track_processed(
                 status,
                 track_path=candidate.file_path,

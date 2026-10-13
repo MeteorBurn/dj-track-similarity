@@ -71,7 +71,7 @@ export function MLAnalysisSettingsDialog({
         <header className="dialog-title ml-settings-title">
           <div className="ml-settings-title-copy">
             <h2 id="ml-settings-title">Настройки анализа ML-моделей</h2>
-            <span>Устройство, чтение файлов и размер батчей для MAEST, MERT-v2, MuQ, MuLan и CLAP.</span>
+            <span>Устройство, чтение файлов и размер батчей для MAEST, MERT-v2, SHEETSAGE-v2, MuQ, MuLan и CLAP.</span>
           </div>
           <button className="icon-button ml-settings-close-button" title="Закрыть" aria-label="Закрыть" disabled={disabled} onClick={onClose} type="button"><X size={16} /></button>
         </header>

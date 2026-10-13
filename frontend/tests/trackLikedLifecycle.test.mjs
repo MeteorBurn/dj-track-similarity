@@ -23,6 +23,7 @@ function harness() {
   const slots = [];
   let cursor = 0;
   const react = {
+    memo: (component) => component,
     useState(initial) {
       const index = cursor++;
       if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;

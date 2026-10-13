@@ -4,7 +4,7 @@ import { errorText, isAbortError } from "./errors";
 import type { SeedSearchModel } from "./searchSurfaceState";
 
 // Families with a layer list; its count, default and labels come from the server.
-const layeredFamilies: readonly LayeredEmbeddingFamily[] = ["mert_v2", "muq", "maest"];
+const layeredFamilies: readonly LayeredEmbeddingFamily[] = ["mert_v2", "sheetsage2", "muq", "maest"];
 
 export function useEmbeddingLayers(family: SeedSearchModel, databasePath: string | null, catalogUuid: string | null, refreshKey: unknown) {
   const layeredFamily = layeredFamilies.find(name => name === family) ?? null;

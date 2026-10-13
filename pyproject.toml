@@ -29,8 +29,11 @@ dependencies = [
   "huggingface-hub==1.22.0",
   "laion-clap==1.1.7",
   "maest-infer==0.2.0",
+  "mido==1.3.3",
+  "mir_eval==0.8.2",
   "muq==0.1.0",
   "openpyxl>=3.1,<4",
+  "pretty_midi==0.2.10",
   # The pinned interpreter is 3.10, which has no stdlib tomllib.
   "tomli>=2.0,<3 ; python_version < '3.11'",
 ]

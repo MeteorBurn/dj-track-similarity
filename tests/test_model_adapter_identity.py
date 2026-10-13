@@ -15,6 +15,7 @@ from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
+from dj_track_similarity.embedding.sheetsage2 import SheetSage2Adapter
 
 
 @pytest.fixture(autouse=True)
@@ -112,12 +113,13 @@ def test_adapters_expose_dimensions_and_normalization_before_model_load() -> Non
     adapters = (
         MaestEmbeddingAdapter(device="cpu"),
         MertV2EmbeddingAdapter(device="cpu"),
+        SheetSage2Adapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
     )
 
-    assert [adapter.dim for adapter in adapters] == [768, 1024, 1024, 512, 512]
+    assert [adapter.dim for adapter in adapters] == [768, 1024, 1024, 1024, 512, 512]
     assert [adapter.normalization for adapter in adapters] == ["l2"] * len(adapters)
     for adapter in adapters:
         assert adapter._model is None
@@ -134,6 +136,7 @@ def test_every_adapter_declares_a_pinned_immutable_identity() -> None:
     adapters = (
         MaestEmbeddingAdapter(device="cpu"),
         MertV2EmbeddingAdapter(device="cpu"),
+        SheetSage2Adapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
@@ -171,6 +174,7 @@ def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
     for adapter in (
         MaestEmbeddingAdapter(device="cpu"),
         MertV2EmbeddingAdapter(device="cpu"),
+        SheetSage2Adapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
@@ -333,6 +337,69 @@ def test_mert_v2_loader_deserializes_only_verified_local_snapshot(
         expected_model_kwargs["attn_implementation"] = "sdpa"
     assert model_kwargs == expected_model_kwargs
     assert calls["float"] is True
+
+
+def test_sheetsage2_loader_binds_both_local_snapshots_before_loading(monkeypatch, tmp_path) -> None:
+    import dj_track_similarity.embedding.sheetsage2 as sheetsage
+
+    adapter = SheetSage2Adapter(device="cpu")
+    assets = []
+    manifests = {}
+    for family, files in (("sheetsage2", adapter.snapshot_files), ("mert-v2", MertV2EmbeddingAdapter.snapshot_files)):
+        snapshot = tmp_path / "models" / family
+        snapshot.mkdir()
+        for filename in files:
+            path = snapshot / filename
+            path.write_bytes(filename.encode())
+            assets.append(path)
+        manifests[family] = tuple((name, hashlib.sha256(name.encode()).hexdigest()) for name in files)
+    adapter.snapshot_sha256 = manifests["sheetsage2"]
+    adapter.checkpoint_sha256 = dict(adapter.snapshot_sha256)[adapter.checkpoint_filename]
+    monkeypatch.setattr(sheetsage, "MERT_V2_SNAPSHOT_SHA256", manifests["mert-v2"])
+    monkeypatch.setattr(sheetsage, "MERT_V2_CHECKPOINT_ID", "sha256:" + adapter.checkpoint_sha256)
+    models, bound_paths = [], []
+
+    class FakeModel:
+        def float(self):
+            return self
+
+        def to(self, device):
+            assert device == "cpu"
+            return self
+
+        def eval(self):
+            return self
+
+        def requires_grad_(self, enabled):
+            assert enabled is False
+            if self is models[0]:
+                raise RuntimeError("SheetSage2 final preparation failed")
+            return self
+
+    def load(sheet_path, base_path):
+        for path, family in ((sheet_path, "sheetsage2"), (base_path, "mert-v2")):
+            assert path != tmp_path / "models" / family
+            for name, _ in manifests[family]:
+                assert (path / name).read_bytes() == name.encode()
+            bound_paths.append(path)
+        model = FakeModel()
+        models.append(model)
+        return model, object(), object()
+
+    runtime = types.ModuleType("dj_track_similarity.embedding.sheetsage2_runtime")
+    runtime.load_local_runtime = load
+    monkeypatch.setitem(sys.modules, runtime.__name__, runtime)
+    monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
+    monkeypatch.setitem(sys.modules, "torchaudio", types.ModuleType("torchaudio"))
+    _reject_missing_or_corrupt_assets(adapter, assets, tmp_path)
+    assert not models
+    with pytest.raises(RuntimeError, match="final preparation failed"):
+        adapter.preflight()
+    assert adapter._model is None and adapter._generation is None and adapter._exports is None
+    assert all(not path.exists() for path in bound_paths)
+    _retry_loader_concurrently(adapter, monkeypatch)
+    assert len(models) == 2 and adapter._model is models[1]
+    assert all(not path.exists() for path in bound_paths)
 
 
 def test_muq_loader_deserializes_only_verified_local_snapshot(

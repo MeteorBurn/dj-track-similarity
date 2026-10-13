@@ -89,7 +89,7 @@ def test_manifest_derives_input_families_from_ordered_feature_names(
 def test_embedding_manifest_checks_current_embedding_dimension(
     tmp_path: Path,
 ) -> None:
-    for family in ("muq", "mert_v2"):
+    for family in ("muq", "mert_v2", "sheetsage2"):
         # A layer token names a stored layer; the bare token is the default one.
         names = [f"{family}@3:0", f"{family}:1023", "clap:1"]
         model_path, manifest_path = _write_manifest(

@@ -46,7 +46,8 @@ import type {
   TrackDeleteResult,
   TrackDetail,
   TrackIdentity,
-  TrackPage
+  TrackPage,
+  SheetSage2TimelineResponse
 } from "./api";
 import { isAbortError } from "./errors";
 
@@ -200,6 +201,10 @@ const databaseApi = {
 };
 
 const libraryApi = {
+  sheetsage2Timeline: (track: TrackIdentity, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ catalog_uuid: track.catalog_uuid, track_uuid: track.track_uuid });
+    return request<SheetSage2TimelineResponse>(`/api/tracks/${track.track_id}/sheetsage2-timeline?${params}`, { signal });
+  },
   deleteTrack: (track: TrackIdentity) =>
     request<TrackDeleteResult>(`/api/tracks/${track.track_id}`, {
       method: "DELETE",

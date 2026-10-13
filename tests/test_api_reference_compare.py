@@ -25,6 +25,7 @@ from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write, save_sonara_writes
+from sheetsage2_test_support import complete_sheetsage2_write
 from embedding_test_support import same_vector_layers
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -50,13 +51,14 @@ def test_reference_compare_returns_separate_model_groups(
     assert [group["model"] for group in payload["groups"]] == [
         "clap",
         "mert_v2",
+        "sheetsage2",
         "muq",
         "mulan",
         "maest",
         "sonara",
     ]
     groups = {group["model"]: group for group in payload["groups"]}
-    for model in ("clap", "mert_v2", "muq", "maest", "sonara"):
+    for model in ("clap", "mert_v2", "sheetsage2", "muq", "maest", "sonara"):
         assert groups[model]["available"] is True
         assert (
             groups[model]["results"][0]["track"]["track_id"]
@@ -84,9 +86,14 @@ def test_reference_compare_returns_separate_model_groups(
         )
 
     monkeypatch.setattr(LibraryDatabase, "get_track_summaries", changed_catalog)
+    # The panel names every model itself: the whole set is one valid request.
     conflict = client.post(
         "/api/reference/compare",
-        json={"seed_track_id": tracks["seed"].track_id, "limit": 2},
+        json={
+            "seed_track_id": tracks["seed"].track_id,
+            "models": [group["model"] for group in payload["groups"]],
+            "limit": 2,
+        },
     )
     assert conflict.status_code == 409
     assert "identity changed" in conflict.json()["detail"]
@@ -290,6 +297,7 @@ def _reference_library(
             "seed",
             "clap_top",
             "mert_v2_top",
+            "sheetsage2_top",
             "muq_top",
             "maest_top",
             "sonara_top",
@@ -298,6 +306,7 @@ def _reference_library(
     for model, vector in (
         ("clap", [1.0, 0.0]),
         ("mert_v2", [0.0, 1.0]),
+        ("sheetsage2", [0.0, 0.0, 0.0, 1.0]),
         ("muq", [0.0, 0.0, 1.0]),
         ("maest", [0.7, 0.7]),
     ):
@@ -375,6 +384,10 @@ def _embedding(
                 ),
             )
         )[0]
+    elif output.analysis_family == "sheetsage2":
+        result = db.save_sheetsage2_results(
+            (complete_sheetsage2_write(db, target, embedding=embedding),)
+        )[0]
     else:
         result = db.save_embedding_results(
             (EmbeddingWrite(target=target, output=embedding),)
@@ -385,7 +398,7 @@ def _embedding(
 def _embedding_outputs() -> dict[str, AnalysisOutput]:
     return {
         family: current_embedding_analysis_output(family)
-        for family in ("mert_v2", "clap", "muq", "maest")
+        for family in ("mert_v2", "sheetsage2", "clap", "muq", "maest")
     }
 
 

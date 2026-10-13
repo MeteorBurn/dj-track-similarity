@@ -43,7 +43,7 @@ export function useClusterMap({ databaseIdentity, model, layerState, seedTracks,
   const reason = !databaseIdentity
     ? "Сначала откройте библиотеку."
     : model === "sonara"
-      ? "Карте нужна модель с эмбеддингами: MAEST, MERT-v2, MuQ, MuQ-MuLan или CLAP."
+      ? "Карте нужна модель с эмбеддингами: MAEST, MERT-v2, SHEETSAGE-v2, MuQ, MuQ-MuLan или CLAP."
       : !seedTracks.length
         ? "Добавьте референс, чтобы построить карту его выдачи."
         : "";

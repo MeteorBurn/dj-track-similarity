@@ -1,4 +1,4 @@
-import { AudioWaveform, Check, Copy, FolderOpen, Pause, Play, Trash2, X } from "lucide-react";
+import { AudioWaveform, Check, Copy, FolderOpen, Maximize2, Minimize2, Pause, Play, Trash2, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { api } from "./apiClient";
@@ -6,6 +6,8 @@ import { copyTextToClipboard } from "./clipboard";
 import { matchingSonaraBpmPreset, type SonaraBpmRange } from "./sonaraAnalysisSettings";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { displayTrack } from "./trackDisplay";
+import { SheetSage2Features } from "./SheetSage2Features";
+import { SheetSage2Timeline } from "./SheetSage2Timeline";
 
 type MetadataEntry = readonly [label: string, value: string];
 type CoreFeatureKey = keyof SonaraCore;
@@ -183,6 +185,7 @@ export function TrackMetadataDialog({
   onDelete,
   onPreview,
   playingTrackId,
+  onSeek,
 }: {
   track: TrackDetail;
   // The library's range once claimed (null: analysis without one); undefined
@@ -192,10 +195,13 @@ export function TrackMetadataDialog({
   onDelete: (track: TrackDetail) => void;
   onPreview: (track: TrackDetail) => void;
   playingTrackId: number | null;
+  onSeek: (seconds: number) => void;
 }) {
   const [filePathCopied, setFilePathCopied] = useState(false);
   const [fileNameCopied, setFileNameCopied] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
+  const [featureModel, setFeatureModel] = useState<"sonara" | "sheetsage2">("sonara");
+  const [featuresExpanded, setFeaturesExpanded] = useState(false);
   const view = metadataDialogModel(track, sonaraBpmRange);
   const sonaraFeatureCount = view.coreGroups.reduce((total, group) => total + group.features.length, 0);
   const previewActive = playingTrackId === track.track_id;
@@ -226,7 +232,7 @@ export function TrackMetadataDialog({
   return (
     <div className="metadata-dialog-backdrop" role="presentation">
       <section
-        className="metadata-dialog"
+        className={`metadata-dialog${featuresExpanded ? " metadata-dialog-features-expanded" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Теги и анализ трека"
@@ -358,9 +364,28 @@ export function TrackMetadataDialog({
           </dl>
         </details>
 
-        <div className="sonara-block">
-          <strong>SONARA features</strong>
-          {sonaraFeatureCount ? (
+        <div className="sonara-block metadata-features-block">
+          <div className="feature-heading">
+            <div className="feature-identity"><strong>Features</strong>
+              <div className="feature-badges" role="group" aria-label="Модель анализа">
+                {(["sonara", "sheetsage2"] as const).map(model => <button
+                  type="button" className="feature-badge" key={model}
+                  aria-pressed={featureModel === model} aria-controls="metadata-features-content"
+                  onClick={() => setFeatureModel(model)}
+                >{model === "sonara" ? "SONARA" : "SheetSage2"}</button>)}
+              </div>
+              <button type="button" className="icon-button feature-expand-button" aria-expanded={featuresExpanded}
+                title={featuresExpanded ? "Свернуть" : "Развернуть"}
+                aria-label={featuresExpanded ? "Свернуть" : "Развернуть"}
+                onClick={() => setFeaturesExpanded(!featuresExpanded)}>
+                {featuresExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+              </button>
+            </div>
+          </div>
+          <div id="metadata-features-content" className="metadata-features-content" aria-label={`${featureModel === "sonara" ? "SONARA" : "SheetSage2"} features`}>
+          {featureModel === "sheetsage2" ? <><SheetSage2Features features={track.sheetsage2_features} />
+            <SheetSage2Timeline track={track} expanded={featuresExpanded} onSeek={onSeek} />
+          </> : sonaraFeatureCount ? (
             <div className="sonara-feature-groups">
               {view.coreGroups.map((group) => (
                 <div className="sonara-feature-group" key={group.title}>
@@ -382,8 +407,9 @@ export function TrackMetadataDialog({
               ))}
             </div>
           ) : (
-            <span className="metadata-empty-state">Core данные ещё не рассчитаны</span>
+            <span className="metadata-empty-state">SONARA данные ещё не рассчитаны</span>
           )}
+          </div>
         </div>
 
         <div className="metadata-classifier-block">

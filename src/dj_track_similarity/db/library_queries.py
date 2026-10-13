@@ -27,6 +27,7 @@ from ..library_models import (
     GenreTagCandidate,
     LibrarySummary,
     SonaraCore,
+    SheetSage2Timeline,
     TrackDetail,
     TrackPage,
     TrackSummary,
@@ -59,6 +60,7 @@ from .library_query_sql import (
     _base_select_fields,
     _query_base_rows,
 )
+from .sheetsage2 import SHEETSAGE2_READY_FROM, read_sheetsage2_features, read_sheetsage2_timeline
 
 
 class LibraryQueryRepository:
@@ -333,10 +335,17 @@ class LibraryQueryRepository:
                 ),
                 file_tags=_file_tags(row),
                 sonara_core=sonara,
+                sheetsage2_features=read_sheetsage2_features(connection, numeric_id),
                 maest=maest,
                 embeddings=embeddings,
                 classifier_scores_detail=classifier_details,
             )
+
+    def get_sheetsage2_timeline(self, expected: TrackIdentity) -> SheetSage2Timeline:
+        with self._open_library() as (connection, context):
+            if expected.catalog_uuid != context.catalog_uuid:
+                raise RuntimeError("Selected library changed; reopen the track")
+            return read_sheetsage2_timeline(connection, expected)
 
     def get_media_path(
         self,
@@ -637,6 +646,7 @@ class LibraryQueryRepository:
                 maest_analysis=count_rows(connection, "maest_genres"),
                 maest_embedding=count_embedded_tracks(connection, "maest"),
                 mert_v2=count_embedded_tracks(connection, "mert_v2"),
+                sheetsage2=int(connection.execute("SELECT COUNT(*) " + SHEETSAGE2_READY_FROM).fetchone()[0]),
                 muq=count_embedded_tracks(connection, "muq"),
                 mulan=count_embedded_tracks(connection, "mulan"),
                 clap=count_embedded_tracks(connection, "clap"),

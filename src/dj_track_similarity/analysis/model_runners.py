@@ -5,6 +5,7 @@ import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
 import numpy as np
@@ -21,6 +22,7 @@ from ..analysis_models import (
     EmbeddingWrite,
     MaestGenreScore,
     MaestWrite,
+    SheetSage2Write,
     SonaraWrite,
 )
 from .job_batch import DecodeFailure
@@ -57,6 +59,7 @@ if TYPE_CHECKING:
     from ..embedding.clap import ClapEmbeddingAdapter
     from ..embedding.contracts import LayeredAudioEmbeddingAdapter
     from ..embedding.maest import MaestAnalysisResult
+    from ..embedding.sheetsage2 import SheetSage2Adapter
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
@@ -91,6 +94,11 @@ class AnalysisWriteRepository(Protocol):
     def save_maest_results(
         self,
         writes: Sequence[MaestWrite],
+    ) -> tuple[AnalysisWriteResult, ...]: ...
+
+    def save_sheetsage2_results(
+        self,
+        writes: Sequence[SheetSage2Write],
     ) -> tuple[AnalysisWriteResult, ...]: ...
 
     def save_embedding_results(
@@ -387,6 +395,167 @@ class MaestModelRunner:
         return [result for result in results if result is not None]
 
 
+class SheetSage2ModelRunner:
+    model = "sheetsage2"
+
+    def __init__(
+        self,
+        *,
+        device: str,
+        inference_batch_size: int = 1,
+        adapter: SheetSage2Adapter | None = None,
+    ) -> None:
+        self.adapter = adapter or create_embedding_adapter(
+            "sheetsage2", device=device, inference_batch_size=inference_batch_size,
+        )
+        _adapter_identity(self.adapter)
+        self._active_outputs = tuple(
+            AnalysisOutput(self.model, kind) for kind in ("timeline", "features", "embedding")
+        )
+        self.cancelled: Callable[[], bool] | None = None
+        self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
+        self.track_result: Callable[[AnalysisCandidate, Exception | None], None] | None = None
+
+    @property
+    def model_name(self) -> str:
+        return self.adapter.model_name
+
+    @property
+    def device(self) -> str | None:
+        return self.adapter.device
+
+    @property
+    def input_sample_rate(self) -> int:
+        return self.adapter.target_rate
+
+    @property
+    def active_outputs(self) -> tuple[AnalysisOutput, ...]:
+        return self._active_outputs
+
+    @property
+    def candidate_outputs(self) -> tuple[AnalysisOutput, ...]:
+        return self._active_outputs
+
+    def preflight(self) -> None:
+        self.adapter.preflight()
+
+    def analyze_batch(
+        self,
+        repository: AnalysisWriteRepository,
+        items: Sequence[AnalysisBatchItem],
+    ) -> Sequence[Exception | None]:
+        self._check_cancelled()
+        repository.require_embedding_layer_storage(self.model)
+        self.last_ffmpeg_fallback_track_ids = frozenset()
+        errors: list[Exception | None] = [None] * len(items)
+        completed: set[int] = set()
+        prepared: list[DecodedAudio] = []
+        indices: list[int] = []
+
+        def complete(index: int, error: Exception | None) -> None:
+            if index in completed:
+                raise ValueError("SheetSage2 returned a duplicate track result")
+            completed.add(index)
+            errors[index] = error
+            if self.track_result is not None:
+                self.track_result(items[index].candidate, error)
+
+        for index, item in enumerate(items):
+            self._check_cancelled()
+            try:
+                candidate = item.candidate
+                self._check_file(candidate)
+                decoded = item.decoded
+                if isinstance(decoded, DecodeFailure):
+                    try:
+                        decoded = load_decoded_audio_with_ffmpeg(candidate.file_path)
+                    except Exception as fallback_error:
+                        raise RuntimeError(
+                            f"full TorchCodec decode failed: {decoded.error}; "
+                            f"FFmpeg fallback failed: {fallback_error}"
+                        ) from fallback_error
+                    self.last_ffmpeg_fallback_track_ids |= {candidate.target.track_id}
+                if not isinstance(decoded, DecodedAudio):
+                    raise TypeError("SheetSage2 requires decoded audio for every candidate")
+                self._check_file(candidate)
+                prepared.append(decoded)
+                indices.append(index)
+            except EmbeddingCancelledError:
+                raise
+            except Exception as error:
+                self._check_cancelled()
+                complete(index, error)
+
+        def store_result(prepared_index: int, result: Any) -> None:
+            self._check_cancelled()
+            index = indices[prepared_index]
+            if index in completed:
+                raise ValueError("SheetSage2 returned a duplicate track result")
+            candidate = items[index].candidate
+            error = None
+            try:
+                if isinstance(result, Exception):
+                    raise result
+                self._check_file(candidate)
+                layers = tuple(result.layer_embeddings)
+                write = SheetSage2Write(
+                    target=candidate.target,
+                    file_path=candidate.file_path,
+                    file_size_bytes=candidate.file_size_bytes,
+                    file_modified_ns=candidate.file_modified_ns,
+                    timeline=result.timeline,
+                    features=result.features,
+                    embedding=EmbeddingOutput(
+                        family=self.model,
+                        vector=layers[EMBEDDING_LAYERS[self.model].default - 1],
+                        analyzed_at=utc_timestamp(),
+                        layer_vectors=layers,
+                    ),
+                )
+                self._check_cancelled()
+                error = _merge_write_results(
+                    (write,), (write,), repository.save_sheetsage2_results((write,)),
+                )[0]
+            except EmbeddingCancelledError:
+                raise
+            except Exception as failure:
+                self._check_cancelled()
+                error = failure
+            # A committed result remains visible even if cancellation raced its write.
+            complete(index, error)
+
+        if prepared:
+            try:
+                results = self.adapter.analyze_decoded_batch(
+                    prepared, cancelled=self.cancelled, result_callback=store_result,
+                )
+                self._check_cancelled()
+                if len(results) != len(prepared):
+                    raise ValueError("SheetSage2 did not return one result per track")
+                if len(completed) != len(items):
+                    raise ValueError("SheetSage2 did not publish every track result")
+            except EmbeddingCancelledError:
+                raise
+            except Exception as error:
+                self._check_cancelled()
+                for index in indices:
+                    if index not in completed:
+                        complete(index, error)
+        return errors
+
+    def _check_cancelled(self) -> None:
+        if self.cancelled is not None and self.cancelled():
+            raise EmbeddingCancelledError("SheetSage2 analysis cancelled")
+
+    @staticmethod
+    def _check_file(candidate: AnalysisCandidate) -> None:
+        stat = Path(candidate.file_path).stat()
+        if (stat.st_size, stat.st_mtime_ns) != (
+            candidate.file_size_bytes, candidate.file_modified_ns,
+        ):
+            raise RuntimeError("SheetSage2 source file changed since candidate selection")
+
+
 class EmbeddingModelRunner:
     def __init__(
         self,
@@ -589,7 +758,18 @@ def default_model_runners(
             top_k=top_k,
             inference_batch_size=inference_batch_size,
         )
-    if model in {"mert_v2", "muq", "mulan", "clap"}:
+    if model == "mert_v2":
+        return EmbeddingModelRunner(
+            model,
+            device=device,
+            inference_batch_size=inference_batch_size,
+        )
+    if model == "sheetsage2":
+        return SheetSage2ModelRunner(
+            device=device,
+            inference_batch_size=inference_batch_size,
+        )
+    if model in {"muq", "mulan", "clap"}:
         return EmbeddingModelRunner(
             model,
             device=device,
@@ -700,7 +880,7 @@ def _l2_normalize(
     return np.asarray(values / norm, dtype=np.float32)
 
 
-_Write = TypeVar("_Write", SonaraWrite, MaestWrite, EmbeddingWrite)
+_Write = TypeVar("_Write", SonaraWrite, MaestWrite, SheetSage2Write, EmbeddingWrite)
 
 
 def _merge_write_results(
@@ -744,7 +924,7 @@ def _merge_write_results(
 
 
 def _write_outputs(
-    write: SonaraWrite | MaestWrite | EmbeddingWrite,
+    write: SonaraWrite | MaestWrite | SheetSage2Write | EmbeddingWrite,
 ) -> tuple[AnalysisOutput, ...]:
     if isinstance(write, EmbeddingWrite):
         return (AnalysisOutput(write.output.family, "embedding"),)

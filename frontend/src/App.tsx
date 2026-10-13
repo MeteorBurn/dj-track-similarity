@@ -370,6 +370,7 @@ export function App() {
     sonara: librarySummary.sonara,
     maest: librarySummary.maest_analysis,
     mert_v2: librarySummary.mert_v2,
+    sheetsage2: librarySummary.sheetsage2,
     muq: librarySummary.muq,
     mulan: librarySummary.mulan,
     clap: librarySummary.clap
@@ -1622,6 +1623,7 @@ export function App() {
           sonaraCount={librarySummary.sonara}
           embeddingCounts={{
             mert_v2: librarySummary.mert_v2,
+            sheetsage2: librarySummary.sheetsage2,
             maest: librarySummary.maest_embedding,
             muq: librarySummary.muq,
             mulan: librarySummary.mulan,
@@ -1694,6 +1696,10 @@ export function App() {
             onConfirm: () => handleDeleteTrack(track),
           })}
           onPreview={togglePreview}
+          onSeek={(seconds) => {
+            if (preview?.track_id !== metadataTrack.track_id) setCandidatePlayback(null);
+            toggleAudioPreview(metadataTrack, seconds);
+          }}
           playingTrackId={playingTrackId}
         />
       )}

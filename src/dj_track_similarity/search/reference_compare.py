@@ -28,6 +28,7 @@ LOGGER = logging.getLogger(__name__)
 ReferenceCompareModel = Literal[
     "clap",
     "mert_v2",
+    "sheetsage2",
     "muq",
     "mulan",
     "maest",
@@ -46,9 +47,9 @@ ReferenceCompareVerdict = Literal[
 DEFAULT_REFERENCE_COMPARE_MODELS: tuple[
     ReferenceCompareModel,
     ...,
-] = ("clap", "mert_v2", "muq", "mulan", "maest", "sonara")
+] = ("clap", "mert_v2", "sheetsage2", "muq", "mulan", "maest", "sonara")
 _REFERENCE_COMPARE_MODELS = frozenset(
-    ("clap", "mert_v2", "muq", "mulan", "maest", "sonara")
+    ("clap", "mert_v2", "sheetsage2", "muq", "mulan", "maest", "sonara")
 )
 _REFERENCE_COMPARE_VERDICTS = frozenset(
     {
@@ -199,7 +200,7 @@ def build_reference_compare(
     summary_by_id: dict[int, TrackSummary] = {}
     started = perf_counter()
     # The existing summary gateway uses indexed requested-ID reads up to 500 rows.
-    # Keep that path even at the API's maximum six models x 100 results.
+    # Keep that path even at the API's maximum seven models x 100 results.
     for offset in range(0, len(selected_ids), 500):
         try:
             summaries = repository.get_track_summaries(
@@ -331,7 +332,7 @@ def _reference_compare_group(
 def _embedding_group(
     repository: ReferenceCompareRepository,
     query: ReferenceCompareQuery,
-    model: Literal["clap", "mert_v2", "muq", "mulan", "maest"],
+    model: Literal["clap", "mert_v2", "sheetsage2", "muq", "mulan", "maest"],
     expected_seed: AnalysisTarget,
 ) -> _ReferenceCompareSearchGroup:
     try:

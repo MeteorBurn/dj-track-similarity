@@ -13,6 +13,7 @@ import numpy as np
 from dj_track_similarity.analysis_models import EMBEDDING_LAYERS
 
 from .features import (
+    SUPPORTED_FEATURE_SOURCES,
     available_feature_sources,
     build_feature_matrix,
     canonical_feature_set,
@@ -70,7 +71,9 @@ def benchmark_plan(
             for token in _layer_tokens(family, stored_layers.get(family, ()))
         )
         if not layer_tokens:
-            families = ", ".join(family.upper() for family in EMBEDDING_LAYERS)
+            families = ", ".join(
+                family.upper() for family in EMBEDDING_LAYERS if family in SUPPORTED_FEATURE_SOURCES
+            )
             raise ValueError(f"No layered model ({families}) is stored in this library")
         joined: list[str] = []
         for token in layer_tokens:

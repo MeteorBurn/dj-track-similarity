@@ -328,7 +328,7 @@ def test_analyze_cli_passes_separate_ml_batch_sizes(
         [
             "analyze",
             "--models",
-            "maest,mert_v2",
+            "sheetsage2",
             "--track-batch-size",
             "3",
             "--inference-batch-size",
@@ -341,6 +341,7 @@ def test_analyze_cli_passes_separate_ml_batch_sizes(
     assert result.exit_code == 0
     assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 3
     assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 12
+    assert _FakeAnalysisManager.last_kwargs["models"] == ["sheetsage2"]
     assert "track_batch_size=3 inference_batch_size=12" in result.output
 
 

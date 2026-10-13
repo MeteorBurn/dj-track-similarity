@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 if TYPE_CHECKING:
     from ..audio.loader import DecodedAudio
     from .maest import MaestAnalysisResult
+    from .sheetsage2 import SheetSage2AnalysisResult
 
 
 class EmbeddingCancelledError(RuntimeError):
@@ -70,3 +71,13 @@ class MaestAnalysisAdapter(EmbeddingRuntime, Protocol):
         *,
         include_mel_spectrogram: bool = False,
     ) -> list[MaestAnalysisResult]: ...
+
+
+class SheetSage2AnalysisAdapter(EmbeddingRuntime, Protocol):
+    def analyze_decoded_batch(
+        self,
+        decoded_items: Sequence[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+        result_callback: Callable[[int, SheetSage2AnalysisResult | Exception], None] | None = None,
+    ) -> list[SheetSage2AnalysisResult | Exception]: ...

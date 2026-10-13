@@ -36,6 +36,7 @@ from .sonara_core_validation import (
     SONARA_CORE_COLUMNS,
     validate_sonara_core_row,
 )
+from .sheetsage2 import ready_sheetsage2_target_keys
 
 
 _EMBEDDING_TABLES: tuple[tuple[str, str, str], ...] = (
@@ -496,12 +497,14 @@ def _coverage_and_classifiers(
             embedding=True,
             drive_from_requested=drive_from_requested,
         )
+    sheetsage2_ready = ready_sheetsage2_target_keys(connection, tuple(identities))
     coverage = {
         track_id: AnalysisCoverage(
             sonara_core=track_id in sonara_core,
             maest_analysis=track_id in maest_analysis,
             maest_embedding=track_id in embedding_rows[("maest", "embedding")],
             mert_v2=track_id in embedding_rows[("mert_v2", "embedding")],
+            sheetsage2=(track_id, identities[track_id]) in sheetsage2_ready,
             muq=track_id in embedding_rows[("muq", "embedding")],
             mulan=track_id in embedding_rows[("mulan", "embedding")],
             clap=track_id in embedding_rows[("clap", "embedding")],

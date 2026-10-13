@@ -112,9 +112,14 @@ export function useAudioPreview(options: {
     return value;
   }
 
-  function togglePreview(track: PreviewTarget) {
+  function togglePreview(track: PreviewTarget, startSeconds?: number) {
+    if (startSeconds !== undefined && !Number.isFinite(startSeconds)) return;
     const value = current.current;
     if (value && isCurrent(value) && value.selection.track.track_id === track.track_id) {
+      if (startSeconds !== undefined) {
+        seekPreview(track, startSeconds);
+        return;
+      }
       if (value.playing) {
         value.playing = false;
         setPlayingTrackId(null);
@@ -133,13 +138,17 @@ export function useAudioPreview(options: {
       track, databaseKey: latest.current.databaseKey, duration: 0, metadataError: null,
       controller: new AbortController(),
     };
-    startStream(selection, 0, true);
+    startStream(selection, Math.max(0, startSeconds ?? 0), true);
     // Metadata is independent of the stream: playback never waits for it.
     void api.previewInfo(track.track_id, { signal: selection.controller.signal }).then((info) => {
       const active = current.current;
       if (!active || !isCurrent(active) || active.selection !== selection) return;
       selection.duration = info.duration_seconds != null && Number.isFinite(info.duration_seconds)
         ? Math.max(0, info.duration_seconds) : 0;
+      if (selection.duration > 0 && active.start >= selection.duration) {
+        startStream(selection, selection.duration, active.playing);
+        return;
+      }
       updatePosition(active);
     }).catch((error: unknown) => {
       const active = current.current;
@@ -162,8 +171,9 @@ export function useAudioPreview(options: {
   function seekPreview(track: PreviewTarget, seconds: number) {
     const value = current.current;
     if (!value || !isCurrent(value) || value.selection.track.track_id !== track.track_id
-      || !Number.isFinite(seconds) || value.selection.duration <= 0) return;
-    const start = Math.min(Math.max(0, seconds), value.selection.duration);
+      || !Number.isFinite(seconds)) return;
+    const start = value.selection.duration > 0
+      ? Math.min(Math.max(0, seconds), value.selection.duration) : Math.max(0, seconds);
     startStream(value.selection, start, value.playing);
   }
 

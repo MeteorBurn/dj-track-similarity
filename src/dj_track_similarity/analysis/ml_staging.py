@@ -218,7 +218,7 @@ def analyze_and_store_staged_ml(
     cancelled: Callable[[], bool] | None = None,
     track_result_callback: Callable[[MLStagedResult], None] | None = None,
     progress_callback: Callable[[str, int, int], None] | None = None,
-    set_current_path: Callable[[str], None] | None = None,
+    set_current_path: Callable[[str | None], None] | None = None,
     mark_track_processed: Callable[[AnalysisCandidate], None] | None = None,
 ) -> list[MLStagedResult]:
     """Run bounded ML staged pipeline with copy → decode → inference phases.
@@ -266,6 +266,7 @@ def analyze_and_store_staged_ml(
     preparing: deque[tuple[MLStagedCandidate, Future[ModelAudio | DecodeFailure], float]] = deque()
     sample_rates = {model: model_sample_rate(runner) for model, runner in model_runners.items()}
     outcomes: list[MLStagedResult] = []
+    reported_models: dict[int, set[str]] = {}
 
     copy_futures: dict[Future[MLStagedCandidate], AnalysisCandidate] = {}
     decode_futures: dict[Future[tuple[MLStagedCandidate, DecodedAudio | DecodeFailure, float]], MLStagedCandidate] = {}
@@ -299,8 +300,15 @@ def analyze_and_store_staged_ml(
         )
         if result.track_complete:
             outcomes.append(result)
-        if track_result_callback is not None:
-            track_result_callback(result)
+        track_id = result.target.track_id
+        errors = result.model_errors or {
+            model: result.error for model in targets_by_track.get(track_id, ())
+        }
+        reported = reported_models.setdefault(track_id, set())
+        new_errors = {model: error for model, error in errors.items() if model not in reported}
+        reported.update(new_errors)
+        if track_result_callback is not None and new_errors:
+            track_result_callback(replace(result, model_errors=new_errors))
         if result.track_complete and mark_track_processed is not None:
             mark_track_processed(result.candidate)
 
@@ -354,6 +362,7 @@ def analyze_and_store_staged_ml(
             complete,
             progress_callback,
             cancelled,
+            set_current_path,
         )
 
     # A window smaller than a batch can never hold a full one.
@@ -514,6 +523,7 @@ def _process_inference_batch(
     complete: Callable[[MLStagedResult], None],
     progress_callback: Callable[[str, int, int], None] | None,
     cancelled: Callable[[], bool] | None,
+    set_current_path: Callable[[str | None], None] | None = None,
 ) -> None:
     """Process inference batch through all models.
 
@@ -560,17 +570,25 @@ def _process_inference_batch(
 
     # Run each model sequentially (they share GPU)
     from .config import ANALYSIS_MODEL_ORDER
+    from .model_runners import SheetSage2ModelRunner
+
+    completed_tracks: set[int] = set()
 
     def emit_results(*, track_complete: bool) -> None:
         for staged, _decoded, decode_seconds in batch:
             track_id = staged.candidate.target.track_id
+            if track_id in completed_tracks:
+                continue
             if not track_complete and not model_errors[track_id]:
                 continue
+            completed_track = track_complete or set(model_errors[track_id]) == set(
+                targets_by_track.get(track_id, ())
+            )
             result = MLStagedResult(
                 candidate=staged.candidate,
                 error=next((error for error in model_errors[track_id].values() if error is not None), None),
-                model_errors=model_errors[track_id],
-                track_complete=track_complete,
+                model_errors=dict(model_errors[track_id]),
+                track_complete=completed_track,
                 copy_seconds=staged.copy_seconds,
                 decode_seconds=decode_seconds,
                 inference_seconds=sum(model_timings.get(track_id, {}).values()),
@@ -578,7 +596,8 @@ def _process_inference_batch(
                 # FFmpeg fallback used if either decode phase or runner used it
                 used_ffmpeg_fallback=ffmpeg_used_in_decode.get(track_id, False),
             )
-            if track_complete:
+            if completed_track:
+                completed_tracks.add(track_id)
                 session.release(staged)
             complete(result)
 
@@ -594,14 +613,39 @@ def _process_inference_batch(
             if not model_items:
                 continue
 
+            if progress_callback:
+                progress_callback(f"inference:{model_name}", 0, len(items))
             started = time.perf_counter()
-            try:
-                # Runners handle their own analyze_batch + storage
-                # They may do internal FFmpeg fallback for DecodeFailure items
-                errors = runner.analyze_batch(repository, model_items)
-                elapsed = time.perf_counter() - started
+            previous_callback = None
+            if isinstance(runner, SheetSage2ModelRunner):
+                if set_current_path is not None:
+                    set_current_path(
+                        model_items[0].candidate.file_path if len(model_items) == 1 else None
+                    )
 
-                # Record timing and check for errors
+                def track_result(candidate: AnalysisCandidate, error: Exception | None) -> None:
+                    track_id = candidate.target.track_id
+                    model_errors[track_id][model_name] = error
+                    model_timings[track_id][model_name] = (
+                        time.perf_counter() - started
+                    ) / len(model_items)
+                    ffmpeg_used_in_decode[track_id] |= (
+                        track_id in runner.last_ffmpeg_fallback_track_ids
+                    )
+                    emit_results(track_complete=False)
+                    if len(model_items) > 1 and set_current_path is not None:
+                        set_current_path(None)
+                    if progress_callback:
+                        done = sum(model_name in errors for errors in model_errors.values())
+                        progress_callback(f"inference:{model_name}", done, len(items))
+
+                previous_callback = runner.track_result
+                runner.track_result = track_result
+            try:
+                errors = list(runner.analyze_batch(repository, model_items))
+                elapsed = time.perf_counter() - started
+                if len(errors) != len(model_items):
+                    raise ValueError("ML runner result count does not match track count")
                 for item, error in zip(model_items, errors):
                     if isinstance(error, EmbeddingCancelledError):
                         raise error
@@ -609,12 +653,9 @@ def _process_inference_batch(
                     model_timings[track_id][model_name] = elapsed / len(model_items)
                     model_errors[track_id][model_name] = error
 
-                # Check if runner used FFmpeg fallback (from runner.last_ffmpeg_fallback_track_ids)
-                if hasattr(runner, 'last_ffmpeg_fallback_track_ids'):
-                    for track_id in runner.last_ffmpeg_fallback_track_ids:
-                        if track_id in ffmpeg_used_in_decode:
-                            ffmpeg_used_in_decode[track_id] = True
-
+                for track_id in getattr(runner, "last_ffmpeg_fallback_track_ids", ()):
+                    if track_id in ffmpeg_used_in_decode:
+                        ffmpeg_used_in_decode[track_id] = True
                 if progress_callback:
                     progress_callback(f"inference:{model_name}", len(model_items), len(items))
             except EmbeddingCancelledError:
@@ -622,7 +663,10 @@ def _process_inference_batch(
             except Exception as error:
                 for item in model_items:
                     track_id = item.candidate.target.track_id
-                    model_errors[track_id][model_name] = error
+                    model_errors[track_id].setdefault(model_name, error)
+            finally:
+                if isinstance(runner, SheetSage2ModelRunner):
+                    runner.track_result = previous_callback
     except EmbeddingCancelledError:
         # Runners have already stored completed model outputs. Report those
         # without classifying interrupted tracks or inventing missing results.

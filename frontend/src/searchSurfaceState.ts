@@ -1,5 +1,5 @@
 export type PrimarySearchTab = "similarity" | "text" | "class" | "lab";
-export type SeedEmbeddingFamily = "maest" | "mert_v2" | "muq" | "mulan" | "clap";
+export type SeedEmbeddingFamily = "maest" | "mert_v2" | "sheetsage2" | "muq" | "mulan" | "clap";
 export type SeedSearchModel = "sonara" | SeedEmbeddingFamily;
 export type GenericSearchTab = "text" | SeedSearchModel;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
@@ -11,7 +11,7 @@ export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "class"
 ];
 
-export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert_v2", "muq", "mulan", "clap"];
+export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"];
 export const seedSearchModels: readonly SeedSearchModel[] = ["sonara", ...seedEmbeddingFamilies];
 
 export const seedSearchModelPresentation: Record<SeedSearchModel, { label: string; title: string; description: string }> = {
@@ -29,6 +29,11 @@ export const seedSearchModelPresentation: Record<SeedSearchModel, { label: strin
     label: "MERT-v2",
     title: "MERT-v2 seed embedding search",
     description: "Сравнивает треки по сохранённым признакам MERT-v2. Несколько seed задают общее направление поиска."
+  },
+  sheetsage2: {
+    label: "SHEETSAGE-v2",
+    title: "SHEETSAGE-v2 seed embedding search",
+    description: "Сравнивает треки по сохранённым признакам SheetSage2 — энкодера MERT-v2, дообученного разбирать ритм, аккорды и мелодию. Несколько seed задают общее направление поиска."
   },
   muq: {
     label: "MuQ",

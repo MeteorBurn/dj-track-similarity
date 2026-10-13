@@ -26,6 +26,7 @@ from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from sonara_test_support import complete_sonara_write, save_sonara_writes
+from sheetsage2_test_support import complete_sheetsage2_write
 from embedding_test_support import same_vector_layers
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -90,7 +91,7 @@ def test_generic_search_endpoint_returns_muq_result_shape(
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     with TestClient(create_app(db_path)) as client:
-        for family, seed_count in (("muq", 1), ("mert_v2", 6)):
+        for family, seed_count in (("muq", 1), ("mert_v2", 6), ("sheetsage2", 1)):
             output = current_embedding_analysis_output(family)
             seeds = [
                 _add_embedding_track(db, tmp_path, output, f"{family}-seed-{index}.wav", [1.0, 0.0])
@@ -128,11 +129,10 @@ def test_generic_search_endpoint_returns_muq_result_shape(
                 final = db.load_analysis_vectors(output, targets=(target,))[0].vector
                 layer = np.zeros_like(final)
                 layer[1 if target == candidate else 0] = 1.0
-                saved = db.save_embedding_results((EmbeddingWrite(target=target, output=EmbeddingOutput(
+                assert _save_embedding(db, target, EmbeddingOutput(
                     family=family, vector=final, analyzed_at=_NOW,
                     layer_vectors=tuple(layer if number == 12 else final for number in range(1, layer_count + 1)),
-                )),))
-                assert saved[0].ok
+                )).ok
             selected_layer = client.post("/api/search", json=layer_request)
             assert selected_layer.status_code == 200
             assert len(selected_layer.json()) == 1
@@ -611,21 +611,26 @@ def _add_embedding_track(
     )
     vector[: len(embedding)] = embedding
     vector /= np.linalg.norm(vector)
-    result = db.save_embedding_results(
-        (
-            EmbeddingWrite(
-                target=target,
-                output=EmbeddingOutput(
-                    family=output.analysis_family,
-                    vector=vector,
-                    analyzed_at=_NOW,
-                    layer_vectors=same_vector_layers(output.analysis_family, vector),
-                ),
-            ),
-        )
-    )[0]
+    result = _save_embedding(
+        db,
+        target,
+        EmbeddingOutput(
+            family=output.analysis_family,
+            vector=vector,
+            analyzed_at=_NOW,
+            layer_vectors=same_vector_layers(output.analysis_family, vector),
+        ),
+    )
     assert result.ok, result.error
     return target
+
+
+def _save_embedding(db: LibraryDatabase, target: AnalysisTarget, embedding: EmbeddingOutput):
+    """Save through the production writer: SheetSage2 vectors travel with its analysis."""
+
+    if embedding.family == "sheetsage2":
+        return db.save_sheetsage2_results((complete_sheetsage2_write(db, target, embedding=embedding),))[0]
+    return db.save_embedding_results((EmbeddingWrite(target=target, output=embedding),))[0]
 
 
 def _keep_only_default_layer(db: LibraryDatabase, family: str) -> None:

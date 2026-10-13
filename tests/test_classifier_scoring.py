@@ -32,6 +32,7 @@ from dj_track_similarity.classifier.scoring import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import ClassifierScoreRecord
+from dj_track_similarity.db.embeddings import EmbeddingTrackIdentity, write_valid_embedding_in_transaction
 from dj_track_similarity.db.validation import DatabaseValidator
 
 
@@ -148,6 +149,20 @@ def _write_embedding(
         vector if layer == layers.default else other
         for layer in range(1, layers.count + 1)
     )
+    if output.analysis_family == "sheetsage2":
+        # SheetSage2 has no standalone embedding write: its vectors are stored
+        # with the analysis of a source file. Scoring reads only these rows.
+        assert layer_vectors is not None
+        with closing(db.connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for layer, layer_vector in enumerate(layer_vectors, start=1):
+                write_valid_embedding_in_transaction(
+                    connection=connection,
+                    track=EmbeddingTrackIdentity(target.catalog_uuid, target.track_id, target.track_uuid),
+                    family="sheetsage2", embedding=layer_vector, analyzed_at=_NOW, layer=layer,
+                )
+            connection.commit()
+        return
     results = db.save_embedding_results(
         (
             EmbeddingWrite(
@@ -371,7 +386,7 @@ def test_production_scoring_loads_current_embeddings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for family in ("muq", "mert_v2"):
+    for family in ("muq", "mert_v2", "sheetsage2"):
         db = LibraryDatabase(tmp_path / f"{family}.sqlite")
         output = AnalysisOutput(family, "embedding")
         db.register_analysis_outputs((output,))

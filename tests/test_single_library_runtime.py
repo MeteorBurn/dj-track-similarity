@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 from contextlib import closing
-from dataclasses import fields
+from dataclasses import fields, replace
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -32,6 +33,7 @@ from dj_track_similarity.db.embeddings import (
 from dj_track_similarity.scanner import scan_library
 from dj_track_similarity.track_models import TrackIdentity
 from sonara_test_support import complete_sonara_write, save_sonara_writes
+from sheetsage2_test_support import complete_sheetsage2_write
 
 
 def _write_embedding(
@@ -76,7 +78,9 @@ def _save_embedding_output(
 ) -> bool:
     """Save through the production writer: MAEST vectors travel with genres."""
 
-    if output.family == "maest":
+    if output.family == "sheetsage2":
+        result = database.save_sheetsage2_results((complete_sheetsage2_write(database, target, embedding=output),))
+    elif output.family == "maest":
         result = database.save_maest_results((MaestWrite(
             target,
             genres=(MaestGenreScore("Electronic---House", 0.8),),
@@ -110,9 +114,21 @@ def test_new_library_database_bootstraps_one_sqlite_file(tmp_path: Path) -> None
         assert json.loads(str(library[2])) == []
         connection.execute("SELECT * FROM sonara_features LIMIT 0")
         connection.execute("SELECT * FROM maest_embeddings LIMIT 0")
+        for table in ("sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings"):
+            connection.execute(f"SELECT * FROM {table} LIMIT 0")
     assert {
         family: database.embedding_layers_capability(family) for family in EMBEDDING_LAYERS
     } == dict.fromkeys(EMBEDDING_LAYERS, "ready")
+    for table in ("sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings"):
+        old_path = tmp_path / f"without-{table}.sqlite"
+        with closing(database.connect()) as source, closing(sqlite3.connect(old_path)) as older:
+            source.backup(older)
+            older.execute(f"DROP TABLE {table}")
+            older.commit()
+        before = old_path.read_bytes()
+        with pytest.raises(RuntimeError, match="missing SheetSage2 tables: " + table):
+            LibraryDatabase(old_path)
+        assert old_path.read_bytes() == before
 
     # A single-vector table from before per-layer storage, or a missing
     # sonara_timeline table, is refused, never altered.
@@ -200,6 +216,9 @@ def test_scan_records_the_selected_root(tmp_path: Path) -> None:
 
 def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "track-a.wav"
+    audio_path.write_bytes(b"audio fixture")
+    stat = audio_path.stat()
     with closing(database.connect()) as connection, connection:
         track_id = int(
             connection.execute(
@@ -211,9 +230,9 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
                 """,
                 (
                     "track-a",
-                    (tmp_path / "track-a.wav").as_posix(),
-                    1,
-                    1,
+                    audio_path.as_posix(),
+                    stat.st_size,
+                    stat.st_mtime_ns,
                     "2026-08-12T00:00:00.000000Z",
                     "2026-08-12T00:00:00.000000Z",
                     "2026-08-12T00:00:00.000000Z",
@@ -229,6 +248,7 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
     vectors = {
         "muq": np.eye(1, 1024, dtype=np.float32)[0],
         "mert_v2": np.eye(1, 1024, 1, dtype=np.float32)[0],
+        "sheetsage2": np.eye(1, 1024, 3, dtype=np.float32)[0],
         "maest": np.eye(1, MAEST_EMBEDDING_DIM, 2, dtype=np.float32)[0],
     }
     for family, vector in vectors.items():
@@ -261,6 +281,8 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
     detail = database.get_track_detail(track_id)
     coverage = detail.analysis_coverage
     assert coverage.muq and coverage.mert_v2 and coverage.maest_embedding
+    assert not coverage.sheetsage2
+    assert database.library_summary().sheetsage2 == 0
     assert {(row.analysis_family, row.dim) for row in detail.embeddings} == {
         ("muq", 1024), ("mert_v2", 1024), ("maest", MAEST_EMBEDDING_DIM),
     }
@@ -303,7 +325,7 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
             assert database.random_embedding_target(output, layer=layer) == write_target
         assert len(database.load_analysis_vectors(output)) == 1
         detail = database.get_track_detail(track_id)
-        assert sum(row.analysis_family == family for row in detail.embeddings) == 1
+        assert sum(row.analysis_family == family for row in detail.embeddings) == (0 if family == "sheetsage2" else 1)
         with closing(database.connect()) as connection:
             assert [(row[0], row[1]) for row in connection.execute(
                 f"SELECT layer, embedding_blob FROM {family}_embeddings ORDER BY layer"
@@ -322,6 +344,26 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
             )
         assert database.load_analysis_vectors(output, layer=12) == ()
         assert _save_embedding_output(database, write_target, write)
+        if family == "sheetsage2":
+            assert database.library_summary().sheetsage2 == 1
+            assert database.get_track_detail(track_id).analysis_coverage.sheetsage2
+            complete = complete_sheetsage2_write(database, write_target, embedding=write)
+            for invalid in (
+                replace(complete, target=replace(write_target, catalog_uuid="other-catalog")),
+                replace(complete, target=replace(write_target, track_uuid="other-track")),
+                replace(complete, file_size_bytes=complete.file_size_bytes + 1),
+                replace(complete, file_modified_ns=complete.file_modified_ns + 1),
+            ):
+                assert not database.save_sheetsage2_results((invalid,))[0].ok
+            audio_path.write_bytes(b"changed source")
+            assert not database.save_sheetsage2_results((complete,))[0].ok
+            audio_path.write_bytes(b"audio fixture")
+            os.utime(audio_path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            with closing(database.connect()) as connection:
+                previous_rows = {
+                    table: [tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")]
+                    for table in ("sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings")
+                }
         with closing(database.connect()) as connection, connection:
             connection.execute(
                 f"CREATE TRIGGER fail_layer BEFORE INSERT ON {family}_embeddings "
@@ -329,6 +371,12 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
             )
         replacement = EmbeddingOutput(family, stack[0], "new", (stack[0],) * layers.count)
         assert not _save_embedding_output(database, write_target, replacement)
+        if family == "sheetsage2":
+            with closing(database.connect()) as connection:
+                assert {
+                    table: [tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")]
+                    for table in previous_rows
+                } == previous_rows
         for layer in (1, 7, layers.default):
             np.testing.assert_array_equal(
                 database.load_analysis_vectors(output, layer=layer)[0].vector,
@@ -338,6 +386,15 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
             connection.execute("DROP TRIGGER fail_layer")
     with pytest.raises(ValueError, match="not supported for clap"):
         database.load_analysis_vectors(AnalysisOutput("clap", "embedding"), layer=12)
+
+    sheetsage_reset = database.reset_analysis_outputs((AnalysisOutput("sheetsage2", "embedding"),))
+    assert sheetsage_reset.embedding_rows_deleted == 1
+    assert sheetsage_reset.feature_rows_deleted == 2
+    assert not database.get_track_detail(track_id).analysis_coverage.sheetsage2
+    with closing(database.connect()) as connection:
+        for table in ("sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings"):
+            assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    assert database.save_sheetsage2_results((complete_sheetsage2_write(database, write_target),))[0].ok
 
     reset = database.reset_analysis_outputs(
         (AnalysisOutput("mert_v2", "embedding"), AnalysisOutput("maest", "embedding")),
@@ -358,10 +415,12 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
         )
     cleared = database.clear_library()
     assert cleared["tracks_deleted"] == 1
-    assert cleared["embedding_rows_deleted"] == 3
+    assert cleared["embedding_rows_deleted"] == 4
     with closing(database.connect()) as connection:
         for family in EMBEDDING_LAYERS:
             assert connection.execute(f"SELECT COUNT(*) FROM {family}_embeddings").fetchone()[0] == 0
+        for table in ("sheetsage2_timeline", "sheetsage2_features"):
+            assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -461,7 +520,7 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
         )
     target = TrackIdentity(database.catalog_uuid, track_id, "track-b")
     outputs = (AnalysisOutput("mulan", "embedding"),) + tuple(
-        AnalysisOutput(family, "embedding") for family in EMBEDDING_LAYERS
+        AnalysisOutput(family, "embedding") for family in EMBEDDING_LAYERS if family != "sheetsage2"
     )
 
     def missing_outputs() -> tuple[AnalysisOutput, ...]:
@@ -515,6 +574,49 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
                 (target.track_uuid,),
             )
     assert missing_outputs() == ()
+
+    audio_path = tmp_path / "track-b.wav"
+    audio_path.write_bytes(b"audio fixture")
+    stat = audio_path.stat()
+    with closing(database.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE tracks SET file_size_bytes = ?, file_modified_ns = ? WHERE track_id = ?",
+            (stat.st_size, stat.st_mtime_ns, track_id),
+        )
+    write_target = AnalysisTarget(target.catalog_uuid, target.track_id, target.track_uuid)
+    write = complete_sheetsage2_write(database, write_target)
+    sheetsage_outputs = write.outputs
+    assert database.list_analysis_candidates(sheetsage_outputs)[0].missing_outputs == sheetsage_outputs
+    assert database.save_sheetsage2_results((write,))[0].ok
+    assert database.list_analysis_candidates(sheetsage_outputs) == []
+    for table in ("sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings"):
+        for column, valid in (("track_uuid", target.track_uuid), ("analyzed_at", write.analyzed_at)):
+            with closing(database.connect()) as connection, connection:
+                connection.execute(f"UPDATE {table} SET {column} = 'stale'")
+            assert database.list_analysis_candidates(sheetsage_outputs)[0].missing_outputs == sheetsage_outputs
+            assert not database.get_track_detail(track_id).analysis_coverage.sheetsage2
+            assert database.library_summary().sheetsage2 == 0
+            with closing(database.connect()) as connection, connection:
+                connection.execute(f"UPDATE {table} SET {column} = ?", (valid,))
+    # Status reads only the default layer, while explicit validation checks all
+    # 24 layers. A missing structured result always invalidates the full family.
+    with closing(database.connect()) as connection, connection:
+        connection.execute("DELETE FROM sheetsage2_embeddings WHERE layer = 7")
+    assert database.list_analysis_candidates(sheetsage_outputs) == []
+    with closing(database.connect()) as connection, connection:
+        connection.execute("DELETE FROM sheetsage2_features")
+    assert database.list_analysis_candidates(sheetsage_outputs)[0].missing_outputs == sheetsage_outputs
+    assert database.save_sheetsage2_results((write,))[0].ok
+    with closing(database.connect()) as connection, connection:
+        connection.execute("UPDATE tracks SET missing_since = 'now' WHERE track_id = ?", (track_id,))
+    assert not database.save_sheetsage2_results((write,))[0].ok
+    with closing(database.connect()) as connection, connection:
+        connection.execute("UPDATE tracks SET missing_since = NULL WHERE track_id = ?", (track_id,))
+    database.delete_track(expected=target)
+    with closing(database.connect()) as connection:
+        for table in ("sheetsage2_timeline", "sheetsage2_features", "sheetsage2_embeddings"):
+            assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_stored_embedding_sonara_and_maest_readiness_does_not_read_payload(tmp_path: Path) -> None:

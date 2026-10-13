@@ -32,12 +32,13 @@ from ..analysis.config import (
 )
 from ..analysis_models import EMBEDDING_LAYERS
 from ..db.embedding_layers import validate_embedding_layer
+from ..library_models import SheetSage2Features
 from ..scanner import SUPPORTED_AUDIO_EXTENSIONS
 
 
-EmbeddingSource = Literal["mert_v2", "maest", "muq", "mulan", "clap"]
+EmbeddingSource = Literal["mert_v2", "sheetsage2", "maest", "muq", "mulan", "clap"]
 EvaluationSource = Literal["mert_v2", "maest", "muq", "mulan", "sonara", "clap"]
-ReferenceCompareModel = Literal["clap", "mert_v2", "muq", "mulan", "maest", "sonara"]
+ReferenceCompareModel = Literal["clap", "mert_v2", "sheetsage2", "muq", "mulan", "maest", "sonara"]
 ReferenceCompareVerdict = Literal[
     "mood", "palette", "instruments", "groove", "genre", "transition", "miss"
 ]
@@ -332,13 +333,13 @@ class ClassifierResetRequest(BaseModel):
 class AnalysisResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["sonara", "maest", "mert_v2", "muq", "mulan", "clap"]
+    analysis_family: Literal["sonara", "maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"]
 
 
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"] = "mert_v2"
+    analysis_family: Literal["maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"] = "mert_v2"
     # None reads the family's default layer.
     layer: int | None = Field(default=None, strict=True)
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1)
@@ -356,7 +357,7 @@ class SearchRequest(BaseModel):
 class EmbeddingRandomTrackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"] = "mert_v2"
+    analysis_family: Literal["maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"] = "mert_v2"
     # None reads the family's default layer.
     layer: int | None = Field(default=None, strict=True)
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
@@ -598,9 +599,9 @@ class ReferenceCompareRequest(BaseModel):
 
     seed_track_id: EvaluationTrackId
     models: Annotated[list[ReferenceCompareModel], _unique] = Field(
-        default_factory=lambda: ["clap", "mert_v2", "muq", "mulan", "maest", "sonara"],
+        default_factory=lambda: ["clap", "mert_v2", "sheetsage2", "muq", "mulan", "maest", "sonara"],
         min_length=1,
-        max_length=6,
+        max_length=7,
     )
     limit: int = Field(default=10, ge=1, le=100)
 
@@ -768,6 +769,7 @@ class AnalysisCoverageResponse(_ResponseModel):
     maest_analysis: bool
     maest_embedding: bool
     mert_v2: bool
+    sheetsage2: bool
     muq: bool
     mulan: bool
     clap: bool
@@ -931,6 +933,7 @@ class TrackDetailResponse(TrackSummaryResponse):
     file: FileTechnicalResponse
     file_tags: FileTagsResponse | None
     sonara_core: SonaraCoreResponse | None
+    sheetsage2_features: SheetSage2Features | None
     maest: MaestResponse | None
     embeddings: list[EmbeddingSummaryResponse]
     classifier_scores_detail: list[ClassifierScoreDetailResponse]
@@ -953,6 +956,7 @@ class LibrarySummaryResponse(_ResponseModel):
     maest_analysis: int
     maest_embedding: int
     mert_v2: int
+    sheetsage2: int
     muq: int
     mulan: int
     clap: int
@@ -1119,7 +1123,7 @@ class ClusterMapResponse(_ResponseModel):
     """
 
     catalog_uuid: str
-    analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"]
+    analysis_family: Literal["maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"]
     layer: int | None
     library_similarity: float
     background_count: int = Field(ge=0)

@@ -348,6 +348,7 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
     assert feature_module.stored_embedding_layers(_ReadyFeatureSource(library)) == {
         "maest": (),
         "mert_v2": (),
+        "sheetsage2": (),
         "muq": (),
     }
     layered_source = _ReadyFeatureSource(library)
@@ -434,7 +435,7 @@ class _FeatureSource:
         )
         self.specifications = {
             family: current_embedding_spec(family)
-            for family in ("mulan", "maest", "clap", "muq", "mulan", "mert_v2")
+            for family in ("mulan", "maest", "clap", "muq", "mulan", "mert_v2", "sheetsage2")
         }
         self.layers: dict[str, int | None] = {}
 
@@ -450,7 +451,7 @@ class _FeatureSource:
     ) -> SourceEmbeddingMatrix:
         self.layers[family] = layer
         specification = self.specifications[family]
-        family_value = float(("mulan", "maest", "clap", "muq", "mulan", "mert_v2").index(family) + 2)
+        family_value = float(("mulan", "maest", "clap", "muq", "mulan", "mert_v2", "sheetsage2").index(family) + 2)
         tracks = (
             (self.track,)
             if track_ids is None or self.track.track_id in set(track_ids)  # type: ignore[arg-type]
@@ -483,8 +484,8 @@ class _FeatureSource:
             ("sonara", "maest", "muq", "mulan", "clap"),
         ),
         (
-            "sonara+mert_v2+maest+clap+muq+mulan",
-            ("sonara", "maest", "mert_v2", "muq", "mulan", "clap"),
+            "sonara+sheetsage2+mert_v2+maest+clap+muq+mulan",
+            ("sonara", "maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"),
         ),
     ),
 )

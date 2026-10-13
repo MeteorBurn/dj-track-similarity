@@ -16,6 +16,7 @@ from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.loading import _local_model_path
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
+from dj_track_similarity.embedding.sheetsage2 import SheetSage2Adapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 
@@ -43,6 +44,7 @@ def model_assets():
     )
     for directory, adapter in (
         ("mert-v2", MertV2EmbeddingAdapter),
+        ("sheetsage2", SheetSage2Adapter),
         ("muq", MuqEmbeddingAdapter),
         ("mulan", MuqMulanEmbeddingAdapter),
     ):

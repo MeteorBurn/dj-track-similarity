@@ -18,6 +18,7 @@ from .embedding_layers import require_embedding_layers, validate_embedding_layer
 _EMBEDDING_TABLES: Mapping[str, str] = {
     "maest": "maest_embeddings",
     "mert_v2": "mert_v2_embeddings",
+    "sheetsage2": "sheetsage2_embeddings",
     "muq": "muq_embeddings",
     "mulan": "mulan_embeddings",
     "clap": "clap_embeddings",

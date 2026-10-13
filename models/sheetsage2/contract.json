@@ -1,0 +1,178 @@
+{
+  "inputs": {
+    "transcribe_audio": {
+      "accepted": "File path, encoded audio bytes, binary stream, or a waveform (torch.Tensor or NumPy array) with sampling_rate.",
+      "waveform_shape": "[samples] or [channels, samples]; at most 32 channels, averaged to mono.",
+      "sample_rate_hz": 24000,
+      "minimum_samples": 1025,
+      "finite_values_only": true,
+      "amplitude_standardization": false,
+      "file_decoding": {
+        "default_preset": "ffmpeg executable: -vn -ac 1 -ar 24000 -f f32le.",
+        "paper_preset": "torchaudio ffmpeg backend, channel mean, torchaudio.functional.resample."
+      },
+      "waveform_resampling": "torchaudio.functional.resample when sampling_rate differs from 24000."
+    },
+    "input_values": {
+      "used_by": "forward, get_audio_features, generate",
+      "type": "torch.Tensor",
+      "shape": ["batch", "samples"],
+      "dtype": "floating point",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "minimum_samples": 1025,
+      "maximum_samples": 7200000,
+      "window_padding": "Every waveform is right padded with zeros to the 300 second window. The encoder attends to the complete window, including the padding.",
+      "attention_mask": "Optional [batch, samples] of zeros and ones, valid samples first. Masked samples are set to zero; the mask does not shorten the encoder input."
+    },
+    "prompts": {
+      "default": ["timestamp", "downbeat_meter", "structure", "key", "chord_full", "melody_full"],
+      "schema_v1": ["timestamp", "downbeat_meter", "structure", "key", "chord_majmin", "chord_full", "melody_vocal", "melody_full"],
+      "exclusive_groups": [["chord_majmin", "chord_full"], ["melody_vocal", "melody_full"]],
+      "required_by_transcribe": ["timestamp"]
+    }
+  },
+  "outputs": {
+    "transcribe": {
+      "container": "dict; with output_dir the same content is also written as files.",
+      "abc": "ABC score text, or null with abc_error when the score cannot be built.",
+      "midi": "bytes of the combined transcription; midis holds the separate parts.",
+      "events": "List of stitched timed events (see event).",
+      "labs": "Annotation text by name: chord, key, structure, melody_full, melody_vocal, melody_instrumental, rhythm_events, beat, downbeat.",
+      "tokens": "One token tensor per window.",
+      "windows": "Per-window start, end, accept_start, accept_end, prefix_end, generation_stop, prefix_tokens, token count, event counts.",
+      "warnings": "List of strings; empty when nothing was reported.",
+      "tensors": "Only with export_logits, export_scores, export_embeddings or output_hidden_states; CPU tensors grouped by window, or safetensors files with output_dir."
+    },
+    "event": {
+      "time": "Absolute seconds, from the window's timestamp anchors.",
+      "values.timestamp": "Absolute seconds; present on anchor events.",
+      "values.rhythm": "eighth_position, plus meter (numerator, denominator) when the meter is stated. A beat sits at eighth_position * denominator / 8, which must be an integer below the numerator; position 0 is the downbeat.",
+      "values.structure": "One of 23 labels (labels_sheetsage2.STRUCTURE_LABELS).",
+      "values.key": "Tonic:major or Tonic:minor in the canonical spelling of normalize_key_name.",
+      "values.chord": "Raw model label with sharp-side roots, for example A#:min. Key-aware spelling is applied only to the chord LAB and ABC outputs.",
+      "values.melody": "Notes with pitch (0-127), track (0 vocal, 1 instrumental), duration_bin, duration_steps and end_time in absolute seconds.",
+      "provenance": "window_index, window_start, source_subbeat, global_subbeat."
+    },
+    "intervals": {
+      "construction": "For chord, key and structure: one row per labeled event, ending at the next labeled event or the audio duration; zero-length rows are dropped.",
+      "key": "Labels pass through normalize_key_name.",
+      "chord": "correct_chord_rows respells each root using the key at the chord interval midpoint. Without a decoded key the spelling is kept."
+    },
+    "decoder": {
+      "vocabulary_size": 31678,
+      "maximum_sequence_tokens": 5120,
+      "prefix_counts_toward_limit": true,
+      "time_tokens": 30000,
+      "time_resolution_hz": 100,
+      "completion": "Generated EOS, or with the default preset a time token at or beyond the stop time, after which EOS is appended.",
+      "token_limit": "Generation stops at 5120 tokens and EOS is appended. A warning is recorded only when the returned sequence is longer than 5120 tokens, so a sequence whose EOS is its 5120th token carries no warning."
+    },
+    "audio_features": {
+      "source": "get_audio_features",
+      "frame_rate_hz": 25,
+      "frames_per_window": 7500,
+      "encoder_last_hidden_state": "[batch, frames, 512]; the decoder memory.",
+      "backbone_hidden_states": "With output_hidden_states: 24 tensors [batch, frames, 1024], one per Conformer block of the LoRA-merged encoder, without the subsampling state.",
+      "input_hidden_state": "With output_hidden_states: the subsampling state [batch, frames, 1024].",
+      "mixed_hidden_state": "[batch, frames, 1024]; softmax-weighted sum of the subsampling state and the 24 block states.",
+      "feature_attention_mask": "[batch, frames] bool; true for ceil(valid_samples / 960) frames.",
+      "native_track_pooling": null
+    }
+  },
+  "settings": {
+    "model": {
+      "repository": "m-a-p/SheetSage2",
+      "revision": "b83c3d79a6d98bcffaf8f9ed112c90aa887887bc",
+      "snapshot": "Complete repository snapshot, 142 files.",
+      "checkpoint": "model.safetensors",
+      "checkpoint_sha256": "b235f68091a5f5b644000f2b5acb57d1e70432aca2b34ab1b9cf27236e1f4274",
+      "weights_format": "adapter",
+      "license": "Weights CC BY-NC 4.0 (LICENSE); third-party terms in THIRD_PARTY_NOTICES.md.",
+      "base_model": {
+        "repository": "m-a-p/MERT-v2-FullSong",
+        "revision": "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42",
+        "checkpoint_sha256": "e6dd2ab187d6dd62b6521cd7d8f932e237acf0c5757745a7232082e28391350d",
+        "code_sha256": {
+          "configuration_mert2.py": "77b53ec9d7ee31a599d744fb006e812c7eeaf7390deb46e2f460cf8c17b00bd6",
+          "modeling_mert2.py": "b1a3174e5649c4b26b0c90d8626f0adacfbbba111a58ed3bb72ad651945a2f5c"
+        },
+        "integrity": "from_pretrained verifies these three digests before loading the parent."
+      }
+    },
+    "architecture": {
+      "encoder": "MERT2 Conformer, 24 blocks, hidden size 1024, 16 heads, 360 second context.",
+      "lora": "Rank 64, alpha 128 (scale 2.0) on query_proj, key_proj, value_proj and out_proj of every block.",
+      "layer_mixture": "Softmax over 25 learned weights (subsampling state plus 24 blocks), then a 1024 to 512 projection.",
+      "decoder": "BART decoder, 6 layers, d_model 512, 8 heads, FFN 2048, GELU, dropout 0.1, 5120 learned positions.",
+      "tied_weights": "token_embedding, decoder.embed_tokens and output_projection share one matrix.",
+      "tokenizer": "SheetSage2Tokenizer, schema v1, fingerprint 5ba3325af0344c7f."
+    },
+    "requirements": {
+      "python": "3.10 or 3.11",
+      "torch": "2.8.0",
+      "torchaudio": "2.8.0",
+      "transformers": "4.45.2",
+      "huggingface-hub": "0.36.0",
+      "safetensors": "0.5.3",
+      "numpy": "1.24.3",
+      "scipy": "1.13.1",
+      "mir_eval": "0.8.2",
+      "pretty_midi": "0.2.10",
+      "mido": "1.3.3",
+      "setuptools": "78.1.1",
+      "ffmpeg": "6.1 shared libraries; the ffmpeg executable for file input with the default preset.",
+      "observed_with_transformers_5.13.0": "SheetSage2Model cannot be constructed or loaded: BartDecoder no longer accepts embed_tokens, _tied_weights_keys must be a mapping, tie_weights receives new keyword arguments, and the loader reports the tied keys as missing."
+    },
+    "loading": {
+      "entry_point": "AutoModel.from_pretrained(path, trust_remote_code=True) or SheetSage2Model.from_pretrained.",
+      "sequence": "Load this checkpoint in float32, verify and load the parent encoder, check the parent architecture, merge LoRA on CPU in float32, then apply the requested dtype and device.",
+      "local_parent": "base_model_path selects a local parent directory.",
+      "torch_dtype": ["float32", "bfloat16", "float16"],
+      "attn_implementation": ["sdpa", "flash_attention_2"],
+      "result": "eval mode, gradients disabled, config.weights_format becomes merged."
+    },
+    "inference": {
+      "mode": "torch.inference_mode",
+      "decoding": "Greedy argmax under PromptGrammarState with a key-value cache.",
+      "precision": "transcribe dtype bf16 (default): bfloat16 autocast on CUDA; fp32, or any non-CUDA device, runs in float32.",
+      "mel_frontend": "float32 outside autocast."
+    },
+    "windowing": {
+      "window_seconds": 300.0,
+      "default_preset": {
+        "overlap_seconds": 200.0,
+        "lookahead_seconds": 100.0,
+        "hop_seconds": 100.0,
+        "generation_stop": "200 seconds into the window; for the last window min(duration - start, 300).",
+        "long_prefix": "A prefix of 4992 tokens or more raises ValueError."
+      },
+      "paper_preset": {
+        "overlap_seconds": 100.0,
+        "lookahead_seconds": 0.0,
+        "generation_stop": null,
+        "long_prefix": "A prefix of 5104 tokens or more is dropped with a warning."
+      },
+      "last_window": "Shifted back to end at the audio end.",
+      "accepted_region": "Each window contributes events from the end of the previous accepted region up to window start + 300 - lookahead; the last window up to the audio end.",
+      "prefix": "Later windows continue from a token prefix rebuilt from already accepted events between the window start and the accepted end."
+    },
+    "batching": {
+      "transcribe": "One window at a time.",
+      "generate": "constrained_prompt_generate_batch decodes a batch that shares one prefix and one stop time.",
+      "audio_features": "forward and get_audio_features accept a batch of waveforms."
+    },
+    "adapter": {
+      "model_class": "SheetSage2Runtime in embedding/sheetsage2_runtime.py rebuilds the native module tree on the installed transformers and loads both checkpoints strictly. SheetSage2Model itself is not instantiated.",
+      "native_modules": "tokenization_sheetsage2, generation_sheetsage2, exports_sheetsage2 and the modules they import, plus configuration_mert2 and modeling_mert2 from the MERT-v2 snapshot; all loaded from hash-verified copies.",
+      "audio": "Shared TorchCodec decode, arithmetic-mean mono and torchaudio Resample to 24 kHz; no ffmpeg executable.",
+      "windowing": "The default preset: 300 second windows, overlap 200, lookahead 100.",
+      "batching": "Up to inference_batch_size windows of different tracks per step. generate_batch decodes rows with different prefixes by left padding with per-row positions.",
+      "completion": "A window that reaches 5120 tokens without EOS or the stop time, or whose timestamp anchors are missing or run backward, fails the whole track.",
+      "intervals": "exports_sheetsage2.interval_rows, normalize_key_name and correct_chord_rows in the native order; equal neighbouring labels are merged afterwards.",
+      "embedding": "24 layers of 1024 values: frame mean weighted by each frame's accepted real-audio time, then L2 normalization per layer. Layer 24 is the default.",
+      "stored": "Timeline events, derived features and layer embeddings. ABC and MIDI are not stored; exports_sheetsage2.export_result builds them from the stitched events.",
+      "packages": "Versions come from pyproject.toml and differ from the upstream requirements above."
+    }
+  }
+}

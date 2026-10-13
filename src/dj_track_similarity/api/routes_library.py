@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import get_args
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -10,6 +11,7 @@ from .media_preview import AudioPreviewError, preview_duration_seconds, streamin
 from .route_utils import query_classifier_min_scores, valid_classifier_min_scores
 from .schemas import (
     EmbeddingLayersResponse,
+    EmbeddingSource,
     FilteredTracksRequest,
     LibrarySummaryResponse,
     RelocateLibraryRequest,
@@ -25,6 +27,7 @@ from .schemas import (
 )
 from .state import AppDatabaseState, DatabaseBusy
 from ..analysis_models import EMBEDDING_LAYER_HINTS, EMBEDDING_LAYERS
+from ..library_models import SheetSage2Timeline
 from ..track_models import TrackIdentity
 
 
@@ -150,6 +153,25 @@ def register_library_routes(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
+    @app.get("/api/tracks/{track_id}/sheetsage2-timeline", response_model=SheetSage2Timeline)
+    def sheetsage2_timeline(
+        track_id: int,
+        catalog_uuid: str = Query(min_length=1),
+        track_uuid: str = Query(min_length=1),
+    ) -> SheetSage2Timeline:
+        database, generation = state.capture_db()
+        try:
+            with state.captured_db(database, generation):
+                return database.get_sheetsage2_timeline(TrackIdentity(
+                    catalog_uuid=catalog_uuid, track_id=track_id, track_uuid=track_uuid,
+                ))
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (DatabaseBusy, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.post("/api/tracks/{track_id}/reveal")
     def reveal_track_location(track_id: int):
         try:
@@ -184,7 +206,7 @@ def register_library_routes(
     @app.get("/api/library/embedding-layers/{family}", response_model=EmbeddingLayersResponse)
     def embedding_layers(family: str) -> dict[str, object]:
         layers = EMBEDDING_LAYERS.get(family)
-        if layers is None:
+        if layers is None or family not in get_args(EmbeddingSource):
             raise HTTPException(status_code=404, detail=f"{family} embeddings have no layers")
         hints = EMBEDDING_LAYER_HINTS.get(family)
         layer_hints = hints.layers if hints is not None else {}

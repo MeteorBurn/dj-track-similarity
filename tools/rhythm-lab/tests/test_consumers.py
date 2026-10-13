@@ -1322,6 +1322,8 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert current.json()["feature_sources"]["mert_v2"]["status"] == "missing"
         assert current.json()["embedding_layers"]["mert_v2"]["stored"] == []
         assert current.json()["embedding_layers"]["muq"]["stored"] == list(range(1, 14))
+        assert current.json()["feature_sources"]["sheetsage2"]["status"] == "missing"
+        assert current.json()["embedding_layers"]["sheetsage2"]["stored"] == []
 
         tracks_response = client.get(
             "/api/profiles/focused/tracks",
@@ -1339,6 +1341,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             "sonara",
             "mulan",
             "mert_v2",
+            "sheetsage2",
             "maest",
             "clap",
             "muq",

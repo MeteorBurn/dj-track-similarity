@@ -1856,6 +1856,7 @@ class _SourceInventory:
                 },
             }
             for family, layers in EMBEDDING_LAYERS.items()
+            if family in SUPPORTED_FEATURE_SOURCES
         }
 
     def features_payload(self) -> dict[str, dict[str, object]]:

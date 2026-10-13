@@ -44,13 +44,14 @@ const multiclassLabelRowsEl = document.getElementById("multiclassLabelRows");
 const FEATURE_FAMILY_LABELS = {
   sonara: "SONARA",
   mert_v2: "MERT-v2",
+  sheetsage2: "SHEETSAGE-v2",
   maest: "MAEST",
   clap: "CLAP",
   muq: "MuQ",
   mulan: "MuLan",
 };
 // Picker order in the UI; the backend canonical order is being aligned to it.
-const FEATURE_FAMILY_ORDER = ["sonara", "maest", "mert_v2", "muq", "mulan", "clap"];
+const FEATURE_FAMILY_ORDER = ["sonara", "maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"];
 const DEFAULT_BENCHMARK_STRATEGY = "singles+all";
 // Labels are UI copy; the keys are the values sent to the API.
 const BENCHMARK_STRATEGY_LABELS = {

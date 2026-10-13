@@ -26,7 +26,7 @@ from .source_db import SourceDatabase, SourceTrack
 # (the UI mirrors it). A layered family (EMBEDDING_LAYERS) may select one of
 # its stored layers as "<family>@<layer>", the grammar the main app scores;
 # the bare token is the default layer, so existing artifacts keep matching.
-SUPPORTED_FEATURE_SOURCES = ("sonara", "maest", "mert_v2", "muq", "mulan", "clap")
+SUPPORTED_FEATURE_SOURCES = ("sonara", "maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap")
 _SONARA_CORE_SCALAR_FIELDS = (
     "bpm",
     "onset_density",
@@ -436,6 +436,7 @@ def stored_embedding_layers(source: SourceDatabase) -> dict[str, tuple[int, ...]
     return {
         family: tuple(sorted({int(layer) for layer in stored.get(family, ())}))
         for family in EMBEDDING_LAYERS
+        if family in SUPPORTED_FEATURE_SOURCES
     }
 
 

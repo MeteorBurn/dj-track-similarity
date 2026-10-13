@@ -7,8 +7,8 @@ export type AnalysisSelection = AnalysisModel;
 // so it only exists at this frontend selection layer.
 export type StageSelection = "database" | AnalysisSelection;
 
-export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert_v2", "muq", "mulan", "clap"];
-export const mlAnalysisModelOrder: AnalysisModel[] = ["maest", "mert_v2", "muq", "mulan", "clap"];
+export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"];
+export const mlAnalysisModelOrder: AnalysisModel[] = ["maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap"];
 export const analysisSelectionOrder: AnalysisSelection[] = [...audioAnalysisModelOrder];
 export const defaultStageSelections: StageSelection[] = ["sonara"];
 
@@ -26,13 +26,15 @@ export const analysisModelLabels: Record<AnalysisModel, string> = {
   sonara: "SONARA",
   maest: "MAEST",
   mert_v2: "MERT-v2",
+  sheetsage2: "SHEETSAGE-v2",
   muq: "MuQ",
   mulan: "MuQ-MuLan",
   clap: "CLAP"
 };
 
 export function analysisModelDisplayLabel(model: string) {
-  return model === "mert_v2" ? analysisModelLabels.mert_v2 : model.toUpperCase();
+  if (model === "mert_v2" || model === "sheetsage2") return analysisModelLabels[model];
+  return model.toUpperCase();
 }
 
 function trackWord(count: number) {

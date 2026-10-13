@@ -5,19 +5,24 @@ from dataclasses import dataclass, field, replace
 import gc
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 import weakref
 
 import numpy as np
 import pytest
+
+from sheetsage2_test_support import sheetsage2_timeline
 
 from dj_track_similarity.analysis import model_runners as runner_module
 from dj_track_similarity.analysis.job_batch import AnalysisBatchItem
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis.ml_staging import MLStagingConfig, MLStagingSession
 from dj_track_similarity.analysis.queue import AnalysisStageQueue
+from dj_track_similarity.analysis.sheetsage2_features import derive_sheetsage2_features
 from dj_track_similarity.analysis.model_runners import (
     EmbeddingModelRunner,
     MaestModelRunner,
+    SheetSage2ModelRunner,
     current_embedding_analysis_output,
     default_model_runners,
 )
@@ -28,6 +33,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisWriteResult,
     EmbeddingWrite,
     MaestWrite,
+    SheetSage2Write,
     current_embedding_spec,
 )
 from dj_track_similarity.audio.loader import DecodedAudio
@@ -158,6 +164,9 @@ class _FakeRepository:
     def save_maest_results(self, writes):
         raise AssertionError(f"unexpected MAEST writes: {writes!r}")
 
+    def save_sheetsage2_results(self, writes):
+        raise AssertionError(f"unexpected SheetSage2 writes: {writes!r}")
+
     def save_embedding_results(self, writes):
         raise AssertionError(f"unexpected embedding writes: {writes!r}")
 
@@ -254,17 +263,36 @@ def test_ml_job_is_unavailable_without_current_sonara() -> None:
     assert repository.events == []
 
 
-@pytest.mark.parametrize("failure_origin", ["result", "mert_v2_batch", "mert_v2_staged"])
+@pytest.mark.parametrize("failure_origin", [
+    "result", "mert_v2_batch", "mert_v2_staged", "sheetsage2_batch", "sheetsage2_staged",
+])
 def test_per_file_runner_failure_does_not_fail_the_job(failure_origin: str, tmp_path: Path) -> None:
-    output = _mert_v2_output()
+    model = "sheetsage2" if failure_origin.startswith("sheetsage2") else "mert_v2"
+    output = AnalysisOutput(model, "embedding")
     candidates = [_candidate(1, (output,)), _candidate(2, (output,))]
+    if model == "sheetsage2":
+        candidates.append(_candidate(3, (output,)))
     repository = _FakeRepository(candidates)
     runner = _FakeRunner(
         "mert_v2",
         (output,),
         errors=(None, RuntimeError("stale target")),
     )
-    if failure_origin != "result":
+    if model == "sheetsage2":
+        class FailingSheetSage2Adapter(_FakeSheetSage2Adapter):
+            def analyze_decoded_batch(self, decoded_items, *, cancelled=None, result_callback=None):
+                results = super().analyze_decoded_batch(decoded_items, cancelled=cancelled)
+                for index, item in enumerate(decoded_items):
+                    if Path(item.path).stem == "2":
+                        results[index] = RuntimeError("stale target")
+                    if result_callback is not None:
+                        result_callback(index, results[index])
+                return results
+
+        runner = SheetSage2ModelRunner(device="cpu", adapter=FailingSheetSage2Adapter())
+        write_repository = _SheetSage2WriteRepository()
+        repository.save_sheetsage2_results = write_repository.save_sheetsage2_results
+    elif failure_origin != "result":
         class FailingMertV2Adapter(_FakeMertV2Adapter):
             def embed_decoded_layers_batch(self, decoded_items, *, cancelled=None):
                 if any(Path(item.path).stem == "2" for item in decoded_items):
@@ -276,21 +304,25 @@ def test_per_file_runner_failure_does_not_fail_the_job(failure_origin: str, tmp_
         )
         write_repository = _EmbeddingWriteRepository()
         repository.save_embedding_results = write_repository.save_embedding_results
-    runners = {"mert_v2": runner}
+    runners = {model: runner}
     staging_config = None
-    if failure_origin == "mert_v2_staged":
+    if failure_origin.endswith("_staged"):
         clap_output = _clap_output()
         runners["clap"] = _FakeRunner("clap", (clap_output,))
+        staging_config = MLStagingConfig(
+            root=tmp_path / "staging", copy_workers=1, decode_workers=1,
+            stage_size=len(candidates), inference_batch_size=len(candidates),
+        )
+    if staging_config is not None or model == "sheetsage2":
         for index, candidate in enumerate(candidates):
             path = tmp_path / f"{candidate.target.track_id}.wav"
             path.write_text(f"{candidate.target.track_id}.wav")
+            stat = path.stat()
             candidates[index] = replace(
-                candidate, file_path=str(path), missing_outputs=(output, clap_output),
+                candidate, file_path=str(path), file_size_bytes=stat.st_size,
+                file_modified_ns=stat.st_mtime_ns,
+                missing_outputs=(output, clap_output) if staging_config else (output,),
             )
-        staging_config = MLStagingConfig(
-            root=tmp_path / "staging", copy_workers=1, decode_workers=1,
-            stage_size=2, inference_batch_size=2,
-        )
 
     status = AnalysisJobManager(
         repository,
@@ -299,19 +331,21 @@ def test_per_file_runner_failure_does_not_fail_the_job(failure_origin: str, tmp_
     ).run_sync(models=list(runners), device="cpu", ml_staging_config=staging_config)
 
     assert status.state == "completed"
-    assert status.processed == 2
+    assert status.processed == len(candidates)
     if failure_origin != "result":
-        assert [write.target.track_id for write in write_repository.writes] == [1]
-    assert status.analyzed == 1
+        assert [write.target.track_id for write in write_repository.writes] == (
+            [1, 3] if model == "sheetsage2" else [1]
+        )
+    assert status.analyzed == len(candidates) - 1
     assert status.failed == 1
-    assert status.model_progress["mert_v2"].analyzed == 1
-    assert status.model_progress["mert_v2"].failed == 1
+    assert status.model_progress[model].analyzed == len(candidates) - 1
+    assert status.model_progress[model].failed == 1
     assert status.errors[0].track_id == 2
     assert "stale target" in status.errors[0].error
-    if failure_origin == "mert_v2_staged":
-        assert status.model_progress["clap"].analyzed == 2
+    if staging_config is not None:
+        assert status.model_progress["clap"].analyzed == len(candidates)
         assert status.model_progress["clap"].failed == 0
-        assert [error.model for error in status.errors] == ["mert_v2"]
+        assert [error.model for error in status.errors] == [model]
 
 
 def test_runner_initialization_failure_is_fatal_before_activation() -> None:
@@ -914,22 +948,16 @@ def test_model_preflight_failure_preserves_prior_active_output() -> None:
 def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     runners = [
         default_model_runners(model, "cpu", 7, 11)
-        for model in ("maest", "mert_v2", "muq", "mulan", "clap")
+        for model in ("maest", "mert_v2", "sheetsage2", "muq", "mulan", "clap")
     ]
 
-    assert [runner.model for runner in runners] == [
-        "maest",
-        "mert_v2",
-        "muq",
-        "mulan",
-        "clap",
-    ]
     assert {
         runner.model: tuple(output.key for output in runner.active_outputs)
         for runner in runners
     } == {
         "maest": (("maest", "analysis"), ("maest", "embedding")),
         "mert_v2": (("mert_v2", "embedding"),),
+        "sheetsage2": (("sheetsage2", "timeline"), ("sheetsage2", "features"), ("sheetsage2", "embedding")),
         "muq": (("muq", "embedding"),),
         "mulan": (("mulan", "embedding"),),
         "clap": (("clap", "embedding"),),
@@ -937,6 +965,7 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     expected_dimensions = {
         "maest": 768,
         "mert_v2": 1024,
+        "sheetsage2": 1024,
         "muq": 1024,
         "mulan": 512,
         "clap": 512,
@@ -1007,6 +1036,50 @@ class _FakeMertV2Adapter(MertV2EmbeddingAdapter):
         vector = np.zeros(1024, dtype=np.float32)
         vector[0] = 1.0
         return [tuple(vector.copy() for _ in range(24)) for _item in decoded_items]
+
+
+class _FakeSheetSage2Adapter:
+    model_name = "test-sheetsage2"
+    model_version = "test"
+    checkpoint_id = "sha256:" + "a" * 64
+    preprocessing = "test"
+    device = "cpu"
+    target_rate = 24_000
+
+    def preflight(self) -> None:
+        pass
+
+    def analyze_decoded_batch(self, decoded_items, *, cancelled=None, result_callback=None):
+        timeline = sheetsage2_timeline()
+        results = [
+            SimpleNamespace(
+                timeline=timeline,
+                features=derive_sheetsage2_features(timeline),
+                layer_embeddings=tuple(
+                    np.eye(1, 1024, layer, dtype=np.float32)[0] for layer in range(24)
+                ),
+            )
+            for _item in decoded_items
+        ]
+        if result_callback is not None:
+            for index, result in enumerate(results):
+                result_callback(index, result)
+        return results
+
+
+@dataclass
+class _SheetSage2WriteRepository:
+    writes: tuple[SheetSage2Write, ...] = ()
+
+    def require_embedding_layer_storage(self, family: str) -> None:
+        pass
+
+    def save_sheetsage2_results(self, writes) -> tuple[AnalysisWriteResult, ...]:
+        self.writes += tuple(writes)
+        return tuple(
+            AnalysisWriteResult(target=write.target, written_outputs=write.outputs)
+            for write in writes
+        )
 
 
 class _FakeClapAdapter(ClapEmbeddingAdapter):
@@ -1286,23 +1359,27 @@ class _MaestWriteRepository:
         )
 
 
-def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() -> None:
-    adapter = _FakeMaestAdapter()
-    runner = MaestModelRunner(
-        device="cpu",
-        top_k=3,
-        inference_batch_size=2,
-        adapter=adapter,  # type: ignore[arg-type]
+@pytest.mark.parametrize("family", ["maest", "sheetsage2"])
+def test_structured_runner_persists_complete_analysis_and_normalized_embeddings(
+    family: str, tmp_path: Path,
+) -> None:
+    runner = (
+        MaestModelRunner(device="cpu", top_k=3, inference_batch_size=2, adapter=_FakeMaestAdapter())
+        if family == "maest" else
+        SheetSage2ModelRunner(device="cpu", adapter=_FakeSheetSage2Adapter())
     )
     base_candidate = _candidate(1, (runner.candidate_outputs[1],))
+    path = tmp_path / "track.wav"
+    path.write_bytes(b"test")
+    stat = path.stat()
     candidate = AnalysisCandidate(
         target=base_candidate.target,
-        file_path=base_candidate.file_path,
-        file_size_bytes=base_candidate.file_size_bytes,
-        file_modified_ns=base_candidate.file_modified_ns,
+        file_path=str(path),
+        file_size_bytes=stat.st_size,
+        file_modified_ns=stat.st_mtime_ns,
         missing_outputs=(runner.candidate_outputs[1],),
     )
-    repository = _MaestWriteRepository()
+    repository = _MaestWriteRepository() if family == "maest" else _SheetSage2WriteRepository()
 
     results = runner.analyze_batch(
         repository,  # type: ignore[arg-type]
@@ -1310,7 +1387,7 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
             AnalysisBatchItem(
                 candidate=candidate,
                 decoded=_decoded(candidate.file_path),
-                models=("maest",),
+                models=(family,),
             ),
         ),
     )
@@ -1318,15 +1395,105 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
     assert results == [None]
     assert len(repository.writes) == 1
     write = repository.writes[0]
-    assert [output.key for output in write.outputs] == [
-        ("maest", "analysis"),
-        ("maest", "embedding"),
-    ]
-    assert write.syncopated_rhythm is True
+    assert set(write.outputs) == set(runner.active_outputs)
     assert write.embedding is not None
     assert np.linalg.norm(write.embedding.vector) == pytest.approx(1.0)
-    assert len(write.embedding.layer_vectors) == 13
-    np.testing.assert_allclose(write.embedding.vector[:2], (0.6, 0.8), rtol=1e-6)
+    if family == "maest":
+        assert write.syncopated_rhythm is True
+        assert len(write.embedding.layer_vectors) == 13
+        np.testing.assert_allclose(write.embedding.vector[:2], (0.6, 0.8), rtol=1e-6)
+    else:
+        assert len(write.embedding.layer_vectors) == 24
+        assert write.timeline == sheetsage2_timeline()
+        assert dict(write.features) == derive_sheetsage2_features(write.timeline)
+        assert (write.file_size_bytes, write.file_modified_ns) == (stat.st_size, stat.st_mtime_ns)
+        path.write_bytes(b"changed source")
+        errors = runner.analyze_batch(repository, [AnalysisBatchItem(candidate, _decoded(str(path)), (family,))])
+        assert len(errors) == 1 and "source file changed" in str(errors[0])
+        assert len(repository.writes) == 1
+
+
+@pytest.mark.parametrize(("mode", "cancel_at"), [
+    ("direct", "inference"), ("staged", "inference"), ("direct", "after_write"),
+    ("staged", "after_write"), ("direct", "never"), ("staged", "never"),
+])
+def test_sheetsage_job_cancellation_preserves_completed_tracks(
+    tmp_path: Path, mode: str, cancel_at: str,
+) -> None:
+    calls: list[int] = []
+    current_paths: list[str | None] = []
+    batch_sizes: list[int] = []
+
+    class CancellingAdapter(_FakeSheetSage2Adapter):
+        def analyze_decoded_batch(self, decoded_items, *, cancelled=None, result_callback=None):
+            batch_sizes.append(len(decoded_items))
+            assert len(decoded_items) == 3
+            current_paths.append(manager.get(job_id).current_path)
+            assert manager.get(job_id).current_model == "sheetsage2"
+            results = super().analyze_decoded_batch(decoded_items, cancelled=cancelled)
+            order = [2, 0, 1] if cancel_at == "never" else range(len(decoded_items))
+            for done, index in enumerate(order, 1):
+                item = decoded_items[index]
+                if cancelled is not None and cancelled():
+                    raise EmbeddingCancelledError("cancelled inside batched inference")
+                track_id = int(Path(item.path).stem)
+                calls.append(track_id)
+                if cancel_at == "inference" and track_id == 2:
+                    manager.cancel(job_id)
+                    assert cancelled is not None and cancelled()
+                assert result_callback is not None
+                result_callback(index, results[index])
+                # Progress must be published during inference, after the atomic write.
+                assert manager.get(job_id).model_progress["sheetsage2"].analyzed == done
+                assert manager.get(job_id).analyzed == done
+                assert len(writes.writes) == done
+            return results
+
+    runner = SheetSage2ModelRunner(device="cpu", adapter=CancellingAdapter())
+    repository = _FakeRepository([])
+    writes = _SheetSage2WriteRepository()
+
+    def save_results(selected):
+        results = writes.save_sheetsage2_results(selected)
+        if cancel_at == "after_write":
+            manager.cancel(job_id)
+        return results
+
+    repository.save_sheetsage2_results = save_results
+    for track_id in range(1, 4):
+        path = tmp_path / f"{track_id}.wav"
+        path.write_text(str(track_id))
+        stat = path.stat()
+        repository.candidates.append(replace(
+            _candidate(track_id, runner.active_outputs), file_path=str(path),
+            file_size_bytes=stat.st_size, file_modified_ns=stat.st_mtime_ns,
+        ))
+    staging = (
+        MLStagingConfig(
+            root=tmp_path / "staging", copy_workers=1, decode_workers=1,
+            stage_size=3, inference_batch_size=3,
+        ) if mode == "staged" else None
+    )
+    manager = AnalysisJobManager(
+        repository, model_runners={"sheetsage2": runner},
+        decode_audio=lambda path: _decoded(Path(path).read_text()),
+    )
+    job_id = manager.create_job(
+        models=["sheetsage2"], device="cpu", track_batch_size=3, ml_staging_config=staging,
+    )
+    status = manager.run_job(job_id)
+    manager.close()
+    assert status.state == ("completed" if cancel_at == "never" else "cancelled")
+    assert status.failed == 0 and not status.errors
+    expected_ids = [3, 1, 2] if cancel_at == "never" else [1]
+    assert status.model_progress["sheetsage2"].analyzed == len(expected_ids)
+    assert status.analyzed == len(expected_ids)
+    assert calls == ([1] if cancel_at == "after_write" else [3, 1, 2] if cancel_at == "never" else [1, 2])
+    assert batch_sizes == [3]
+    assert current_paths == [None]
+    assert [write.target.track_id for write in writes.writes] == expected_ids
+    assert all(write.target == repository.candidates[write.target.track_id - 1].target for write in writes.writes)
+    assert runner.track_result is None
 
 
 @pytest.mark.parametrize("mode", ["run_job", "run_sync", "threaded", "queued"])

@@ -80,11 +80,13 @@ function playbackHarness() {
 
 test("stream playback starts before metadata and uses the source timeline across seeks", async () => {
   const h = playbackHarness(); const track = { track_id: 7 };
-  h.ui.togglePreview(track); h.render();
+  h.ui.togglePreview(track, 45); h.render();
   assert.equal(h.audio.playCalls, 1, "unresolved metadata must not delay playback");
-  assert.equal(h.audio.src, "/media/7?start=0");
+  assert.equal(h.audio.src, "/media/7?start=45");
   h.audio.currentTime = 7; h.audio.emit("timeupdate");
-  assert.deepEqual({ ...h.position() }, { trackId: 7, currentTime: 7, duration: 0 });
+  assert.deepEqual({ ...h.position() }, { trackId: 7, currentTime: 52, duration: 0 });
+  h.ui.togglePreview(track, 60); h.render();
+  assert.equal(h.audio.src, "/media/7?start=60", "map seek works before metadata resolves");
   h.infos[0].resolve({ duration_seconds: 300 }); await flush();
   const originalAudio = h.audio;
   h.ui.seekPreview(track, 120); h.render();

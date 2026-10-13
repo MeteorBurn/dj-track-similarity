@@ -11,13 +11,14 @@ from ..analysis_models import current_embedding_spec
 from ..db.embedding_layers import validate_embedding_layer
 
 
-CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "maest", "clap", "muq", "mulan", "mert_v2")
+CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "maest", "clap", "muq", "mulan", "mert_v2", "sheetsage2")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _OUTPUT_KIND_BY_FEATURE_SOURCE = {
     "sonara": "core",
     "mert_v2": "embedding",
+    "sheetsage2": "embedding",
     "maest": "embedding",
     "clap": "embedding",
     "muq": "embedding",

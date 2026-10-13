@@ -48,6 +48,8 @@ def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:
 
     with pytest.raises(ValueError, match="SONARA analysis must run alone"):
         normalize_analysis_models(["sonara", "mert_v2"])
+    with pytest.raises(ValueError, match="SONARA analysis must run alone"):
+        normalize_analysis_models(["sonara", "sheetsage2"])
 
 
 def test_parse_analysis_models_text_uses_same_rules() -> None:
@@ -88,6 +90,7 @@ def test_ml_jobs_require_current_sonara_but_sonara_jobs_do_not() -> None:
     assert build_analysis_job_config(
         models=["maest", "mert_v2"],
     ).require_current_sonara
+    assert build_analysis_job_config(models=["sheetsage2"]).require_current_sonara
     assert not build_analysis_job_config(
         models=["sonara"],
     ).require_current_sonara

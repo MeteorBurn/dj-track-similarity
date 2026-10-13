@@ -1260,3 +1260,429 @@ def test_maest_analyze_decoded_batch_forwards_full_resampled_audio(monkeypatch) 
     expected = [inputs[0].float().repeat_interleave(2), inputs[1], inputs[2]]
     for actual, full in zip(adapter.fake_model.audio_calls, expected):
         torch.testing.assert_close(actual, full)
+
+
+def test_sheetsage2_encoder_pooling_preserves_native_memory_and_bart_cache(monkeypatch, tmp_path) -> None:
+    import copy
+    import json
+    from contextlib import nullcontext
+    from safetensors.torch import save_file, save_model
+    import dj_track_similarity.embedding.sheetsage2_runtime as runtime
+    from dj_track_similarity.embedding.sheetsage2_runtime import (
+        SheetSage2Runtime, accepted_frame_weights, sliding_window_plan,
+    )
+
+    config = dict(
+        backbone_config=dict(hidden_size=4, num_hidden_layers=24), lora_rank=2, lora_alpha=4,
+        hidden_size=8, vocab_size=20, max_output_seq_len=32, decoder_layers=1,
+        num_attention_heads=2, intermediate_size=16, decoder_dropout=0.0,
+        pad_token_id=0, bos_token_id=1, eos_token_id=2, input_audio_length=0.48, sampling_rate=100,
+    )
+    model = SheetSage2Runtime(config, types.SimpleNamespace(pad_token=0)).eval()
+
+    class Layer(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.attn = torch.nn.Module()
+            for name in ("query_proj", "key_proj", "value_proj", "out_proj"):
+                setattr(self.attn, name, torch.nn.Linear(4, 4))
+
+        def forward(self, hidden, positions):
+            return hidden + 1.0
+
+    class Subsample(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.convnext_layers = [types.SimpleNamespace(
+                depthwise_block=[None, types.SimpleNamespace(weight=torch.zeros(1))],
+            )]
+
+        def forward(self, mel):
+            return mel
+
+    class Encoder(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.config = types.SimpleNamespace(minimum_input_samples=1, inputs_to_logits_ratio=4)
+            self.layers = torch.nn.ModuleList([Layer() for _ in range(24)])
+            self.subsampling_module = torch.nn.Sequential(Subsample())
+            self.calls = 0
+            self.register_buffer("window", torch.arange(9, dtype=torch.float32)[1:])
+
+        def feature_extractor(self, audio):
+            self.calls += 1
+            assert audio.shape[1] == 48
+            assert torch.count_nonzero(audio[:, 43:]) == 0
+            return torch.arange(48, dtype=torch.float32).reshape(1, 12, 4).repeat(audio.shape[0], 1, 1)
+
+        def embed_positions(self, hidden):
+            return None
+
+    ordinary_mert = Encoder()
+    model.encoder = copy.deepcopy(ordinary_mert)
+    original_weight = ordinary_mert.layers[0].attn.query_proj.weight.detach().clone()
+    expected_delta = (model.adapter.layers[0].attn.query_proj.lora_B.weight
+                      @ model.adapter.layers[0].attn.query_proj.lora_A.weight) * 2.0
+    model.merge_lora()
+    torch.testing.assert_close(model.encoder.layers[0].attn.query_proj.weight, original_weight + expected_delta)
+    torch.testing.assert_close(ordinary_mert.layers[0].attn.query_proj.weight, original_weight)
+    assert model.adapter is None
+
+    with torch.inference_mode():
+        memory, sums, weight = model.encode_and_pool(
+            torch.ones(1, 43), window_start=0.0, accept_start=0.015, accept_end=0.415,
+        )
+        assert model.encoder.calls == 1
+        frame_weights = accepted_frame_weights(12, 0.04, 0, 0.015, 0.415, 0.43)
+        assert weight == pytest.approx(0.4)
+        assert frame_weights[0] == pytest.approx(0.025)
+        assert frame_weights[10] == pytest.approx(0.015)
+        assert frame_weights[11] == 0
+        base = torch.arange(48, dtype=torch.float32).reshape(1, 12, 4)
+        states = [base + index for index in range(25)]
+        native_mixed = sum(state * part for state, part in zip(states, model.layer_weight.softmax(0)))
+        torch.testing.assert_close(memory, model.encoder_projection(native_mixed), rtol=0, atol=0)
+        expected = np.stack([((base[0].numpy() + index) * frame_weights[:, None]).sum(0)
+                             for index in range(1, 25)])
+        np.testing.assert_allclose(sums, expected, rtol=1e-6, atol=1e-6)
+        assert sums.shape == (24, 4)
+        batch_memory, batch_sums, batch_weights, valid = model.encode_and_pool_batch(
+            torch.ones(2, 43), window_starts=[0.0, 0.2], accept_starts=[0.015, 0.415],
+            accept_ends=[0.415, 0.63], sample_lengths=[43, 43],
+        )
+        assert model.encoder.calls == 2
+        assert valid.tolist() == [True, True]
+        np.testing.assert_allclose(batch_sums[0], sums)
+        assert batch_weights.tolist() == pytest.approx([0.4, 0.215])
+        torch.testing.assert_close(batch_memory[0], memory[0])
+        assert model.token_embedding.weight is model.decoder.embed_tokens.weight
+        assert model.token_embedding.weight is model.output_projection.weight
+        full, _ = model.decode(memory, torch.tensor([[1, 3, 4]]), use_cache=False)
+        native_logits, _ = model.decode(model.encoder_projection(native_mixed), torch.tensor([[1, 3, 4]]), use_cache=False)
+        torch.testing.assert_close(full, native_logits, rtol=0, atol=0)
+        _, cache = model.decode(memory, torch.tensor([[1, 3]]), use_cache=True)
+        assert cache is not None
+        last, _ = model.decode(memory, torch.tensor([[4]]), use_cache=True, past_key_values=cache)
+        torch.testing.assert_close(last[:, -1], full[:, -1], rtol=1e-5, atol=1e-5)
+        # Left-padded prefixes retain each row's native learned positions, including
+        # cached advancement after another row has completed and been removed.
+        batch_memory = memory.repeat(2, 1, 1)
+        ids = torch.tensor([[0, 1, 3], [1, 5, 6]])
+        mask = ids != 0
+        positions = (mask.long().cumsum(1) - 1).clamp_min(0)
+        batched, cache = model.decode(batch_memory, ids, use_cache=True,
+                                      attention_mask=mask, position_ids=positions)
+        single, _ = model.decode(memory, torch.tensor([[1, 3]]))
+        torch.testing.assert_close(batched[0, -1], single[0, -1], rtol=1e-5, atol=1e-5)
+        single2, _ = model.decode(memory, torch.tensor([[1, 5, 6]]))
+        torch.testing.assert_close(batched[1, -1], single2[0, -1], rtol=1e-5, atol=1e-5)
+        mask = torch.cat((mask, torch.ones(2, 1, dtype=torch.bool)), dim=1)
+        cached, cache = model.decode(batch_memory, torch.tensor([[4], [7]]), use_cache=True,
+                                     past_key_values=cache, attention_mask=mask,
+                                     position_ids=mask.long().sum(1, keepdim=True) - 1)
+        torch.testing.assert_close(cached[0, -1], full[0, -1], rtol=1e-5, atol=1e-5)
+        cache.batch_select_indices(torch.tensor([0]))
+        mask = torch.cat((mask[:1], torch.ones(1, 1, dtype=torch.bool)), dim=1)
+        pruned, _ = model.decode(memory, torch.tensor([[8]]), use_cache=True, past_key_values=cache,
+                                attention_mask=mask, position_ids=torch.tensor([[3]]))
+        single, _ = model.decode(memory, torch.tensor([[1, 3, 4, 8]]))
+        torch.testing.assert_close(pruned[0, -1], single[0, -1], rtol=1e-5, atol=1e-5)
+        last_only, _ = model.decode(memory, torch.tensor([[1, 3, 4, 8]]), last_logits_only=True)
+        torch.testing.assert_close(last_only[:, -1], single[:, -1], rtol=1e-5, atol=1e-5)
+        class Grammar:
+            def __init__(self, tokenizer):
+                self.count = 0
+
+            def update(self, token):
+                self.count += 1
+                return token == 2
+
+            def allowed(self, device):
+                allowed = torch.zeros(20, dtype=torch.bool, device=device)
+                allowed[10 if self.count == 0 else 5 if self.count == 1 else 2] = True
+                return allowed
+
+        model.tokenizer = types.SimpleNamespace(
+            pad_token=0, sos_token=1, eos_token=2, out_token=3, time_token_start=10, time_token_end=20,
+            time_hz=1, token_to_time_id=lambda token: token - 10,
+        )
+        generation = types.SimpleNamespace(
+            PromptGrammarState=Grammar, inference_autocast=lambda *args: nullcontext(),
+            select_cache_batch=lambda cache, indices, size: cache.batch_select_indices(indices) or cache,
+        )
+        finished = []
+        generated = runtime.generate_batch(
+            model, generation, batch_memory, (), [[1, 3], [1, 3, 4]], [0.0, None],
+            result_callback=lambda index, value: finished.append(index),
+        )
+        assert finished == [0, 1]
+        assert [(tokens.tolist(), reason) for tokens, reason in generated] == [
+            ([1, 3, 10, 2], "time_boundary"), ([1, 3, 4, 5, 2], "eos"),
+        ]
+        with pytest.raises(EmbeddingCancelledError):
+            model.encode_and_pool(torch.ones(1, 43), window_start=0, accept_start=0, accept_end=0.43,
+                                  cancelled=lambda: True)
+
+    duration = 480.123
+    accepted = sum(accepted_frame_weights(7500, 0.04, window["start"], window["accept_start"],
+                                         window["accept_end"], window["end"] - window["start"]).sum()
+                   for window in sliding_window_plan(duration))
+    assert accepted == pytest.approx(duration)
+
+    # A real safetensors round trip includes tied BART weights and a native-style
+    # Torchaudio buffer view; neither may be mistaken for an incomplete checkpoint.
+    sheet_path, base_path = tmp_path / "sheet", tmp_path / "base"
+    sheet_path.mkdir()
+    base_path.mkdir()
+    local_config = dict(config, weights_format="adapter", sampling_rate=24_000, time_hz=100,
+                        tokenizer_schema_version="v1", tokenizer_fingerprint="fixture")
+    (sheet_path / "config.json").write_text(json.dumps(local_config), encoding="utf-8")
+    (base_path / "config.json").write_text(json.dumps(config["backbone_config"]), encoding="utf-8")
+    saved_model = SheetSage2Runtime(local_config, types.SimpleNamespace(pad_token=0))
+    save_model(saved_model, str(sheet_path / "model.safetensors"))
+    save_file({key: value.clone() for key, value in ordinary_mert.state_dict().items()},
+              str(base_path / "model.safetensors"))
+    modules = {
+        "tokenization_sheetsage2": types.SimpleNamespace(
+            SheetSage2Tokenizer=lambda *args, **kwargs: types.SimpleNamespace(pad_token=0, n_tokens=20)),
+        "generation_sheetsage2": object(),
+        "exports_sheetsage2": object(),
+        "configuration_mert2": types.SimpleNamespace(MERT2Config=lambda **kwargs: types.SimpleNamespace(**kwargs)),
+        "modeling_mert2": types.SimpleNamespace(MERT2Model=lambda config: Encoder()),
+    }
+    monkeypatch.setattr(runtime, "_local_modules", lambda *args: nullcontext(modules.__getitem__))
+    loaded, _, exports = runtime.load_local_runtime(sheet_path, base_path)
+    assert exports is modules["exports_sheetsage2"]
+    assert loaded.adapter is None
+    assert loaded.decoder.embed_tokens.weight is loaded.output_projection.weight
+    torch.testing.assert_close(loaded.token_embedding.weight, saved_model.token_embedding.weight)
+    torch.testing.assert_close(loaded.encoder.window, ordinary_mert.window)
+
+
+def test_sheetsage2_timeline_features_and_layers_reject_incomplete_generation() -> None:
+    import copy
+    from contextlib import nullcontext
+    from dj_track_similarity.analysis.sheetsage2_features import derive_sheetsage2_features
+    from dj_track_similarity.embedding.sheetsage2 import SheetSage2Adapter
+
+    times = [0.0, 0.5, 1.0, 1.5, 2.0, 2.25, 2.5]
+    raw = []
+    for i, time_s in enumerate(times):
+        values = {"timestamp": time_s, "rhythm": {"eighth_position": (i * 2) % 8 if i < 4 else i - 4}}
+        if i in (0, 4):
+            values["rhythm"]["meter"] = (4, 4) if i == 0 else (3, 8)
+        if i in (0, 3):
+            values.update(chord="C:maj" if i == 0 else "G:maj", key="C:major" if i == 0 else "A:minor",
+                          structure="intro" if i == 0 else "chorus")
+        raw.append(dict(time=time_s, global_subbeat=i * 4 if i < 4 else (i - 4) * 4,
+                        subbeat=i * 4, source_subbeat=i * 4, window_index=0, values=values))
+    raw[1]["values"]["chord"] = "C:maj"
+    for index, pitch, track, end in ((0, 60, 0, 0.75), (1, 64, 0, 1.0), (3, 67, 0, 2.0),
+                                    (0, 72, 1, 1.0), (2, 74, 1, 2.0)):
+        raw[index]["values"].setdefault("melody", []).append(dict(
+            pitch=pitch, track=track, end_time=end, duration_steps=4, duration_bin=1,
+        ))
+
+    class Grammar:
+        def __init__(self, tokenizer):
+            pass
+
+        def update(self, token):
+            return token == 2
+
+        def allowed(self, device):
+            return torch.ones(4, dtype=torch.bool, device=device)
+
+    tokenizer = types.SimpleNamespace(pad_token=0, sos_token=1, eos_token=2, out_token=3,
+                                     time_token_start=10, time_token_end=20,
+                                     normalize_prompts=lambda prompts: prompts, prompt_prefix=lambda prompts: [1, 3])
+
+    class FakeModel:
+        max_output_seq_len = 32
+        invalid_row = False
+
+        def __init__(self):
+            self.tokenizer = tokenizer
+            self.calls = 0
+
+        def encode_and_pool_batch(self, segment, **kwargs):
+            self.calls += 1
+            assert segment.shape[1] == 72_000
+            count = segment.shape[0]
+            return (torch.zeros(count, 1, 2), np.tile(np.arange(1, 1025, dtype=float), (count, 24, 1)),
+                    np.full(count, 3.0), np.ones(count, dtype=bool))
+
+        def decode(self, memory, decoder_input, **kwargs):
+            token = 1 if adapter._generation.truncated else 2
+            logits = torch.zeros(memory.shape[0], 1, 4)
+            logits[:, :, token] = 1
+            if self.invalid_row and memory.shape[0] > 1:
+                logits[1] = float("nan")
+            return logits, None
+
+    class Generation:
+        FULL_TASK_PROMPTS = ("timestamp", "downbeat_meter", "structure", "key", "chord_full", "melody_full")
+        PromptGrammarState = Grammar
+        inference_autocast = staticmethod(lambda *args: nullcontext())
+        truncated = False
+        anchors = True
+
+        def decode_generated_tokens(self, *args):
+            return {"events": [{"subbeat": 0, "values": {"timestamp": 0} if self.anchors else {}}]}, None
+
+        event_time_map = staticmethod(lambda *args: None)
+        stitched_window_events = staticmethod(lambda *args, **kwargs: copy.deepcopy(raw))
+
+    def interval_rows(events, field, duration):
+        # The native exports_sheetsage2.interval_rows.
+        rows = [[e["time"], 0, e["values"][field]] for e in events if field in e["values"]]
+        for index, row in enumerate(rows):
+            row[1] = rows[index + 1][0] if index + 1 < len(rows) else duration
+        return [row for row in rows if row[1] > row[0]]
+
+    adapter = SheetSage2Adapter(device="cpu", inference_batch_size=2)
+    adapter.device, adapter._torch, adapter._model, adapter._generation = "cpu", torch, FakeModel(), Generation()
+    adapter._exports = types.SimpleNamespace(
+        interval_rows=interval_rows,
+        normalize_key_name=lambda label: label,
+        correct_chord_rows=lambda chords, keys: [list(row) for row in chords],
+    )
+    decoded = DecodedAudio(path="fixture.wav", audio=torch.ones(72_000), sample_rate=24_000, detail="synthetic")
+    completed = []
+    result, second = adapter.analyze_decoded_batch([decoded, decoded], result_callback=lambda i, value: completed.append(i))
+    assert adapter._model.calls == 1
+    assert completed == [0, 1]
+    assert not isinstance(second, Exception)
+    assert len(result.layer_embeddings) == 24
+    for vector in result.layer_embeddings:
+        assert vector.shape == (1024,) and vector.dtype == np.float32
+        assert np.linalg.norm(vector) == pytest.approx(1)
+    features = result.features
+    assert features == derive_sheetsage2_features(types.MappingProxyType(result.timeline))
+    assert (features["beat_count"], features["downbeat_count"]) == (7, 2)
+    assert (features["bpm_min"], features["bpm_max"], features["bpm_std"]) == (120, 120, 0)
+    assert features["meter_durations_s"] == {"4/4": 2.0, "3/8": 1.0}
+    assert features["meter_change_count"] == 1
+    assert (features["chord_segment_count"], features["chord_change_count"]) == (2, 1)
+    assert features["dominant_chord"] == "C:maj"
+    assert features["major_fraction"] == features["minor_fraction"] == 0.5
+    assert features["first_chorus_start_s"] == features["intro_end_s"] == 1.5
+    assert features["melody_vocal_coverage_fraction"] == 0.5
+    assert features["melody_all_coverage_fraction"] == pytest.approx(2 / 3)
+    assert features["melody_all_interval_histogram"] == {"3": 1, "2": 1}
+    assert features["melody_all_interval_abs_mean"] == 2.5
+    anchor_only = copy.deepcopy(result.timeline)
+    for event in anchor_only["events"]:
+        event.pop("rhythm", None)
+    assert derive_sheetsage2_features(anchor_only)["beat_count"] == 0
+    unknown_meter = copy.deepcopy(result.timeline)
+    unknown_meter["events"][0]["rhythm"].update(numerator=None, denominator=None)
+    unknown_features = derive_sheetsage2_features(unknown_meter)
+    assert unknown_features["meter_durations_s"] == {"4/4": 1.5, "3/8": 1.0}
+    assert unknown_features["beat_count"] == 6
+    empty = copy.deepcopy(result.timeline)
+    for event in empty["events"]:
+        event.pop("melody", None)
+    empty_features = derive_sheetsage2_features(empty)
+    assert empty_features["melody_all_event_count"] == empty_features["melody_all_coverage_fraction"] == 0
+    assert empty_features["melody_all_pitch_min"] is None
+    assert empty_features["melody_all_interval_histogram"] == {}
+    invalid = copy.deepcopy(result.timeline)
+    invalid["events"][0]["melody"][0]["end_s"] = 10
+    with pytest.raises(ValueError, match="melodic intervals"):
+        derive_sheetsage2_features(invalid)
+
+    # Raw repeated chords must reach native spelling separately across a key
+    # change; zero-length labels must not influence spelling or feature counts.
+    original_raw, original_exports = raw, adapter._exports
+    raw = [dict(time=time_s, global_subbeat=i, source_subbeat=i, window_index=0,
+                values=dict(timestamp=time_s, **labels)) for i, (time_s, labels) in enumerate([
+        (0.0, dict(chord="C#:maj", structure="intro")),
+        (0.5, dict(key="C#:major")),
+        (1.0, dict(chord="C#:maj", key="C#:minor")),
+        (1.5, dict(chord="N", key="F#:major", structure="verse")),
+        (1.5, dict(chord="N", key="C#:minor", structure="chorus")),
+        (2.0, dict(chord="X")),
+        (2.5, dict(chord="G#:maj")),
+        (3.0, dict(chord="G:maj", key="C:major", structure="outro")),
+    ])]
+    for index, pitch, track, end in ((0, 60, 0, 4.0), (0, 72, 1, 1.0), (2, 64, 0, 2.0),
+                                    (3, 62, 0, 1.5), (3, 63, 0, 1.0), (6, 65, 0, 3.5), (7, 67, 0, 3.0)):
+        raw[index]["values"].setdefault("melody", []).append(dict(
+            pitch=pitch, track=track, end_time=end, duration_steps=4, duration_bin=1,
+        ))
+    untouched = copy.deepcopy(raw)
+
+    def correct_chords(chords, keys):
+        assert chords == [[0, 1, "C#:maj"], [1, 1.5, "C#:maj"], [1.5, 2, "N"],
+                          [2, 2.5, "X"], [2.5, 3, "G#:maj"]]
+        assert keys == [[0.5, 1, "Db:major"], [1, 1.5, "C#:minor"], [1.5, 3, "C#:minor"]]
+        return [[start, end, label] for (start, end, _), label in
+                zip(chords, ("Db:maj", "C#:maj", "N", "X", "G#:maj"), strict=True)]
+
+    adapter._exports = types.SimpleNamespace(
+        interval_rows=interval_rows,
+        normalize_key_name=lambda label: "Db:major" if label == "C#:major" else label,
+        correct_chord_rows=correct_chords,
+    )
+    corrected = adapter.analyze_decoded_batch([decoded])[0]
+    assert not isinstance(corrected, Exception), corrected
+    assert raw == untouched
+    intervals = {field: [[event["time_s"], event[field]["end_s"], event[field]["label"]]
+                         for event in corrected.timeline["events"] if field in event]
+                 for field in ("chord", "key", "structure")}
+    assert intervals == {
+        "chord": [[0, 1, "Db:maj"], [1, 1.5, "C#:maj"], [1.5, 2, "N"],
+                  [2, 2.5, "X"], [2.5, 3, "G#:maj"]],
+        "key": [[0.5, 1, "Db:major"], [1, 3, "C#:minor"]],
+        "structure": [[0, 1.5, "intro"], [1.5, 3, "chorus"]],
+    }
+    assert corrected.features["chord_segment_count"] == 5
+    assert corrected.features["dominant_chord"] == "Db:maj"
+    assert corrected.features["key_durations_s"] == {"Db:major": 0.5, "C#:minor": 2.0}
+    assert corrected.features["section_count"] == 2
+    assert corrected.features["outro_start_s"] is None
+    assert corrected.features["melody_vocal_event_count"] == 3
+    assert corrected.features["melody_vocal_coverage_fraction"] == 1
+    assert corrected.features["melody_vocal_interval_histogram"] == {"1": 1}
+    melody = [note for event in corrected.timeline["events"] for note in event.get("melody", [])]
+    assert [(note["pitch_midi"], note["start_s"], note["end_s"]) for note in melody] == [
+        (60, 0, 3), (72, 0, 1), (64, 1, 2), (65, 2.5, 3),
+    ]
+    assert all(note["duration_steps"] == 4 and note["duration_bin"] == 1 for note in melody)
+    raw, adapter._exports = original_raw, original_exports
+
+    adapter._generation.truncated = True
+    error = adapter.analyze_decoded_batch([decoded])[0]
+    assert isinstance(error, ValueError) and "token limit" in str(error)
+    adapter._generation.truncated = False
+    adapter._generation.anchors = False
+    error = adapter.analyze_decoded_batch([decoded])[0]
+    assert isinstance(error, ValueError) and "timestamp anchors" in str(error)
+    adapter._generation.anchors = True
+    adapter._model.invalid_row = True
+    completed.clear()
+    results = adapter.analyze_decoded_batch([decoded, decoded], result_callback=lambda i, value: completed.append(i))
+    assert completed == [0, 1]
+    assert not isinstance(results[0], Exception)
+    assert isinstance(results[1], ValueError) and "logits" in str(results[1])
+    adapter._model.invalid_row = False
+    completed.clear()
+    with pytest.raises(EmbeddingCancelledError):
+        adapter.analyze_decoded_batch([decoded, decoded], cancelled=lambda: bool(completed),
+                                      result_callback=lambda i, value: completed.append(i))
+    assert completed == [0]
+    callback_error = ValueError("write callback failed")
+
+    def failed_callback(index, value):
+        completed.append(index)
+        raise callback_error
+
+    completed.clear()
+    with pytest.raises(ValueError) as captured:
+        adapter.analyze_decoded_batch([decoded, decoded], result_callback=failed_callback)
+    assert captured.value is callback_error
+    assert completed == [0]
+    adapter._model.calls = 0
+    with pytest.raises(EmbeddingCancelledError):
+        adapter.analyze_decoded_batch([decoded], cancelled=lambda: adapter._model.calls > 0)

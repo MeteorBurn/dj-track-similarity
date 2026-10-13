@@ -1,4 +1,4 @@
-export type EmbeddingSource = "mert_v2" | "maest" | "muq" | "mulan" | "clap";
+export type EmbeddingSource = "mert_v2" | "sheetsage2" | "maest" | "muq" | "mulan" | "clap";
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type AnalysisPipelineStage = "sonara" | "ml";
 export type AnalysisCoverage = {
@@ -6,6 +6,7 @@ export type AnalysisCoverage = {
   maest_analysis: boolean;
   maest_embedding: boolean;
   mert_v2: boolean;
+  sheetsage2: boolean;
   muq: boolean;
   mulan: boolean;
   clap: boolean;
@@ -48,7 +49,7 @@ export type TrackMutationIdentity = {
   track_uuid: string;
 };
 
-export type LayeredEmbeddingFamily = Extract<EmbeddingSource, "mert_v2" | "muq" | "maest">;
+export type LayeredEmbeddingFamily = Extract<EmbeddingSource, "mert_v2" | "sheetsage2" | "muq" | "maest">;
 
 export type EmbeddingLayersResponse = {
   catalog_uuid: string;
@@ -67,6 +68,22 @@ export type TrackIdentity = Pick<
   Track,
   "track_id" | "catalog_uuid" | "track_uuid"
 >;
+
+export type SheetSage2TimelineEvent = {
+  time_s: number;
+  rhythm: { eighth_position: number; numerator: number | null; denominator: number | null } | null;
+  structure: { label: string; end_s: number } | null;
+  chord: { label: string; end_s: number } | null;
+  key: { label: string; end_s: number } | null;
+  melody: Array<{ start_s: number; end_s: number; pitch_midi: number; source_track: "vocal" | "instrumental" }>;
+};
+
+export type SheetSage2TimelineResponse = TrackIdentity & {
+  analyzed_at: string;
+  duration_s: number;
+  events: SheetSage2TimelineEvent[];
+  warnings: string[];
+};
 
 export type PreviewInfo = {
   duration_seconds: number | null;
@@ -190,10 +207,49 @@ export interface ClassifierScoreDetail {
 
 export type TrackSummary = Track;
 
+export type SheetSage2MelodySource = "all" | "vocal" | "instrumental";
+type SheetSage2MelodyMetric = "event_count" | "pitch_min" | "pitch_median" | "pitch_max"
+  | "pitch_range" | "duration_min" | "duration_median" | "duration_mean" | "duration_max"
+  | "duration_std" | "density_per_second" | "coverage_fraction" | "interval_pair_count" | "interval_abs_mean";
+export type SheetSage2Features = {
+  [K in `melody_${SheetSage2MelodySource}_${SheetSage2MelodyMetric}`]: number | null;
+} & {
+  [K in `melody_${SheetSage2MelodySource}_interval_histogram`]: Record<string, number>;
+} & {
+  analyzed_at: string;
+  beat_count: number | null;
+  downbeat_count: number | null;
+  bpm_median: number | null;
+  bpm_min: number | null;
+  bpm_max: number | null;
+  bpm_std: number | null;
+  dominant_meter: string | null;
+  meter_change_count: number | null;
+  meter_durations_s: Record<string, number>;
+  chord_segment_count: number | null;
+  chord_unique_count: number | null;
+  chord_change_count: number | null;
+  chord_change_rate_per_minute: number | null;
+  dominant_chord: string | null;
+  chord_durations_s: Record<string, number>;
+  dominant_key: string | null;
+  key_change_count: number | null;
+  major_fraction: number | null;
+  minor_fraction: number | null;
+  key_durations_s: Record<string, number>;
+  section_count: number | null;
+  section_counts: Record<string, number>;
+  section_durations_s: Record<string, number>;
+  intro_end_s: number | null;
+  outro_start_s: number | null;
+  first_chorus_start_s: number | null;
+};
+
 export interface TrackDetail extends TrackSummary {
     file: FileTechnical;
     file_tags: FileTags | null;
     sonara_core: SonaraCore | null;
+    sheetsage2_features: SheetSage2Features | null;
     maest: Maest | null;
     embeddings: EmbeddingSummary[];
     classifier_scores_detail: ClassifierScoreDetail[];
@@ -340,7 +396,7 @@ export type EmbeddingRandomTrackPayload = {
   exclude_track_ids: number[];
 };
 
-export type ReferenceCompareModel = "clap" | "mert_v2" | "muq" | "mulan" | "maest" | "sonara";
+export type ReferenceCompareModel = "clap" | "mert_v2" | "sheetsage2" | "muq" | "mulan" | "maest" | "sonara";
 export type ReferenceCompareVerdict = "mood" | "palette" | "instruments" | "groove" | "genre" | "transition" | "miss";
 export type ReferenceComparePayload = {
   seed_track_id: number;
@@ -390,6 +446,7 @@ export type LibrarySummary = {
   maest_analysis: number;
   maest_embedding: number;
   mert_v2: number;
+  sheetsage2: number;
   muq: number;
   mulan: number;
   clap: number;

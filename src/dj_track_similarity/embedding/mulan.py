@@ -4,6 +4,7 @@ import importlib
 import json
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Sequence
 from contextlib import ExitStack
 from pathlib import Path
@@ -32,6 +33,9 @@ from .loading import (
 from .muq import _MUQ_CONSTRUCTION_LOCK, _silence_muq_weight_norm_deprecation
 from .numerics import _normalized_embedding_rows
 from ..runtime import select_torch_device
+
+
+_TEXT_VECTOR_CACHE_SIZE = 512
 
 
 class MuqMulanEmbeddingAdapter:
@@ -80,6 +84,7 @@ class MuqMulanEmbeddingAdapter:
         self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._model = None
+        self._text_vector_cache: OrderedDict[str, np.ndarray] = OrderedDict()
         self._torch = None
         self._torchaudio = None
         self.device: str | None = None
@@ -129,7 +134,7 @@ class MuqMulanEmbeddingAdapter:
         return self.embed_texts([text])[0]
 
     def embed_texts(self, texts: Sequence[str]) -> list[np.ndarray]:
-        """Embed a prompt bank one prompt per forward pass.
+        """Reuse text vectors, encoding each unseen prompt in its own forward.
 
         The upstream text tower pads a batch to its longest prompt and then
         mean-pools its own transformer over every position, padding included,
@@ -146,16 +151,22 @@ class MuqMulanEmbeddingAdapter:
         assert torch is not None and self._model is not None
         embedded: list[np.ndarray] = []
         for prompt in prompts:
-            with torch.inference_mode():
-                output = self._model(texts=[prompt])
-            embedded.extend(
-                _normalized_embedding_rows(
+            vector = self._text_vector_cache.get(prompt)
+            if vector is None:
+                with torch.inference_mode():
+                    output = self._model(texts=[prompt])
+                vector = _normalized_embedding_rows(
                     output,
                     expected_rows=1,
                     expected_dim=self.dim,
                     model_label="MuQ-MuLan text",
-                )
-            )
+                )[0]
+                self._text_vector_cache[prompt] = vector
+                if len(self._text_vector_cache) > _TEXT_VECTOR_CACHE_SIZE:
+                    self._text_vector_cache.popitem(last=False)
+            else:
+                self._text_vector_cache.move_to_end(prompt)
+            embedded.append(vector.copy())
         return embedded
 
     def _embed_decoded_items(

@@ -1,5 +1,12 @@
+from contextlib import nullcontext
+import gc
 import threading
+from types import SimpleNamespace
+import weakref
 
+import numpy as np
+
+from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.embedding.text_cache import TextEmbeddingAdapterCache
 
 
@@ -114,12 +121,29 @@ def test_evict_idle_keeps_an_adapter_that_is_in_use() -> None:
 
 def test_close_releases_cached_adapters() -> None:
     created: list[tuple[str, str]] = []
-    cache = _cache(created, _FakeClock())
 
-    with cache.acquire("clap", device="cpu"):
-        pass
+    class Model:
+        def __call__(self, *, texts):
+            return np.ones((len(texts), 512), dtype=np.float32)
+
+    def factory(family, *, device):
+        created.append((family, device))
+        adapter = MuqMulanEmbeddingAdapter(device=device)
+        adapter._model = Model()
+        adapter._torch = SimpleNamespace(inference_mode=nullcontext)
+        return adapter
+
+    cache = TextEmbeddingAdapterCache(factory, start_sweeper=False)
+    with cache.acquire("mulan", device="cpu") as adapter:
+        adapter.embed_text("rolling techno")
+        adapter_ref = weakref.ref(adapter)
+        model_ref = weakref.ref(adapter._model)
+    del adapter
     cache.close()
-    with cache.acquire("clap", device="cpu"):
+    gc.collect()
+    assert adapter_ref() is None
+    assert model_ref() is None
+    with cache.acquire("mulan", device="cpu"):
         pass
 
-    assert created == [("clap", "cpu"), ("clap", "cpu")]
+    assert created == [("mulan", "cpu"), ("mulan", "cpu")]

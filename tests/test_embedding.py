@@ -18,6 +18,7 @@ import dj_track_similarity.embedding.loading as embedding_loading
 import dj_track_similarity.embedding.numerics as embedding_numerics
 import dj_track_similarity.embedding.audio as embedding_audio
 import dj_track_similarity.embedding.mert_v2 as embedding_mert_v2
+import dj_track_similarity.embedding.mulan as embedding_mulan
 from dj_track_similarity.audio.loader import DecodedAudio
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
@@ -664,6 +665,8 @@ class FakeMulanModel:
         self.audio_calls = []
         self.latent_calls = []
         self.text_calls = []
+        self.text_error = None
+        self.text_output = None
         self.sr, self.clip_secs, self.device = 24_000, 10, "cpu"
         self.mulan_module = self
 
@@ -688,7 +691,12 @@ class FakeMulanModel:
         if texts is not None:
             assert len(texts) == 1
             self.text_calls.append(list(texts))
-            return torch.tensor([[5.0] + [0.0] * 511], dtype=torch.float32)
+            if self.text_error is not None:
+                raise self.text_error
+            if self.text_output is not None:
+                return self.text_output
+            digest = hashlib.sha256(texts[0].encode()).digest()
+            return torch.tensor([[float(value + 1) for value in digest] + [0.0] * 480])
         raise AssertionError("MuQ-MuLan adapter must provide audio or text input")
 
 
@@ -802,16 +810,53 @@ def test_mulan_adapter_forwards_full_tracks_and_normalizes_audio_and_text(monkey
         for actual, expected in zip(audio_vectors, expected_vectors, strict=True):
             np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
     text_vector = adapter.embed_text("rolling techno")
-    bank_vectors = adapter.embed_texts(["rolling techno", "ambient"])
+    expected_text = text_vector.copy()
+    text_vector[:] = 0
+    bank_vectors = adapter.embed_texts(["rolling techno", "ambient", "rolling techno", "ambient"])
 
-    assert adapter.fake_model.text_calls == [["rolling techno"], ["rolling techno"], ["ambient"]]
-    for vector in audio_vectors + [text_vector] + bank_vectors:
+    assert adapter.fake_model.text_calls == [["rolling techno"], ["ambient"]]
+    for vector in audio_vectors + bank_vectors:
         assert vector.shape == (512,)
         assert vector.dtype == np.float32
         assert np.linalg.norm(vector) == pytest.approx(1.0)
     for vector in audio_vectors:
         assert np.count_nonzero(vector[2:]) == 0
-    np.testing.assert_array_equal(text_vector, bank_vectors[0])
+    np.testing.assert_array_equal(expected_text, bank_vectors[0])
+    np.testing.assert_array_equal(expected_text, bank_vectors[2])
+    np.testing.assert_array_equal(bank_vectors[1], bank_vectors[3])
+    assert not np.array_equal(bank_vectors[0], bank_vectors[1])
+    bank_vectors[0][:] = 0
+    np.testing.assert_array_equal(expected_text, bank_vectors[2])
+    np.testing.assert_array_equal(expected_text, adapter.embed_text("rolling techno"))
+    np.testing.assert_array_equal(bank_vectors[1], adapter.embed_texts(["ambient"])[0])
+
+    variants = ["Rolling techno", " rolling techno "]
+    for prompt, vector in zip(variants, adapter.embed_texts(variants), strict=True):
+        assert not np.array_equal(expected_text, vector)
+        assert adapter.fake_model.text_calls.count([prompt]) == 1
+    assert adapter.fake_model.text_calls.count(["rolling techno"]) == 1
+
+    with monkeypatch.context() as patch:
+        patch.setattr(embedding_mulan, "_TEXT_VECTOR_CACHE_SIZE", 2)
+        bounded = SharedAudioMulanAdapter()
+        bounded.embed_texts(["A", "B", "A", "C", "A", "B"])
+        assert bounded.fake_model.text_calls == [["A"], ["B"], ["C"], ["B"]]
+
+    for prompt, failure in [("failed", RuntimeError("text failed")), ("invalid", None)]:
+        adapter.fake_model.text_error = failure
+        adapter.fake_model.text_output = torch.zeros((1, 512)) if failure is None else None
+        with pytest.raises(RuntimeError if failure is not None else ValueError):
+            adapter.embed_text(prompt)
+        adapter.fake_model.text_error = adapter.fake_model.text_output = None
+        recovered = adapter.embed_text(prompt)
+        np.testing.assert_array_equal(recovered, adapter.embed_text(prompt))
+        assert adapter.fake_model.text_calls.count([prompt]) == 2
+    np.testing.assert_array_equal(expected_text, adapter.embed_text("rolling techno"))
+    assert adapter.fake_model.text_calls.count(["rolling techno"]) == 1
+
+    empty = SharedAudioMulanAdapter()
+    monkeypatch.setattr(empty, "_load_model", lambda: pytest.fail("Empty text bank loaded a model"))
+    assert empty.embed_texts([]) == []
 
 
 class FakeMertV2Processor:

@@ -77,8 +77,11 @@ the blocker.
   timestamps, or a previous session. Ask only if the target remains unknown.
 - State the model layer before changing shared model/search files. Keep family
   evidence separate and production logic in its owning layer; a request for one
-  layer does not authorize extending another. Do not expand, redesign or remove
-  Model Listening Lab without a new request.
+  layer does not authorize extending another. The DJ SET tab lists its built
+  set only as rows of the shared result list (`results-list`), in the order
+  the builder returned, and tracks join the current set only through the
+  existing "+" controls: do not add replace/save buttons, reordering or other
+  set management to it without a new request.
 - SONARA and ML never share a run. Preserve SONARA's atomic four-output writes
   and BPM lock, and ML's current-SONARA prerequisite; the model-layer guide owns
   run, readiness and REFERENCE-map contracts.

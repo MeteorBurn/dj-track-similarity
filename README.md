@@ -7,7 +7,7 @@
 
 <p align="center"><img src="img/dj-track-similarity-hero.png" alt="DJ Track Similarity" width="100%"></p>
 
-DJTS – `dj-track-similarity` is a local-first workbench for large music folders. It scans them into a SQLite library and runs audio-model analysis on your own machine. Search ranks candidates around seed tracks or text prompts, and the set you assemble by ear exports as M3U or CSV. The server binds to `127.0.0.1` by default, and model assets load only from the local `models/` directory with downloads disabled. Model scores are ranking evidence for listening, not DJ decisions.
+DJTS – `dj-track-similarity` is a local-first workbench for large music folders. It scans them into a SQLite library and runs audio-model analysis on your own machine. Search ranks candidates around seed tracks or text prompts, the DJ SET tab drafts an ordered set along a development you choose, and the set you assemble by ear exports as M3U or CSV. The server binds to `127.0.0.1` by default, and model assets load only from the local `models/` directory with downloads disabled. Model scores and set drafts are ranking evidence for listening, not DJ decisions.
 
 ---
 
@@ -18,7 +18,7 @@ Large personal libraries hide music you forgot you own. BPM, key, energy, tags, 
 1. **Technical compatibility.** BPM, key, duration, energy, and related metadata from SONARA analysis and file tags.
 2. **Sonic compatibility.** Rhythm, timbre, density, dynamics, and audio similarity from SONARA features and MAEST, MERT-v2, SheetSage2, MuQ, MuQ-MuLan, and CLAP embeddings, plus texture and atmosphere through text prompts.
 
-Nothing in the app orders a set automatically. You seed a search, preview the candidates, add one to the set, seed the next search from it, and shape the story by listening rather than by score. Model outputs are stored separately per model so you can inspect them. The author claims no ML or music-information-retrieval expertise; the background lives in the [project idea](docs/dj-track-similarity/concepts/project-idea.md) page.
+The app proposes, and you decide by ear. You seed a search, preview the candidates, add one to the set, seed the next search from it, and shape the story by listening rather than by score. The DJ SET tab can draft a whole ordered set, but the draft is a proposal to listen through: its tracks join your set only when you add them. Model outputs are stored separately per model so you can inspect them. The author claims no ML or music-information-retrieval expertise; the background lives in the [project idea](docs/dj-track-similarity/concepts/project-idea.md) page.
 
 ---
 
@@ -28,6 +28,7 @@ Nothing in the app orders a set automatically. You seed a search, preview the ca
 - **🎧 Find similar tracks.** Analyze tracks with SONARA, MAEST, MERT-v2, SheetSage2 (shown as SHEETSAGE-v2), MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those seven models.
 - **💬 Search by text.** Search from prompt presets with CLAP or MuQ-MuLan, or compare both side by side.
 - **🧪 Train personal classifiers.** Use Rhythm Lab to label, train, benchmark, and promote classifiers, then filter the library by their scores in the CLASSIFIER tab.
+- **📈 Draft a set.** Let the DJ SET tab propose an ordered set from a development type, optional reference tracks, and stored SONARA analysis.
 - **🎚️ Build a set.** Keep a manual current set and export it as M3U or CSV.
 - **🧰 Maintain the library.** Check or compact the selected database, and review duplicates found by SONARA fingerprints (see [Maintenance tools](#-maintenance-tools)).
 
@@ -174,7 +175,7 @@ On a library created before SONARA stored timelines, SONARA analysis stops with 
 
 ## 🎚️ Main workflows
 
-The top bar switches workspaces: **DISCOVER** shows the analysis, library, and search panels side by side, **ANALYZE**, **LIBRARY**, and **SEARCH** show one of them, and **EXPORT** shows the current set. It also holds the theme toggle, the log, a stop button for the running stage, and the power button. The main interface mixes Russian and English, and [UI language](docs/dj-track-similarity/help/ui-language.md) maps the labels. Search tabs are LAB (Model Listening Lab), REFERENCE, PROMPT, and CLASSIFIER.
+The top bar switches workspaces: **DISCOVER** shows the analysis, library, and search panels side by side, **ANALYZE**, **LIBRARY**, and **SEARCH** show one of them, and **EXPORT** shows the current set. It also holds the theme toggle, the log, a stop button for the running stage, and the power button. The main interface mixes Russian and English, and [UI language](docs/dj-track-similarity/help/ui-language.md) maps the labels. Search tabs are DJ SET, REFERENCE, PROMPT, and CLASSIFIER.
 
 ### 1. 🔍 Rediscover your own library
 
@@ -182,21 +183,29 @@ Search by path, title, artist, or genre (LIKE or FTS), show liked tracks, filter
 
 ### 2. 🎯 Start from a reference track
 
-The REFERENCE tab ranks candidates in one model space per search. SONARA uses measured Core features with a manual mixer of five sliders and nine directional modifiers, and takes up to five seeds. MAEST, MERT-v2, SheetSage2, MuQ, MuQ-MuLan, and CLAP each search their own embedding space; for MAEST, MERT-v2, SheetSage2, and MuQ you pick one of their stored layers (13, 24, 24, and 13 layers; each family's last layer is the default). MAEST also offers L13+L12, which scores a track by the mean of its similarity in both layers and ranks only tracks stored at both. The LAB tab shows a short candidate list per model for the first seed, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
+The REFERENCE tab ranks candidates in one model space per search. SONARA uses measured Core features with a manual mixer of five sliders and nine directional modifiers, and takes up to five seeds. MAEST, MERT-v2, SheetSage2, MuQ, MuQ-MuLan, and CLAP each search their own embedding space; for MAEST, MERT-v2, SheetSage2, and MuQ you pick one of their stored layers (13, 24, 24, and 13 layers; each family's last layer is the default). MAEST also offers L13+L12, which scores a track by the mean of its similarity in both layers and ranks only tracks stored at both. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
 
 In the REFERENCE tab, with an embedding model selected, the scatter-chart button next to **Search** opens the reference map: the candidates that **Search** returns for the current references, model, layer, and limit, placed by SONARA measurements alone at their distance from the references across seven facets (rhythm and groove, dynamics, spectrum and texture, timbre, harmony and mode, pitch class, and tempo). Select a candidate to see which facets it keeps or loses, its values beside the references and the library, curves across the whole track, and optional band curves read from the audio, read-only and outside the distance. Another tab summarizes which facets the whole output keeps compared with random library tracks, whether deeper ranks keep them too, and any consistent shift of the output. Model scores never enter the distance, and SONARA's heuristic mood, perceptual, aggression, and vocalness outputs are not read; mood appears only as a labelled reading of measured features. The first map after the server starts, or after the library or its SONARA data changes, calibrates on a library sample, which can take up to a minute. A map stays in browser memory until the library, model, layer, references, or limit change.
 
-### 3. 🌊 Curate the current set
+### 3. 📈 Draft a set
 
-Add results one row at a time, or in bulk from the current library page or every shown REFERENCE or PROMPT candidate. The EXPORT workspace previews and removes set tracks, saves the list as a Rhythm Lab collection, and exports M3U or CSV. The set is in-memory browser state rather than automatic sequencing: switching databases or removing a track from the catalog clears it. See [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md).
+The DJ SET tab builds one ordered set draft from a recipe. Its Development section offers ten types: Hypnotic Loop, Textural Blend, Melancholic Plateau, Progressive Acceleration, The Arch (the default), Twin Summits, The Staircase, Harmonic Spiral, The Long Descent, and Genre Drift. A type is a list of stages, each with a share of the set and an intensity (0 calm to 1 dense, blended from SONARA loudness, energy, onset density, and aggression) and BPM at its entry and exit. Edit them in the stage table, or drag the intensity points on the chart of the plan, which shows the chosen tracks after a build. Three types add fixed stage rules: Harmonic Spiral holds the tempo and walks the Camelot wheel by SONARA's detected key, and Textural Blend and Genre Drift keep each stage inside score ranges of two personal classifiers, `break_energy` and `minimal_deep_tech`, and stop with an explicit error in a library without those scores.
 
-### 4. 💬 Search by text
+The References section gives each seed track (the REFERENCE tab's seeds, at most five) a role: a reference steers the candidates and stays out of the set, and the other two roles place the track in a slot the builder picks or in one you number. A reference turns on the breed, which keeps the tracks nearest to the references in one embedding model (2000 by default), and unlocks the shift, which keeps tracks lower than, similar to, or higher than them on one SONARA axis. Without a reference, the set draws on the whole library. A set holds 5 to 60 tracks, and the same recipe, random seed, and library give the same set.
+
+The builder reads stored SONARA Core features and timelines, leaves out tracks that lack them, and needs embeddings only for the breed. It fills each slot near its intensity and tempo targets, prefers the order with the fewest tempo steps outside tolerance, and uses a song once. The draft lands in the result list in set order with each track's stage, tempo, and intensity, below a count of the candidates each filter left. A build writes nothing to the library, and the draft stays in browser memory until the next build or a database switch.
+
+### 4. 🌊 Curate the current set
+
+Add results one row at a time, or in bulk from the current library page, every shown REFERENCE or PROMPT candidate, or a DJ SET draft. The EXPORT workspace previews and removes set tracks, saves the list as a Rhythm Lab collection, and exports M3U or CSV. The set is in-memory browser state: switching databases clears it, and a track removed from the catalog leaves it. Tracks stay in the order you add them, and nothing re-sequences the set. See [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md).
+
+### 5. 💬 Search by text
 
 After CLAP or MuQ-MuLan audio embeddings exist, the PROMPT tab searches your library from a prompt bank built from presets: 45 presets on seven axes, at most one per axis, each worded per model. No preset carries negative prompts, so the **Negatives** switch has nothing to add. A/B runs MuQ-MuLan and CLAP side by side. Approve or reject results to save feedback for that exact query and model; later searches of the same query apply it once at least three usable approvals exist.
 
 The first search loads the text model, which stays cached until about ten minutes pass without a search. Text scores are prompt evidence inside one model's score space and are not comparable to seed-search scores or to the other text model. See [Text search](docs/dj-track-similarity/user-guide/text-search.md).
 
-### 5. 🧪 Train personal classifiers
+### 6. 🧪 Train personal classifiers
 
 Rhythm Lab turns listening decisions into classifier scores. Its labels live in `tools/rhythm-lab/database/rhythm_lab.sqlite` and follow the audio through its SONARA fingerprint, even across libraries. The lab can switch libraries while running, except during a profile operation. A new labels database has no built-in profile, so create the one you want to train.
 

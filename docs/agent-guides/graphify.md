@@ -10,6 +10,8 @@ are relative to this file. These guides are read by task, not imported as a batc
 
 ## GRAPHIFY
 
+### Scope and source evidence
+
 `graphify-out/graph.json` assists navigation over product source, tools, and
 scripts. Tests, project documentation, and media are excluded; notes under
 `.workspace/graphify/memory/` feed the work-memory loop (`reflect`, the
@@ -19,15 +21,28 @@ edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
 `AGENTS.md` and this guide own the query-first rule for source discovery.
 Tasks confined to instructions, configuration, locks, Git state, or the excluded
 agent layer use direct inspection; those files are outside the code graph.
-Codex's `.codex/hooks.json` uses `hook-guard search` with the `Bash` matcher
-to remind the agent before recognized shell searches. Claude keeps its native
-search/read guards. These guards do not distinguish the excluded-file
+The native search/read guards do not distinguish the excluded-file
 exceptions: the read guard also fires on project `.md` files and the search
 guard on `rg`/`grep`. Their reminder never overrides this guide: excluded
-files are inspected directly, and graph commands follow the invocation rule
-below and the budget and `path` rules of the query reference,
-`.djts/skills/graphify/references/query.md`. Hook setup belongs to the
-[agent-layer guide](agent-layer.md); do not add a wrapper or duplicate rules.
+files are inspected directly. Hook configuration and activation belong to
+the [agent-layer guide](agent-layer.md#graphify-integration-and-hooks);
+do not add a wrapper or duplicate rules.
+
+### Local CLI and query references
+
+Run graph commands through the repository-local CLI
+`.\.tools\graphify\bin\graphify.exe`, as the skill's runtime check verifies;
+this project uses no Graphify MCP server. Never register Graphify globally,
+add it to user/system PATH, or run `graphify install`, which can overwrite
+project instructions and hooks. The navigation table below abbreviates this
+path as `graphify`.
+
+Follow `.djts/skills/graphify/references/query.md` for token selection, budgets
+and truncation, `path` endpoints and direction, exact-symbol inspection, and
+saving results. Pass the relevant graph rules to code-exploration workers
+explicitly; do not assume their prompts or tool access match the parent session.
+
+### Freshness and working memory
 
 The agent maintains the graph while using it; the owner runs nothing by hand.
 Maintenance writes only `graphify-out/` and `.workspace/graphify/`, both local
@@ -52,6 +67,8 @@ and ignored, so they are allowed in read-only tasks:
 Missing lessons or vocabulary never block inspection. Verify findings directly
 in source; mention graph limitations only when they affect the result.
 
+### Navigation after freshness checks
+
 | Navigation task | Tool |
 |---|---|
 | Locate an unfamiliar area | `graphify query "<expanded tokens>" --budget 8000` |
@@ -61,15 +78,7 @@ in source; mention graph limitations only when they affect the result.
 | Trace a connection | `graphify path "<source path::Symbol>" "<target path::Symbol>"` (or exact node IDs); directed by default, `--undirected` for general connectivity |
 | Orient in unfamiliar architecture | `graphify god-nodes`, then `explain` |
 
-Run graph commands through the repository-local CLI
-`.\.tools\graphify\bin\graphify.exe`, as the skill's runtime check verifies;
-this project uses no Graphify MCP server. Never register Graphify globally,
-add it to user/system PATH, or run `graphify install`, which can overwrite
-project instructions and hooks. Follow
-`.djts/skills/graphify/references/query.md` for token selection, budgets and
-truncation, `path` endpoints and direction, exact-symbol inspection, and saving
-results. Pass the relevant graph rules to code-exploration workers explicitly;
-do not assume their prompts or tool access match the parent session.
+### Vocabulary refresh
 
 PowerShell vocabulary refresh (run when `.vocab.txt` is older than `graph.json`):
 
@@ -95,6 +104,8 @@ Path('graphify-out/.vocab.txt').write_text('\n'.join(sorted(vocab)), encoding='u
 '@ | & $graphPython -
 if ($LASTEXITCODE -ne 0) { throw 'Graph vocabulary refresh failed' }
 ```
+
+### Corpus and maintenance ownership
 
 `.graphifyignore` owns corpus exclusions, including tests (`tests/`,
 `*.test.mjs`), documentation/media, `.workspace/`, `.djts/`, `.agents/`,

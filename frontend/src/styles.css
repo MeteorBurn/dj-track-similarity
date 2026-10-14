@@ -4794,13 +4794,10 @@ button.feature-badge[aria-pressed="true"] {
 }
 
 .dedup-dialog {
-  /* The natural width of the widest search mode, so the select does not
-     resize as the reviewer switches between the two. */
-  --dedup-mode-control-width: 241px;
-  background: var(--surface);
-  border: 1px solid var(--button-border);
-  border-radius: 10px;
-  box-shadow: 0 22px 56px var(--shadow-dialog-deeper);
+  /* Room for the longer of the two search mode names, so the search row keeps
+     its shape whichever mode is chosen. The surface, border, radius and shadow
+     come from the shared workbench dialog rule. */
+  --dedup-mode-control-width: 160px;
   display: flex;
   flex-direction: column;
   /* Reviewing duplicates means reading whole groups of files at once, so the
@@ -4845,26 +4842,57 @@ button.feature-badge[aria-pressed="true"] {
   top: 18px;
 }
 
+/* One scroller for the whole review: the controls scroll away with the groups
+   and only the list bar stays pinned, so a reader deep in a report has the
+   full height of the dialog for it. The box reaches past the content on both
+   sides: 4px for a focus ring (1px outline, 2px offset), and on the right the
+   scrollbar's reserved gutter as well, so the cards still end where the header
+   and footer rules do. */
 .dedup-body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   gap: 12px;
+  margin: 0 -14px 0 -4px;
   min-height: 0;
-  /* The controls stack taller as the pane narrows. Let the whole body scroll as
-     a fallback so the group list below it never gets squeezed out of view. */
   overflow-y: auto;
-  padding: 14px 2px 0;
+  /* No padding above: a pinned bar keeps clear of its scroller's padding, and
+     the groups would show through that strip. The controls bring their own
+     distance from the header instead. */
+  padding: 0 4px 12px;
+  /* The offset parent the list's position is read against. */
+  position: relative;
   scrollbar-color: var(--border-strong) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
-.dedup-section {
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+/* The search and the report side by side while each column still holds its
+   fields in one row and at most drops its button to a second: the search takes
+   the width of its own controls and the report gets the rest, most of it for
+   the folder field. Narrower than that the sections stack. */
+.dedup-setup {
   display: grid;
   flex: 0 0 auto;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+@media (min-width: 1100px) {
+  .dedup-setup {
+    grid-template-columns: fit-content(48%) minmax(0, 1fr);
+  }
+}
+
+/* The radius and the surface come from the shared workbench rule. Rows start
+   at the top: beside a taller neighbour the section has height to spare, and
+   it belongs under the controls rather than between them. */
+.dedup-section {
+  align-content: start;
+  border: 1px solid var(--border-soft);
+  display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 12px;
 }
 
@@ -4905,12 +4933,7 @@ button.feature-badge[aria-pressed="true"] {
 }
 
 .dedup-control-grow {
-  flex: 1 1 220px;
-}
-
-.dedup-path-actions {
-  display: flex;
-  gap: 8px;
+  flex: 1 1 180px;
 }
 
 .dedup-mode-control {
@@ -4944,22 +4967,26 @@ button.feature-badge[aria-pressed="true"] {
   font-weight: 600;
 }
 
+/* One size for every value and label a control in this dialog carries: the
+   fields, the toggle and the secondary buttons read as one row of tools, and
+   only the two actions that start or end the work are set larger. */
 .dedup-control input,
 .dedup-control select {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   color: var(--app-text);
+  font-size: 13px;
   height: 34px;
   min-height: 34px;
   padding: 0 8px;
   width: 100%;
 }
 
+/* The keyboard ring is the app-wide one; the border only adds the accent. */
 .dedup-control input:focus,
 .dedup-control select:focus {
   border-color: var(--accent-border);
-  outline: none;
 }
 
 /* A filter with no report behind it, or one a running scan is about to
@@ -4980,7 +5007,7 @@ button.feature-badge[aria-pressed="true"] {
   color: var(--text-muted);
   cursor: pointer;
   display: flex;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   gap: 7px;
   height: 34px;
@@ -5049,6 +5076,12 @@ button.feature-badge[aria-pressed="true"] {
   white-space: nowrap;
 }
 
+/* The size the settings dialogs give their own closing action. */
+.dedup-primary-button,
+.dedup-delete-button {
+  font-size: 14px;
+}
+
 .dedup-primary-button {
   background: var(--accent-deep-bg);
   border: 1px solid var(--accent-border);
@@ -5065,6 +5098,7 @@ button.feature-badge[aria-pressed="true"] {
   background: var(--button-bg);
   border: 1px solid var(--button-border);
   color: var(--button-text);
+  font-size: 13px;
   text-decoration: none;
 }
 
@@ -5149,25 +5183,60 @@ button.feature-badge[aria-pressed="true"] {
   padding: 7px 9px;
 }
 
-.dedup-groups {
+/* The groups and the bar pinned over them. The bar's sticky range is this box,
+   so it holds its place for as long as there are groups left to scroll. */
+.dedup-list {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   flex-direction: column;
-  gap: 10px;
-  min-height: 360px;
-  overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-color: var(--border-strong) transparent;
-  scrollbar-width: thin;
 }
 
-.dedup-loading {
+/* Opaque, so the groups pass under it, and closed by the same hairline as the
+   dialog's header: pinned, it reads as a second line of that header. The
+   shadow is one more pixel of the surface on each side: the bar and the groups
+   share their edges, and at a fractional zoom a group's border would otherwise
+   show through the half-covered pixel. */
+.dedup-list-bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+  box-shadow: -1px 0 var(--surface), 1px 0 var(--surface);
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* What gets marked on the left, which page it is marked on on the right. */
+.dedup-list-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: space-between;
+}
+
+.dedup-list-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dedup-paging {
   align-items: center;
   color: var(--text-muted);
   display: flex;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.dedup-loading {
+  align-items: center;
+  display: flex;
   gap: 6px;
-  margin: 0;
 }
 
 /* The same turning spinner the running process indicators use, so a waiting
@@ -5176,10 +5245,17 @@ button.feature-badge[aria-pressed="true"] {
   animation: spin 1s linear infinite;
 }
 
+.dedup-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+}
+
 .dedup-group {
   background: var(--surface-muted);
   border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border-radius: var(--workbench-radius);
   display: grid;
   gap: 9px;
   padding: 11px;
@@ -5305,7 +5381,7 @@ button.feature-badge[aria-pressed="true"] {
   --dedup-copy-rule: var(--border-soft);
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: 7px;
+  border-radius: var(--workbench-radius);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -5518,7 +5594,9 @@ button.dedup-play-button {
    on. Everything under it explains that line. */
 .dedup-copy-stale-note {
   align-items: flex-start;
-  border-radius: 5px;
+  background: var(--danger-soft-bg);
+  border-radius: 4px;
+  color: var(--danger-text);
   display: flex;
   font-size: 11px;
   font-weight: 600;
@@ -5531,11 +5609,6 @@ button.dedup-play-button {
 .dedup-copy-stale-note > svg {
   flex: 0 0 auto;
   margin-top: 2px;
-}
-
-.dedup-copy-stale-note {
-  background: var(--danger-soft-bg);
-  color: var(--danger-text);
 }
 
 .dedup-copy-details {
@@ -5607,17 +5680,8 @@ button.dedup-play-button {
   color: var(--danger-text-hover);
 }
 
-.dedup-paging {
-  align-items: center;
-  color: var(--text-muted);
-  display: flex;
-  flex: 0 0 auto;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  gap: 10px;
-  justify-content: center;
-}
-
+/* No margin above: the body scrolls right up to this rule, and its own bottom
+   padding is what keeps the last group clear of it. */
 .dedup-footer {
   align-items: end;
   border-top: 1px solid var(--border-soft);
@@ -5625,7 +5689,6 @@ button.dedup-play-button {
   flex: 0 0 auto;
   flex-wrap: wrap;
   gap: 9px;
-  margin-top: 12px;
   padding-top: 12px;
 }
 

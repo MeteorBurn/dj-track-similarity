@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   AudioLines,
@@ -120,6 +120,8 @@ export function AudioDedupDialog({
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } =
     useConfirmation();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // A closed dialog owns no key: without this the listener would answer
@@ -144,6 +146,16 @@ export function AudioDedupDialog({
     return () => window.clearInterval(timer);
   }, [jobRunning, open]);
 
+  // Another page, report or filter is another list. The body is one scroller
+  // with the list bar pinned in it, so a reader deep in the old list is brought
+  // back to the first group, and one still at the controls is left there.
+  useEffect(() => {
+    const body = bodyRef.current;
+    const list = listRef.current;
+    if (!body || !list) return;
+    body.scrollTop = Math.min(body.scrollTop, list.offsetTop);
+  }, [dedup.reportId, dedup.offset, dedup.filters]);
+
   const activeReport = useMemo(
     () => dedup.reports.find((report) => report.report_id === dedup.reportId) ?? null,
     [dedup.reports, dedup.reportId]
@@ -167,6 +179,14 @@ export function AudioDedupDialog({
   const selectionText =
     `${summary.files} ${copiesWord(summary.files)}`
     + ` в ${summary.groups} ${pluralRu(summary.groups, "группе", "группах", "группах")}`;
+  // Which groups of the filtered report are on screen: the page the marks in
+  // the list bar act on.
+  const listedGroups = dedup.page?.filtered_groups ?? 0;
+  const pageRangeText =
+    listedGroups > 0
+      ? `Группы ${dedup.offset + 1}–${Math.min(dedup.offset + dedup.pageSize, listedGroups)}`
+        + ` из ${listedGroups}`
+      : "";
 
   if (!open) return null;
 
@@ -257,227 +277,227 @@ export function AudioDedupDialog({
           </button>
         </div>
 
-        <div className="dedup-body">
-          <section className="dedup-section">
-            <div className="dedup-section-title">
-              <Search size={13} />
-              Поиск
-            </div>
-            <div className="dedup-scan-grid">
-              <label className="dedup-control dedup-mode-control">
-                <span>Режим</span>
-                <select
-                  name="dedup-search-mode"
-                  value={displayedSearchMode}
+        <div className="dedup-body" ref={bodyRef}>
+          <div className="dedup-setup">
+            <section className="dedup-section">
+              <div className="dedup-section-title">
+                <Search size={13} />
+                Поиск
+              </div>
+              <div className="dedup-scan-grid">
+                <label className="dedup-control dedup-mode-control">
+                  <span>Режим</span>
+                  <select
+                    name="dedup-search-mode"
+                    value={displayedSearchMode}
+                    disabled={jobRunning}
+                    onChange={(event) => setSearchMode(event.target.value as AudioDedupSearchMode)}
+                  >
+                    <option value="fingerprint_scan">
+                      {audioDedupModeLabel.fingerprint_scan}
+                    </option>
+                    <option value="fingerprint_lsh">
+                      {audioDedupModeLabel.fingerprint_lsh}
+                    </option>
+                  </select>
+                </label>
+                <button
+                  className={`dedup-toggle ${displayedDetectFakeBitrate ? "active" : ""}`}
+                  name="dedup-detect-fake-bitrate"
+                  role="switch"
+                  aria-checked={displayedDetectFakeBitrate}
                   disabled={jobRunning}
-                  onChange={(event) => setSearchMode(event.target.value as AudioDedupSearchMode)}
-                >
-                  <option value="fingerprint_scan">
-                    {audioDedupModeLabel.fingerprint_scan}
-                  </option>
-                  <option value="fingerprint_lsh">
-                    {audioDedupModeLabel.fingerprint_lsh}
-                  </option>
-                </select>
-              </label>
-              <button
-                className={`dedup-toggle ${displayedDetectFakeBitrate ? "active" : ""}`}
-                name="dedup-detect-fake-bitrate"
-                role="switch"
-                aria-checked={displayedDetectFakeBitrate}
-                disabled={jobRunning}
-                onClick={() => setDetectFakeBitrate(!detectFakeBitrate)}
-                type="button"
-              >
-                <span className="dedup-toggle-checkbox" aria-hidden="true">
-                  {displayedDetectFakeBitrate ? <Check size={11} strokeWidth={2.6} /> : null}
-                </span>
-                <AudioLines size={15} />
-                Анализ спектрограммы
-              </button>
-              {jobRunning ? (
-                <button
-                  className="dedup-secondary-button dedup-run-button"
+                  onClick={() => setDetectFakeBitrate(!detectFakeBitrate)}
                   type="button"
-                  onClick={() => void dedup.cancelScan()}
                 >
-                  Остановить
+                  <span className="dedup-toggle-checkbox" aria-hidden="true">
+                    {displayedDetectFakeBitrate ? <Check size={11} strokeWidth={2.6} /> : null}
+                  </span>
+                  <AudioLines size={15} />
+                  Анализ спектрограммы
                 </button>
-              ) : (
-                <button
-                  className="dedup-primary-button dedup-run-button"
-                  type="button"
-                  disabled={dedup.busy}
-                  title="Искать дубликаты по всей базе"
-                  onClick={() =>
-                    void dedup.startScan({
-                      search_mode: searchMode,
-                      detect_fake_bitrate: detectFakeBitrate
-                    })
-                  }
-                >
-                  <Search size={15} />
-                  Искать дубликаты
-                </button>
-              )}
-            </div>
-            {/* What each control actually does, on screen rather than in a
-                tooltip: these are the two choices made before a long run. */}
-            <div className="dedup-scan-notes">
-              <p className="dedup-mode-description">
-                <b>{audioDedupModeLabel[displayedSearchMode]}.</b> {audioDedupModeDescription[displayedSearchMode]}
-              </p>
-              {displayedDetectFakeBitrate ? (
-                <p className="dedup-mode-description">
-                  <b>Анализ спектрограммы:</b> {audioDedupFakeBitrateDescription}
-                </p>
-              ) : null}
-            </div>
-            {/* The status belongs at the bar it describes: the stage the run is
-                on, how far into that stage, and what it has counted. */}
-            {job ? (
-              <div className="dedup-progress">
-                <div className="dedup-progress-status">
-                  <span>{scanStageText(job, progressPercent)}</span>
-                  <span>{scanMetaText(job, elapsedSeconds, etaSeconds)}</span>
-                </div>
                 {jobRunning ? (
-                  <div className="dedup-progress-track">
-                    <div
-                      className="dedup-progress-fill"
-                      style={{ transform: `scaleX(${progressPercent / 100})` }}
-                    />
-                  </div>
+                  <button
+                    className="dedup-secondary-button dedup-run-button"
+                    type="button"
+                    onClick={() => void dedup.cancelScan()}
+                  >
+                    Остановить
+                  </button>
+                ) : (
+                  <button
+                    className="dedup-primary-button dedup-run-button"
+                    type="button"
+                    disabled={dedup.busy}
+                    title="Искать дубликаты по всей базе"
+                    onClick={() =>
+                      void dedup.startScan({
+                        search_mode: searchMode,
+                        detect_fake_bitrate: detectFakeBitrate
+                      })
+                    }
+                  >
+                    <Search size={15} />
+                    Искать дубликаты
+                  </button>
+                )}
+              </div>
+              {/* What each control actually does, on screen rather than in a
+                  tooltip: these are the two choices made before a long run. */}
+              <div className="dedup-scan-notes">
+                <p className="dedup-mode-description">
+                  <b>{audioDedupModeLabel[displayedSearchMode]}.</b> {audioDedupModeDescription[displayedSearchMode]}
+                </p>
+                {displayedDetectFakeBitrate ? (
+                  <p className="dedup-mode-description">
+                    <b>Анализ спектрограммы:</b> {audioDedupFakeBitrateDescription}
+                  </p>
                 ) : null}
               </div>
-            ) : null}
-            {job?.error ? <p className="dedup-alert">{job.error}</p> : null}
-          </section>
-
-          <section className="dedup-section">
-            <div className="dedup-section-title">
-              <SlidersHorizontal size={13} />
-              Отчёт и фильтры
-              {activeReport ? (
-                <span className="dedup-section-counter">
-                  {activeReport.group_count}{" "}
-                  {pluralRu(activeReport.group_count, "группа", "группы", "групп")} ·{" "}
-                  {activeReport.candidate_count} {copiesWord(activeReport.candidate_count)} на
-                  разбор
-                  {activeReport.fake_bitrate_candidate_count > 0
-                    ? ` · фейк-битрейт ${activeReport.fake_bitrate_candidate_count}`
-                    : ""}
-                </span>
-              ) : null}
-            </div>
-            <div className="dedup-report-row">
-              <label className="dedup-control dedup-control-grow">
-                <span>Отчёт</span>
-                <select
-                  name="dedup-report"
-                  value={dedup.reportId ?? ""}
-                  disabled={dedup.reports.length === 0}
-                  onChange={(event) => dedup.selectReport(event.target.value)}
-                >
-                  {dedup.reports.length === 0 ? (
-                    <option value="">Отчётов пока нет — запустите поиск</option>
+              {/* The status belongs at the bar it describes: the stage the run is
+                  on, how far into that stage, and what it has counted. */}
+              {job ? (
+                <div className="dedup-progress">
+                  <div className="dedup-progress-status">
+                    <span>{scanStageText(job, progressPercent)}</span>
+                    <span>{scanMetaText(job, elapsedSeconds, etaSeconds)}</span>
+                  </div>
+                  {jobRunning ? (
+                    <div className="dedup-progress-track">
+                      <div
+                        className="dedup-progress-fill"
+                        style={{ transform: `scaleX(${progressPercent / 100})` }}
+                      />
+                    </div>
                   ) : null}
-                  {dedup.reports.map((report) => (
-                    <option key={report.report_id} value={report.report_id}>
-                      {report.generated_at.replace("T", " ")} ·{" "}
-                      {report.search_mode ? audioDedupModeLabel[report.search_mode] : "режим неизвестен"} ·{" "}
-                      {report.group_count}{" "}
-                      {pluralRu(report.group_count, "группа", "группы", "групп")}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {activeReport?.has_xlsx ? (
-                <a
-                  className="dedup-secondary-button dedup-xlsx-link"
-                  href={api.audioDedupXlsxUrl(activeReport.report_id)}
-                  title="Скачать XLSX отчёта"
-                >
-                  <FileSpreadsheet size={15} />
-                  XLSX
-                  <Download size={13} />
-                </a>
+                </div>
               ) : null}
-              {activeReport ? (
-                <button
-                  className="icon-button intent-remove"
-                  type="button"
-                  disabled={dedup.busy}
-                  title="Удалить отчёт"
-                  aria-label="Удалить отчёт"
-                  onClick={requestReportDelete}
-                >
-                  <Trash2 size={15} />
-                </button>
-              ) : null}
-            </div>
-            <div className="dedup-filter-row">
-              <label className="dedup-control">
-                <span>Уверенность</span>
-                <select
-                  name="dedup-confidence"
-                  title={helpText.audioDedupConfidence}
-                  disabled={filtersDisabled}
-                  value={draftFilters.confidence[0] ?? ""}
-                  onChange={(event) =>
-                    updateFilters({
-                      ...draftFilters,
-                      confidence: event.target.value ? [event.target.value] : []
-                    })
-                  }
-                >
-                  <option value="">любая</option>
-                  {dedupConfidenceOptions.map((value) => (
-                    <option key={value} value={value}>
-                      {confidenceLabel(value)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="dedup-control dedup-fingerprint-control">
-                <span>Отпечаток</span>
-                <input
-                  name="dedup-min-fingerprint"
-                  title={helpText.audioDedupFingerprintFloor}
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  placeholder={fingerprintBand}
-                  disabled={filtersDisabled || !manualConfidence}
-                  value={manualConfidence ? draftFilters.minFingerprint ?? "" : ""}
-                  onChange={(event) =>
-                    updateFilters({
-                      ...draftFilters,
-                      minFingerprint: event.target.value === "" ? null : Number(event.target.value)
-                    })
-                  }
-                />
-              </label>
-              <label className="dedup-control dedup-control-grow">
-                <span>Корень папки</span>
-                <input
-                  name="dedup-path-contains"
-                  value={draftFilters.pathContains}
-                  title={helpText.audioDedupPathFilter}
-                  disabled={filtersDisabled}
-                  placeholder="Часть пути папки: Abstracted или M:\Volumes\Abstracted"
-                  onChange={(event) =>
-                    setDraftFilters({ ...draftFilters, pathContains: event.target.value })
-                  }
-                  // Typing asks for nothing: the report is filtered when the
-                  // reviewer says so, by the button or by Enter in the field.
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") dedup.applyFilters(draftFilters);
-                  }}
-                />
-              </label>
-              <div className="dedup-path-actions">
+              {job?.error ? <p className="dedup-alert">{job.error}</p> : null}
+            </section>
+
+            <section className="dedup-section">
+              <div className="dedup-section-title">
+                <SlidersHorizontal size={13} />
+                Отчёт и фильтры
+                {activeReport ? (
+                  <span className="dedup-section-counter">
+                    {activeReport.group_count}{" "}
+                    {pluralRu(activeReport.group_count, "группа", "группы", "групп")} ·{" "}
+                    {activeReport.candidate_count} {copiesWord(activeReport.candidate_count)} на
+                    разбор
+                    {activeReport.fake_bitrate_candidate_count > 0
+                      ? ` · фейк-битрейт ${activeReport.fake_bitrate_candidate_count}`
+                      : ""}
+                  </span>
+                ) : null}
+              </div>
+              <div className="dedup-report-row">
+                <label className="dedup-control dedup-control-grow">
+                  <span>Отчёт</span>
+                  <select
+                    name="dedup-report"
+                    value={dedup.reportId ?? ""}
+                    disabled={dedup.reports.length === 0}
+                    onChange={(event) => dedup.selectReport(event.target.value)}
+                  >
+                    {dedup.reports.length === 0 ? (
+                      <option value="">Отчётов пока нет — запустите поиск</option>
+                    ) : null}
+                    {dedup.reports.map((report) => (
+                      <option key={report.report_id} value={report.report_id}>
+                        {report.generated_at.replace("T", " ")} ·{" "}
+                        {report.search_mode ? audioDedupModeLabel[report.search_mode] : "режим неизвестен"} ·{" "}
+                        {report.group_count}{" "}
+                        {pluralRu(report.group_count, "группа", "группы", "групп")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {activeReport?.has_xlsx ? (
+                  <a
+                    className="dedup-secondary-button dedup-xlsx-link"
+                    href={api.audioDedupXlsxUrl(activeReport.report_id)}
+                    title="Скачать XLSX отчёта"
+                  >
+                    <FileSpreadsheet size={15} />
+                    XLSX
+                    <Download size={13} />
+                  </a>
+                ) : null}
+                {activeReport ? (
+                  <button
+                    className="icon-button intent-remove"
+                    type="button"
+                    disabled={dedup.busy}
+                    title="Удалить отчёт"
+                    aria-label="Удалить отчёт"
+                    onClick={requestReportDelete}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                ) : null}
+              </div>
+              <div className="dedup-filter-row">
+                <label className="dedup-control">
+                  <span>Уверенность</span>
+                  <select
+                    name="dedup-confidence"
+                    title={helpText.audioDedupConfidence}
+                    disabled={filtersDisabled}
+                    value={draftFilters.confidence[0] ?? ""}
+                    onChange={(event) =>
+                      updateFilters({
+                        ...draftFilters,
+                        confidence: event.target.value ? [event.target.value] : []
+                      })
+                    }
+                  >
+                    <option value="">любая</option>
+                    {dedupConfidenceOptions.map((value) => (
+                      <option key={value} value={value}>
+                        {confidenceLabel(value)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="dedup-control dedup-fingerprint-control">
+                  <span>Отпечаток</span>
+                  <input
+                    name="dedup-min-fingerprint"
+                    title={helpText.audioDedupFingerprintFloor}
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    placeholder={fingerprintBand}
+                    disabled={filtersDisabled || !manualConfidence}
+                    value={manualConfidence ? draftFilters.minFingerprint ?? "" : ""}
+                    onChange={(event) =>
+                      updateFilters({
+                        ...draftFilters,
+                        minFingerprint: event.target.value === "" ? null : Number(event.target.value)
+                      })
+                    }
+                  />
+                </label>
+                <label className="dedup-control dedup-control-grow">
+                  <span>Корень папки</span>
+                  <input
+                    name="dedup-path-contains"
+                    value={draftFilters.pathContains}
+                    title={helpText.audioDedupPathFilter}
+                    disabled={filtersDisabled}
+                    placeholder="Часть пути папки: Abstracted или M:\Volumes\Abstracted"
+                    onChange={(event) =>
+                      setDraftFilters({ ...draftFilters, pathContains: event.target.value })
+                    }
+                    // Typing asks for nothing: the report is filtered when the
+                    // reviewer says so, by the button or by Enter in the field.
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") dedup.applyFilters(draftFilters);
+                    }}
+                  />
+                </label>
                 <button
                   className="dedup-secondary-button"
                   type="button"
@@ -487,118 +507,127 @@ export function AudioDedupDialog({
                 >
                   Применить фильтр
                 </button>
-                <button
-                  className="dedup-secondary-button"
-                  type="button"
-                  title="Отметить на странице файлы с указанной частью пути, не меняя фильтр"
-                  disabled={pageSelectionDisabled || !draftFilters.pathContains.trim()}
-                  onClick={() => dedup.markFolderOnPage(draftFilters.pathContains)}
-                >
-                  Отметить папку
-                </button>
               </div>
-              <button
-                className="dedup-secondary-button"
-                type="button"
-                title={helpText.audioDedupMarkCandidates}
-                disabled={!dedup.page || dedup.page.groups.length === 0}
-                onClick={dedup.selectSuggestedOnPage}
-              >
-                Отметить кандидатов
-              </button>
-              <button
-                className="dedup-secondary-button"
-                type="button"
-                title="Поменять помеченные и непомеченные файлы на текущей странице"
-                disabled={pageSelectionDisabled}
-                onClick={dedup.invertSelectionOnPage}
-              >
-                Инвертировать выбор
-              </button>
-              <button
-                className="dedup-ghost-button"
-                type="button"
-                disabled={summary.files === 0}
-                onClick={dedup.clearSelection}
-              >
-                Снять всё
-              </button>
-            </div>
-            {/* What the applied filter caught, across the whole report rather
-                than the page: the reach of «mp3» is worth seeing before
-                anything is marked. */}
-            {appliedPathFilter && dedup.page ? (
-              <p className="dedup-filter-summary">
-                Фильтр «{appliedPathFilter}»: {dedup.page.filtered_copies}{" "}
-                {copiesWord(dedup.page.filtered_copies)} в {dedup.page.filtered_groups}{" "}
-                {pluralRu(dedup.page.filtered_groups, "группе", "группах", "группах")}
-              </p>
-            ) : null}
-          </section>
-
-          {dedup.error ? (
-            <p className="dedup-alert">
-              <AlertTriangle size={13} />
-              {dedup.error}
-            </p>
-          ) : null}
-
-          <div className="dedup-groups">
-            {dedup.loadingGroups ? (
-              <p className="dedup-loading">
-                <Loader2 size={15} />
-                Загрузка групп…
-              </p>
-            ) : null}
-            {!dedup.loadingGroups && dedup.page && dedup.page.groups.length === 0 ? (
-              <p className="empty-state">
-                {dedup.page.total_groups === 0
-                  ? "В этом отчёте нет групп дубликатов."
-                  : "Под фильтры не попала ни одна группа."}
-              </p>
-            ) : null}
-            {!dedup.loadingGroups && !dedup.page ? (
-              <p className="empty-state">
-                Выберите отчёт или запустите поиск, чтобы начать разбор.
-              </p>
-            ) : null}
-            {dedup.page?.groups.map((group) => (
-              <AudioDedupGroupCard
-                key={group.group_id}
-                group={group}
-                selectedTrackIds={dedup.selection[group.group_id] ?? []}
-                playingTrackId={playingTrackId}
-                onToggleFile={dedup.toggleFile}
-                onSetGroup={dedup.setGroup}
-                onPreview={onPreview}
-              />
-            ))}
+              {/* What the applied filter caught, across the whole report rather
+                  than the page: the reach of «mp3» is worth seeing before
+                  anything is marked. */}
+              {appliedPathFilter && dedup.page ? (
+                <p className="dedup-filter-summary">
+                  Фильтр «{appliedPathFilter}»: {dedup.page.filtered_copies}{" "}
+                  {copiesWord(dedup.page.filtered_copies)} в {dedup.page.filtered_groups}{" "}
+                  {pluralRu(dedup.page.filtered_groups, "группе", "группах", "группах")}
+                </p>
+              ) : null}
+            </section>
           </div>
 
-          {dedup.page && dedup.page.filtered_groups > dedup.pageSize ? (
-            <div className="dedup-paging">
-              <button
-                className="dedup-ghost-button"
-                type="button"
-                disabled={dedup.offset === 0}
-                onClick={() => dedup.setOffset(Math.max(0, dedup.offset - dedup.pageSize))}
-              >
-                Назад
-              </button>
-              <span>
-                {dedup.offset + 1}–{Math.min(dedup.offset + dedup.pageSize, dedup.page.filtered_groups)}{" "}
-                из {dedup.page.filtered_groups}
-              </span>
-              <button
-                className="dedup-ghost-button"
-                type="button"
-                disabled={dedup.offset + dedup.pageSize >= dedup.page.filtered_groups}
-                onClick={() => dedup.setOffset(dedup.offset + dedup.pageSize)}
-              >
-                Вперёд
-              </button>
+          <div className="dedup-list" ref={listRef}>
+            {/* Pinned while the groups scroll under it: the marks that act on
+                the page, the page itself, and whatever went wrong with either. */}
+            <div className="dedup-list-bar">
+              <div className="dedup-list-tools">
+                <div className="dedup-list-marks">
+                  <button
+                    className="dedup-secondary-button"
+                    type="button"
+                    title={helpText.audioDedupMarkCandidates}
+                    disabled={!dedup.page || dedup.page.groups.length === 0}
+                    onClick={dedup.selectSuggestedOnPage}
+                  >
+                    Отметить кандидатов
+                  </button>
+                  <button
+                    className="dedup-secondary-button"
+                    type="button"
+                    title="Отметить на странице файлы с частью пути из поля «Корень папки», не меняя фильтр"
+                    disabled={pageSelectionDisabled || !draftFilters.pathContains.trim()}
+                    onClick={() => dedup.markFolderOnPage(draftFilters.pathContains)}
+                  >
+                    Отметить папку
+                  </button>
+                  <button
+                    className="dedup-secondary-button"
+                    type="button"
+                    title="Поменять помеченные и непомеченные файлы на текущей странице"
+                    disabled={pageSelectionDisabled}
+                    onClick={dedup.invertSelectionOnPage}
+                  >
+                    Инвертировать выбор
+                  </button>
+                  <button
+                    className="dedup-ghost-button"
+                    type="button"
+                    disabled={summary.files === 0}
+                    onClick={dedup.clearSelection}
+                  >
+                    Снять всё
+                  </button>
+                </div>
+                <div className="dedup-paging">
+                  {dedup.loadingGroups ? (
+                    <span className="dedup-loading">
+                      <Loader2 size={14} />
+                      Загрузка групп…
+                    </span>
+                  ) : pageRangeText ? (
+                    <span>{pageRangeText}</span>
+                  ) : null}
+                  {dedup.page && dedup.page.filtered_groups > dedup.pageSize ? (
+                    <>
+                      <button
+                        className="dedup-ghost-button"
+                        type="button"
+                        disabled={dedup.offset === 0}
+                        onClick={() => dedup.setOffset(Math.max(0, dedup.offset - dedup.pageSize))}
+                      >
+                        Назад
+                      </button>
+                      <button
+                        className="dedup-ghost-button"
+                        type="button"
+                        disabled={dedup.offset + dedup.pageSize >= dedup.page.filtered_groups}
+                        onClick={() => dedup.setOffset(dedup.offset + dedup.pageSize)}
+                      >
+                        Вперёд
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+              {dedup.error ? (
+                <p className="dedup-alert">
+                  <AlertTriangle size={13} />
+                  {dedup.error}
+                </p>
+              ) : null}
             </div>
-          ) : null}
+
+            <div className="dedup-groups">
+              {!dedup.loadingGroups && dedup.page && dedup.page.groups.length === 0 ? (
+                <p className="empty-state">
+                  {dedup.page.total_groups === 0
+                    ? "В этом отчёте нет групп дубликатов."
+                    : "Под фильтры не попала ни одна группа."}
+                </p>
+              ) : null}
+              {!dedup.loadingGroups && !dedup.page ? (
+                <p className="empty-state">
+                  Выберите отчёт или запустите поиск, чтобы начать разбор.
+                </p>
+              ) : null}
+              {dedup.page?.groups.map((group) => (
+                <AudioDedupGroupCard
+                  key={group.group_id}
+                  group={group}
+                  selectedTrackIds={dedup.selection[group.group_id] ?? []}
+                  playingTrackId={playingTrackId}
+                  onToggleFile={dedup.toggleFile}
+                  onSetGroup={dedup.setGroup}
+                  onPreview={onPreview}
+                />
+              ))}
+            </div>
+          </div>
         </div>
 
         <footer className="dedup-footer">

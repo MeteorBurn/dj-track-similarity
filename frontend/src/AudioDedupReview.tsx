@@ -87,7 +87,7 @@ function FileCard({
       await api.revealTrackFile(file.track_id);
       setRevealError(null);
     } catch {
-      setRevealError("Could not open containing folder");
+      setRevealError("Не удалось открыть папку с файлом");
     }
   }
 
@@ -111,8 +111,8 @@ function FileCard({
             </span>
             <button
               className="icon-button metadata-copy-value-button"
-              title={fileNameCopied ? "Copied" : "Copy file name"}
-              aria-label={`Copy file name: ${file.file_name}`}
+              title={fileNameCopied ? "Скопировано" : "Скопировать имя файла"}
+              aria-label={`Скопировать имя файла: ${file.file_name}`}
               onClick={() => void copyFileName()}
               type="button"
             >
@@ -137,8 +137,8 @@ function FileCard({
         </p>
         <button
           className="icon-button metadata-copy-value-button"
-          title={filePathCopied ? "Copied" : "Copy file path"}
-          aria-label={`Copy file path: ${file.path}`}
+          title={filePathCopied ? "Скопировано" : "Скопировать путь к файлу"}
+          aria-label={`Скопировать путь к файлу: ${file.path}`}
           onClick={() => void copyFilePath()}
           type="button"
         >
@@ -146,8 +146,8 @@ function FileCard({
         </button>
         <button
           className="icon-button metadata-copy-value-button"
-          title={revealError ?? "Open containing folder"}
-          aria-label={`Open containing folder: ${file.path}`}
+          title={revealError ?? "Открыть папку с файлом"}
+          aria-label={`Открыть папку с файлом: ${file.path}`}
           disabled={!file.playable || file.stale_reason === "report identity is stale"}
           onClick={() => void revealFileLocation()}
           type="button"

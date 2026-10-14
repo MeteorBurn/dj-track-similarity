@@ -16,7 +16,7 @@ DJTS – `dj-track-similarity` is a local-first workbench for large music folder
 Large personal libraries hide music you forgot you own. BPM, key, energy, tags, and crates are the usual DJ toolkit. This project keeps that layer and adds a second one:
 
 1. **Technical compatibility.** BPM, key, duration, energy, and related metadata from SONARA analysis and file tags.
-2. **Sonic compatibility.** Rhythm, timbre, density, dynamics, and audio similarity from SONARA features and MAEST, MERT-v2, MuQ, MuQ-MuLan, and CLAP embeddings, plus texture and atmosphere through text prompts.
+2. **Sonic compatibility.** Rhythm, timbre, density, dynamics, and audio similarity from SONARA features and MAEST, MERT-v2, SheetSage2, MuQ, MuQ-MuLan, and CLAP embeddings, plus texture and atmosphere through text prompts.
 
 Nothing in the app orders a set automatically. You seed a search, preview the candidates, add one to the set, seed the next search from it, and shape the story by listening rather than by score. Model outputs are stored separately per model so you can inspect them. The author claims no ML or music-information-retrieval expertise; the background lives in the [project idea](docs/dj-track-similarity/concepts/project-idea.md) page.
 
@@ -25,7 +25,7 @@ Nothing in the app orders a set automatically. You seed a search, preview the ca
 ## ✅ What the project can do today
 
 - **📂 Browse your library.** Scan a local music folder into one SQLite library (tags read with Mutagen), browse it in server-side pages, and listen in the player dock.
-- **🎧 Find similar tracks.** Analyze tracks with SONARA, MAEST, MERT-v2, MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those six models.
+- **🎧 Find similar tracks.** Analyze tracks with SONARA, MAEST, MERT-v2, SheetSage2 (shown as SHEETSAGE-v2), MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those seven models.
 - **💬 Search by text.** Search from prompt presets with CLAP or MuQ-MuLan, or compare both side by side.
 - **🧪 Train personal classifiers.** Use Rhythm Lab to label, train, benchmark, and promote classifiers, then filter the library by their scores in the CLASSIFIER tab.
 - **🎚️ Build a set.** Keep a manual current set and export it as M3U or CSV.
@@ -40,7 +40,7 @@ Nothing in the app orders a set automatically. You seed a search, preview the ca
 
 > [!WARNING]
 > **🎮 GPU analysis needs a compatible NVIDIA GPU and driver.** The selected PyTorch binaries include the **CUDA 13.0 runtime**, so you do not need to install a separate CUDA Toolkit or cuDNN. The installer checks CUDA availability but does not install a graphics driver. See the [NVIDIA CUDA guide for Windows](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-installation-guide-microsoft-windows/index.html), [driver compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html), and [PyTorch binary guidance](https://discuss.pytorch.org/t/should-i-install-the-extra-cudatoolkit-and-cudnn/194528). CPU inference is available. CUDA is recommended for full-library ML analysis.
-> Have an internet connection and enough free space for **about 10.9 GB of model assets**, plus the Python environment, tools, download caches, and your library database.
+> Have an internet connection and enough free space for **about 11.1 GB of model assets**, plus the Python environment, tools, download caches, and your library database.
 
 > [!TIP]
 > **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your OS version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
@@ -111,7 +111,7 @@ Package versions and sources follow [pyproject.toml](pyproject.toml), [uv.lock](
 
 SONARA engine extracts audio features such as BPM, key, energy, rhythm, timbre, together with an acoustic fingerprint. CPU analysis provides the track data required before ML processing.
 
-The installer includes **SONARA 0.3.6** with decoder patches (RIFF-chunk padding) from the [MeteorBurn/sonara fork](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.6-meteorburn.1). It is installed as a Python package and needs no separate model checkpoint download.
+The installer includes **SONARA 0.3.7** with decoder patches (RIFF-chunk padding) from the [MeteorBurn/sonara fork](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.7-bpm-precision-20261005). It is installed as a Python package and needs no separate model checkpoint download.
 
 > **📚 Citation:** original [SONARA project by kkollsga](https://github.com/kkollsga/sonara).
 
@@ -123,12 +123,13 @@ The installer downloads the ML assets below into `models/` and verifies their SH
 | --- | --- | --- | ---: |
 | 🧠 [MAEST](https://github.com/palonso/MAEST) | `discogs-maest-30s-pw-129e-519l` checkpoint | **[maest-infer](https://github.com/openmirlab/maest-infer) 0.2.0** - MAEST inference | 0.34 GB |
 | 🧠 [MERT-v2-FullSong](https://huggingface.co/m-a-p/MERT-v2-FullSong) | Weights, configuration, and model code | Loaded through Transformers | 2.53 GB |
+| 🧠 [SheetSage2](https://huggingface.co/m-a-p/SheetSage2) | Adapter weights, configuration, and model code | **mir_eval 0.8.2** - Chord handling in the model code<br>**pretty_midi 0.2.10** - MIDI handling in the model code<br>**mido 1.3.3** - Required by pretty_midi | 0.23 GB |
 | 🧠 [MuQ-large-msd-iter](https://huggingface.co/OpenMuQ/MuQ-large-msd-iter) | Weights and configuration | **[muq](https://github.com/tencent-ailab/muq) 0.1.0** - MuQ and MuQ-MuLan inference<br>**nnAudio 0.3.4** - Required by the muq package | 1.33 GB |
 | 🧠 [MuQ-MuLan-large](https://huggingface.co/OpenMuQ/MuQ-MuLan-large) | Audio/text assets, including XLM-RoBERTa | **muq 0.1.0** - Shared with MuQ | 3.78 GB |
 | 🧠 [CLAP music_audioset](https://huggingface.co/lukewys/laion_clap) | Audio/text assets, including RoBERTa | **[laion-clap](https://github.com/LAION-AI/CLAP) 1.1.7** - CLAP inference | 2.85 GB |
-| **💾 Total** | **Downloaded ML assets** | | **10.85 GB** |
+| **💾 Total** | **Downloaded ML assets** | | **11.07 GB** |
 
-> **💾 Size notes.** Sizes use decimal GB and are rounded independently. MuQ-MuLan also uses the MuQ files listed above, counted once in the total.
+> **💾 Size notes.** Sizes use decimal GB and are rounded independently. MuQ-MuLan also uses the MuQ files and SheetSage2 the MERT-v2 files listed above, each counted once in the total.
 
 ---
 
@@ -177,11 +178,11 @@ The top bar switches workspaces: **DISCOVER** shows the analysis, library, and s
 
 ### 1. 🔍 Rediscover your own library
 
-Search by path, title, artist, or genre (LIKE or FTS), show liked tracks, filter by the stored MAEST syncopated-rhythm flag or by classifier scores, and open a track's tags, genres, and analysis. Rows show SONARA BPM and Camelot key. The library has no filter by analysis coverage; the analysis panel shows per-model counts. The player dock streams a preview with seeking, a like button, a repeat toggle, and the track's BPM and key. When a track ends, it repeats or moves on within the current library page. See [Browse library](docs/dj-track-similarity/user-guide/browse-library.md).
+Search by path, title, artist, or genre (LIKE or FTS), show liked tracks, filter by the stored MAEST syncopated-rhythm flag or by classifier scores, and open a track's tags, genres, and analysis. The dialog's Features block switches between SONARA and SheetSage2: SheetSage2 shows rhythm, harmony, structure, and melody summaries and a timeline of structure, tempo, rhythm, melody, chords, and key that follows the preview, and a click on the timeline moves the preview to that point. Rows show SONARA BPM and Camelot key. The library has no filter by analysis coverage; the analysis panel shows per-model counts. The player dock streams a preview with seeking, a like button, a repeat toggle, and the track's BPM and key. When a track ends, it repeats or moves on within the current library page. See [Browse library](docs/dj-track-similarity/user-guide/browse-library.md).
 
 ### 2. 🎯 Start from a reference track
 
-The REFERENCE tab ranks candidates in one model space per search. SONARA uses measured Core features with a manual mixer of five sliders and nine directional modifiers, and takes up to five seeds. MAEST, MERT-v2, MuQ, MuQ-MuLan, and CLAP each search their own embedding space; for MAEST, MERT-v2, and MuQ you pick one of their stored layers (13, 24, and 13 layers; each family's last layer is the default). The LAB tab shows a short candidate list per model for the first seed, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
+The REFERENCE tab ranks candidates in one model space per search. SONARA uses measured Core features with a manual mixer of five sliders and nine directional modifiers, and takes up to five seeds. MAEST, MERT-v2, SheetSage2, MuQ, MuQ-MuLan, and CLAP each search their own embedding space; for MAEST, MERT-v2, SheetSage2, and MuQ you pick one of their stored layers (13, 24, 24, and 13 layers; each family's last layer is the default). MAEST also offers L13+L12, which scores a track by the mean of its similarity in both layers and ranks only tracks stored at both. The LAB tab shows a short candidate list per model for the first seed, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
 
 In the REFERENCE tab, with an embedding model selected, the scatter-chart button next to **Search** opens the reference map: the candidates that **Search** returns for the current references, model, layer, and limit, placed by SONARA measurements alone at their distance from the references across seven facets (rhythm and groove, dynamics, spectrum and texture, timbre, harmony and mode, pitch class, and tempo). Select a candidate to see which facets it keeps or loses, its values beside the references and the library, curves across the whole track, and optional band curves read from the audio, read-only and outside the distance. Another tab summarizes which facets the whole output keeps compared with random library tracks, whether deeper ranks keep them too, and any consistent shift of the output. Model scores never enter the distance, and SONARA's heuristic mood, perceptual, aggression, and vocalness outputs are not read; mood appears only as a labelled reading of measured features. The first map after the server starts, or after the library or its SONARA data changes, calibrates on a library sample, which can take up to a minute. A map stays in browser memory until the library, model, layer, references, or limit change.
 
@@ -217,13 +218,13 @@ audio files -> scan tags -> SQLite library -> browse/search/export
       +---- stored inputs -> classifiers -> CLASSIFIER scores
 ```
 
-The app never folds evidence into one score scale: a file genre tag, a MAEST genre label, a CLAP text score, and a duplicate score answer different questions ([Similarity scores](docs/dj-track-similarity/concepts/similarity-scores.md)). SONARA stores Core features, a timeline, a 48-dimensional embedding, and an acoustic fingerprint, always together; MAEST adds genre labels, and every ML family keeps its own embedding space. See [Analysis families](docs/dj-track-similarity/reference/analysis-families.md) and [Features, embeddings, and tags](docs/dj-track-similarity/concepts/features-embeddings-tags.md).
+The app never folds evidence into one score scale: a file genre tag, a MAEST genre label, a CLAP text score, and a duplicate score answer different questions ([Similarity scores](docs/dj-track-similarity/concepts/similarity-scores.md)). SONARA stores Core features, a timeline, a 48-dimensional embedding, and an acoustic fingerprint, always together; MAEST adds genre labels, SheetSage2 adds a timeline of beats, sections, keys, chords, and melody notes with features summarized from it, and every ML family keeps its own embedding space. See [Analysis families](docs/dj-track-similarity/reference/analysis-families.md) and [Features, embeddings, and tags](docs/dj-track-similarity/concepts/features-embeddings-tags.md).
 
 ---
 
 ## 🔗 Upstream models and licenses
 
-Analysis uses upstream projects and downloaded checkpoints: [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/palonso/MAEST), [MERT-v2](https://huggingface.co/m-a-p/MERT-v2-FullSong), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights. Upstream code and weights carry different licenses, so check their terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md).
+Analysis uses upstream projects and downloaded checkpoints: [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/palonso/MAEST), [MERT-v2](https://huggingface.co/m-a-p/MERT-v2-FullSong), [SheetSage2](https://huggingface.co/m-a-p/SheetSage2), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights. Upstream code and weights carry different licenses, so check their terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md).
 
 ---
 
@@ -232,10 +233,10 @@ Analysis uses upstream projects and downloaded checkpoints: [SONARA](https://git
 The analysis panel's Tools row holds **Refresh Tags**, **Save Genres**, **Validate DB**, **Rhythm-Lab**, and **Audio Dedup**.
 
 - **🔍 Audio Dedup** finds duplicates across the library from stored SONARA fingerprints alone. **Fingerprints**, the default mode, compares tracks of similar duration. **Fingerprints + LSH** is faster and can match copies of different length, but may miss some pairs. An optional spectrogram analysis, off by default, flags suspected transcodes. Review the report folder by folder, mark copies singly or in bulk, keep a different copy than suggested, and download the report as XLSX. Deletion asks for confirmation, stays inside the folder filter you reviewed, uses the recycle bin by default, rechecks each file, keeps at least one copy per group, and removes deleted copies from the library. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
-- **✅ Validate DB** checks SQLite integrity, track identities and files, SONARA Core, fingerprint, and embedding rows, and ML embeddings without changing the library. It skips SONARA timelines, MAEST genres, and classifier scores, and checks only the default layer of MAEST (13), MERT-v2 (24), and MuQ (13).
+- **✅ Validate DB** checks SQLite integrity, track identities and files, SONARA Core, fingerprint, and embedding rows, ML embeddings, and each stored SheetSage2 analysis (its timeline, the features derived from it, and all 24 layers) without changing the library. It skips SONARA timelines, MAEST genres, and classifier scores, and checks only the default layer of MAEST (13), MERT-v2 (24), and MuQ (13).
 - **🗃️ Database optimization** is offered after validation reports zero errors. A verified backup protects the database during compaction and index maintenance; it is removed after a verified result and kept if verification fails. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
 
-Starting the app never converts an older database, and the project ships no migration command.
+Starting the app never converts an older database, and the project ships no migration command. A library created before SheetSage2 storage was added does not open: the app reports the missing SheetSage2 tables and never adds them itself.
 
 ---
 
@@ -245,7 +246,7 @@ Normal workflows read source audio and never modify it. Scan, Refresh Tags, anal
 
 Only three workflows touch source audio:
 
-- **🏷️ Save Genres** writes the standard genre field of every track with stored MAEST genres. It starts when you click it, without a confirmation dialog.
+- **🏷️ Save Genres** writes the standard genre field of every track with stored MAEST genres. It asks for confirmation first, naming the number of files and that their current Genre value will be replaced.
 - **🩺 Audio Doctor**, a separate command-line tool, rewrites repairable files in place only when told to apply, with a verified backup by default.
 - **🗑️ Audio Dedup deletion** removes the copies you marked after a confirmation.
 

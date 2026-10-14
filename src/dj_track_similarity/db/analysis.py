@@ -1180,6 +1180,21 @@ class AnalysisRepository:
     ) -> dict[AnalysisTarget, Mapping[str, object]]:
         """Stored Timeline objects of current *targets*; a stale or absent row is left out."""
 
+        return {
+            target: payload
+            for target, (payload, _frame_seconds) in self.load_sonara_timeline_frames(targets).items()
+        }
+
+    def load_sonara_timeline_frames(
+        self,
+        targets: Sequence[AnalysisTarget],
+    ) -> dict[AnalysisTarget, tuple[Mapping[str, object], float]]:
+        """Stored Timeline objects with the seconds one frame index spans.
+
+        ``beats``, ``onsets`` and ``downbeats`` are frame indices, and only the
+        row knows their scale: ``hop_length / sample_rate_hz``.
+        """
+
         with self._write_lock:
             with closing(self.connect()) as connection:
                 catalog_uuid = _catalog_uuid(connection)
@@ -1192,17 +1207,20 @@ class AnalysisRepository:
                 }
                 rows = connection.execute(
                     """
-                    SELECT track_id, track_uuid, timeline_json
+                    SELECT track_id, track_uuid, sample_rate_hz, hop_length, timeline_json
                     FROM sonara_timeline
                     WHERE track_id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
                     """,
                     (json.dumps(list(selected), separators=(",", ":")),),
                 ).fetchall()
-        result: dict[AnalysisTarget, Mapping[str, object]] = {}
+        result: dict[AnalysisTarget, tuple[Mapping[str, object], float]] = {}
         for row in rows:
             target = selected.get(int(row["track_id"]))
             if target is not None and row["track_uuid"] == target.track_uuid:
-                result[target] = json.loads(row["timeline_json"])
+                result[target] = (
+                    json.loads(row["timeline_json"]),
+                    int(row["hop_length"]) / int(row["sample_rate_hz"]),
+                )
         return result
 
     def random_sonara_target(

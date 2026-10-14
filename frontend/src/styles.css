@@ -402,224 +402,11 @@ button {
   padding-top: 10px;
 }
 
-.reference-compare-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  min-width: 0;
-}
-
-.reference-compare-header {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.reference-compare-heading,
-.reference-compare-controls label {
-  color: var(--text-muted);
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.reference-compare-heading strong {
-  color: var(--text-strong);
-  font-size: 14px;
-}
-
-.reference-compare-heading span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.reference-compare-heading span,
-.reference-compare-controls label {
-  font-size: 12px;
-}
-
-.reference-compare-controls {
-  align-items: end;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.reference-compare-controls label {
-  flex: 0 0 64px;
-  font-weight: 700;
-}
-
-.reference-compare-controls input {
-  min-height: 34px;
-  width: 100%;
-}
-
-.reference-compare-run-button {
-  background: var(--accent-soft-bg);
-  border-color: var(--accent-soft-border);
-  color: var(--accent);
-  flex: 1 0 auto;
-  font-weight: 700;
-}
-
-.reference-compare-cancel-button {
-  flex: 0 0 auto;
-}
-
-.reference-compare-status {
-  align-items: baseline;
-  color: var(--text-muted);
-  display: flex;
-  font-size: 12px;
-  gap: 8px;
-  justify-content: space-between;
-}
-
-.reference-compare-status > span:last-child {
-  font-variant-numeric: tabular-nums;
-}
-
-.reference-compare-grid {
-  align-items: start;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(7, minmax(220px, 1fr));
-  max-height: min(680px, 60vh);
-  overflow: auto;
-  padding-bottom: 4px;
-  padding-right: 4px;
-  scrollbar-gutter: stable;
-}
-
-.reference-compare-group {
-  background: var(--surface-muted);
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  container-name: lab-model;
-  container-type: inline-size;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 7px;
-}
-
-.reference-compare-group.missing {
-  background: var(--surface-disabled);
-  border-color: var(--surface-disabled-border);
-}
-
-.reference-compare-group-title {
-  align-items: center;
-  background: var(--surface-muted);
-  border-bottom: 1px solid var(--border-soft);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: space-between;
-  padding-bottom: 6px;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.reference-compare-group.missing .reference-compare-group-title {
-  background: var(--surface-disabled);
-}
-
-.reference-compare-count {
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  padding: 2px 6px;
-  white-space: nowrap;
-}
-
-.reference-compare-count,
-.reference-compare-hint,
-.reference-compare-empty,
-.reference-compare-error,
-.reference-compare-save-status {
-  color: var(--text-muted);
+.reference-compare-error {
+  color: var(--danger-text);
   font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
-}
-
-.reference-compare-error {
-  color: var(--danger-text);
-}
-
-.reference-compare-result {
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: 6px;
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding: 4px;
-}
-
-/* LAB cards have less width than the main results list. Keep the title and
-   score together, with the existing track actions on their own second line. */
-.reference-compare-result .result-row {
-  border: 0;
-  border-radius: 0;
-  gap: 6px;
-  grid-template-columns: 34px minmax(0, 1fr) repeat(3, 34px) minmax(42px, max-content);
-  min-width: 0;
-  padding: 0;
-}
-
-.reference-compare-result .result-row .result-preview-button {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.reference-compare-result .result-row .track-title-cell {
-  grid-column: 2 / -2;
-  grid-row: 1;
-}
-
-.reference-compare-result .result-row meter {
-  display: none;
-}
-
-.reference-compare-result .result-row .similarity-score {
-  display: block;
-  grid-column: -2 / -1;
-  grid-row: 1;
-  text-align: right;
-}
-
-.reference-compare-result .result-row .track-liked-button {
-  grid-column: 3;
-  grid-row: 2;
-}
-
-.reference-compare-result .result-row .result-metadata-button {
-  grid-column: 4;
-  grid-row: 2;
-}
-
-.reference-compare-result .result-row .result-seed-button {
-  grid-column: 5;
-  grid-row: 2;
-}
-
-.reference-compare-result .result-row .result-playlist-toggle-button {
-  grid-column: 6;
-  grid-row: 2;
-  justify-self: end;
-}
-
-.reference-compare-verdicts {
-  display: grid;
-  gap: 5px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .reference-compare-verdict-button {
@@ -636,60 +423,6 @@ button {
   border-color: var(--accent-active-border);
   color: var(--accent-active-text);
 }
-
-.reference-compare-save-status {
-  color: var(--accent);
-}
-
-@container lab-model (max-width: 260px) {
-  .reference-compare-result .result-row {
-    gap: 4px 3px;
-    grid-template-columns: 28px minmax(35px, 1fr) repeat(4, 28px);
-  }
-
-  .reference-compare-result .result-row .track-title-cell {
-    grid-column: 1 / -1;
-  }
-
-  .reference-compare-result .result-row .track-title-cell strong {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-height: 1.3;
-    min-height: 2.6em;
-    overflow-wrap: anywhere;
-    white-space: normal;
-  }
-
-  .reference-compare-result .result-row button.icon-button {
-    min-height: 28px;
-    min-width: 28px;
-    width: 28px;
-  }
-
-  .reference-compare-result .result-row .result-preview-button {
-    grid-row: 2;
-  }
-
-  .reference-compare-result .result-row .similarity-score {
-    font-size: 12px;
-    grid-column: 2;
-    grid-row: 2;
-    text-align: center;
-  }
-
-  .reference-compare-verdicts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.reference-compare-panel button:focus-visible,
-.reference-compare-panel input:focus-visible {
-  border-color: var(--focus-ring);
-  box-shadow: 0 0 0 2px var(--focus-ring);
-  outline: none;
-}
-
 
 button.icon-button {
   aspect-ratio: 1;
@@ -2811,7 +2544,7 @@ h2 {
   color: var(--accent-active-text);
 }
 
-/* A/B decision for the one selected label: LAB verdict buttons, one per option. */
+/* A/B decision for the one selected label: verdict buttons, one per option. */
 .text-model-decision {
   display: grid;
   gap: 5px;
@@ -6107,11 +5840,6 @@ button.dedup-play-button {
     max-height: 65dvh;
     overflow: auto;
   }
-  .search-panel .reference-compare-grid {
-    grid-template-columns: minmax(0, 1fr);
-    max-height: none;
-    overflow: visible;
-  }
   .results-list .result-row,
   .results-list .result-row.has-row-index,
   .results-list .result-row.has-feedback,
@@ -6634,4 +6362,577 @@ th.cluster-map-number { text-align: right; }
 @media (max-width: 600px) {
   .cluster-map-backdrop { padding: 0; }
   .cluster-map-dialog { width: 100%; height: 100dvh; border: 0; border-radius: 0; }
+}
+
+/* DJ SET tab: the settings of the set builder. The built set uses the shared
+   result list, so only the settings and two summary lines are laid out here. */
+.djset-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* A wide panel keeps a reference and its role on one line; a narrow one gives
+   the name the line and drops the role under it. */
+.djset-reference {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.djset-reference-name {
+  color: var(--text-track);
+  flex: 1 1 150px;
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.djset-reference-controls {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.djset-reference-controls .segmented {
+  grid-template-columns: repeat(3, auto);
+}
+
+.djset-reference-controls .segmented button {
+  font-size: 11px;
+  padding-inline: 8px;
+}
+
+/* Reserved even while empty, so choosing «слот» does not move the buttons. */
+.djset-reference-slot {
+  flex: 0 0 56px;
+}
+
+.djset-reference-slot input {
+  padding-inline: 6px;
+}
+
+.search-workflow-section .djset-fields {
+  align-items: end;
+  margin: 0;
+}
+
+.search-workflow-section .djset-fields-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.djset-fields .djset-field-wide {
+  grid-column: 1 / -1;
+}
+
+/* The tab-panel field skin outranks the shared .disabled-filter rule, so the
+   disabled look is restated for the fields a missing reference switches off. */
+.search-tab-panel .djset-fields .disabled-filter :is(input, select) {
+  background: var(--surface-disabled);
+  border-color: var(--surface-disabled-border);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.djset-build-row > :only-child {
+  grid-column: 1 / -1;
+}
+
+.djset-summary {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* DJ SET reads top-down: how the set develops, who steers it, the build. A
+   hairline separates the three; inside one, proximity does the grouping. */
+.djset-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.djset-section + .djset-section {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+}
+
+.djset-section > .custom-control-header {
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.djset-tools {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.search-tab-panel .djset-tools button {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-height: 24px;
+  padding: 2px 7px;
+}
+
+/* A development type is chosen by its shape: the thumbnail is drawn from the
+   preset's own stage numbers, and the rules of its stages run under the
+   intensity line as dashed steps. The ten types sit in two rows of five at
+   every panel width, so a card carries one word. */
+.djset-presets {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.search-tab-panel button.djset-preset {
+  align-content: start;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--workbench-radius);
+  color: var(--text-muted);
+  display: grid;
+  gap: 4px;
+  height: auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 7px 3px 5px;
+  transition: background 160ms, border-color 160ms, color 160ms;
+}
+
+.search-tab-panel button.djset-preset:hover:not([aria-pressed="true"]) {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.djset-preset svg {
+  display: block;
+  height: 26px;
+  overflow: visible;
+  padding: 0 3px;
+  width: 100%;
+}
+
+.djset-preset path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.djset-preset path.djset-preset-rule {
+  opacity: 0.6;
+  stroke-dasharray: 2 2.5;
+  stroke-linecap: butt;
+  stroke-width: 1;
+}
+
+.djset-preset span {
+  color: var(--text);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-tab-panel button.djset-preset[aria-pressed="true"] {
+  background: var(--accent-active-bg);
+  border-color: var(--accent-active-border);
+  color: var(--accent-active-text);
+}
+
+.djset-preset[aria-pressed="true"] span {
+  color: var(--accent-active-text);
+}
+
+/* The arc. An SVG stretched to the box draws lines and bands; handles and
+   track dots are real buttons laid over it by the same percentages, so they
+   stay round, focusable and titled at any width. */
+.djset-arc {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.djset-arc-stages {
+  color: var(--text-muted);
+  display: flex;
+  font-size: 11px;
+  min-width: 0;
+  padding-inline: 8px;
+}
+
+.djset-arc-stages span {
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segmented.djset-arc-mode {
+  flex: 0 0 auto;
+  gap: 4px;
+  grid-template-columns: repeat(2, auto);
+  margin-left: auto;
+}
+
+.search-tab-panel .djset-arc-mode button {
+  font-size: 11px;
+  min-height: 24px;
+  padding: 2px 8px;
+}
+
+.djset-arc-plot {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--workbench-radius);
+  height: 136px;
+  position: relative;
+}
+
+.djset-arc-canvas {
+  inset: 12px 8px;
+  position: absolute;
+}
+
+.djset-arc-canvas svg {
+  height: 100%;
+  inset: 0;
+  overflow: visible;
+  position: absolute;
+  width: 100%;
+}
+
+.djset-arc-band {
+  fill: transparent;
+}
+
+.djset-arc-band.alt {
+  fill: color-mix(in srgb, var(--text-muted) 8%, transparent);
+}
+
+.djset-arc-area {
+  fill: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.djset-arc-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linejoin: round;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.djset-arc-tempo {
+  fill: none;
+  stroke: var(--blue-text);
+  stroke-dasharray: 4 3;
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+
+.djset-arc-actual {
+  fill: none;
+  stroke: var(--text-soft);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Switching the development type bends the curve into the new one. */
+.djset-arc-area,
+.djset-arc-line,
+.djset-arc-tempo {
+  transition: d 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.djset-arc-axis {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.djset-arc-axis-top { left: 5px; top: 3px; }
+.djset-arc-axis-bottom { bottom: 3px; left: 5px; }
+.djset-arc-axis-bpm-top { color: var(--blue-text); right: 5px; top: 3px; }
+.djset-arc-axis-bpm-bottom { bottom: 3px; color: var(--blue-text); right: 5px; }
+
+.djset-arc-canvas button.djset-arc-handle,
+.djset-arc-canvas button.djset-arc-dot {
+  aspect-ratio: 1;
+  min-height: 0;
+  padding: 0;
+  position: absolute;
+  transition: background 120ms, transform 120ms;
+}
+
+.djset-arc-canvas button.djset-arc-handle {
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  cursor: ns-resize;
+  touch-action: none;
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 11px;
+}
+
+.djset-arc-canvas button.djset-arc-handle:hover,
+.djset-arc-canvas button.djset-arc-handle:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: translate(-50%, -50%) rotate(45deg) scale(1.2);
+}
+
+.djset-arc-canvas button.djset-arc-dot {
+  background: var(--text-strong);
+  border: 2px solid var(--surface-muted);
+  border-radius: 50%;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  width: 12px;
+}
+
+.djset-arc-canvas button.djset-arc-dot:hover {
+  border-color: var(--surface-muted);
+  transform: translate(-50%, -50%) scale(1.3);
+}
+
+.djset-arc-canvas button.djset-arc-dot.is-pinned {
+  border-radius: 2px;
+}
+
+.djset-arc-canvas button.djset-arc-dot.is-out {
+  background: var(--warning-text);
+}
+
+.djset-arc-canvas button.djset-arc-dot.is-playing {
+  background: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.djset-arc-tempo-tick {
+  background: var(--blue-text);
+  height: 2px;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 7px;
+}
+
+.djset-arc-legend {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 4px 12px;
+}
+
+.djset-arc-key {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.djset-arc-key::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 14px;
+}
+
+.djset-arc-key-intensity::before { border-top: 2px solid var(--accent); }
+.djset-arc-key-tempo::before { border-top: 2px dashed var(--blue-text); }
+
+.djset-arc-key-track::before {
+  background: var(--text-strong);
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+/* The numbers behind the curve. One header row names the columns; the cells
+   are narrow on purpose so six columns hold in the three-panel layout. */
+.djset-stages {
+  display: grid;
+  gap: 3px;
+  max-width: 400px;
+  min-width: 0;
+}
+
+.djset-stages-row {
+  align-items: center;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(40px, 1fr) 32px 40px 40px 48px 48px;
+}
+
+.djset-stages-head {
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.djset-stages-head span + span {
+  text-align: right;
+}
+
+.djset-stages-row > [role="rowheader"] {
+  color: var(--text-track);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-tab-panel .djset-stages-row input {
+  appearance: textfield;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  height: 26px;
+  min-height: 26px;
+  min-width: 0;
+  padding: 0 4px;
+  text-align: right;
+  width: 100%;
+}
+
+.djset-stages-row input::-webkit-inner-spin-button,
+.djset-stages-row input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* What a stage asks of its tracks beyond the numbers: read-only, so it is
+   plain text under the table, in the table's own first column. */
+.djset-rules {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  max-width: 400px;
+  min-width: 0;
+}
+
+.djset-rules > div {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(40px, 72px) minmax(0, 1fr);
+}
+
+.djset-rules dt {
+  color: var(--text-track);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.djset-rules dd {
+  color: var(--text-muted);
+  column-gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+  min-width: 0;
+}
+
+.djset-rules dd span {
+  white-space: nowrap;
+}
+
+.djset-seed {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.search-tab-panel .djset-seed button.icon-button {
+  min-height: 0;
+  width: 34px;
+}
+
+/* How many candidates each gate left, as a share of the first count. */
+.djset-funnel {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.djset-funnel-row {
+  align-items: center;
+  color: var(--text-muted);
+  display: grid;
+  font-size: 11px;
+  gap: 8px;
+  grid-template-columns: 92px minmax(0, 1fr) 46px;
+}
+
+.djset-funnel-bar {
+  background: var(--surface-muted);
+  border-radius: 3px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.djset-funnel-bar i {
+  background: var(--accent);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  transition: width 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.djset-funnel-row b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .djset-arc-area,
+  .djset-arc-line,
+  .djset-arc-tempo,
+  .djset-funnel-bar i,
+  .djset-arc-canvas button.djset-arc-handle,
+  .djset-arc-canvas button.djset-arc-dot {
+    transition: none;
+  }
+}
+/* The build stays in reach while the settings above it scroll, like the start
+   button at the foot of the first panel. The negative offset covers the
+   panel's own 13px bottom padding. */
+.djset-build {
+  background: var(--surface);
+  border-top: 1px solid var(--border-soft);
+  bottom: -13px;
+  display: grid;
+  gap: 6px;
+  padding-block: 10px 13px;
+  position: sticky;
+  z-index: 2;
+}
+
+.djset-build .embedding-search-row {
+  margin-bottom: 0;
 }

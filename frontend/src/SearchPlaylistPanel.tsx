@@ -14,11 +14,13 @@ import {
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
 import { ClusterMapDialog } from "./ClusterMapDialog";
+import { DjSetFunnel, DjSetTab } from "./DjSetTab";
+import { djSetAuditText, djSetSlotReason } from "./djSetView";
 import { useClusterMap } from "./useClusterMap";
+import { useDjSet } from "./useDjSet";
 import { MAX_SEED_TRACKS, type PreviewTarget } from "./useSearchPlaylist";
 import type { EmbeddingLayerState } from "./useEmbeddingLayers";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
-import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import {
   genericSearchResultIsCurrent,
   primarySearchTabs,
@@ -30,7 +32,6 @@ import {
 } from "./searchSurfaceState";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
-import type { useActivityLog } from "./useActivityLog";
 import { errorText } from "./errors";
 
 export type SearchFiltersState = {
@@ -62,7 +63,7 @@ const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: s
   similarity: { label: "REFERENCE", title: "Reference search: tracks similar to the chosen reference tracks (SONARA, MAEST, MERT-v2, SHEETSAGE-v2, MuQ, MuQ-MuLan, CLAP)" },
   text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
   class: { label: "CLASSIFIER", title: "Classifier controls" },
-  lab: { label: "LAB", title: "Model Listening Lab: each model's candidates for the first seed track, side by side, with verdicts" }
+  djset: { label: "DJ SET", title: "DJ set" }
 };
 
 function searchResultOriginLabel(origin: GenericSearchTab) {
@@ -109,7 +110,6 @@ export function SearchPlaylistPanel({
   collapsed,
   onToggleCollapsed,
   seedTracks,
-  onActivity,
   textQuery,
   textNegativeQuery,
   textUseNegativePrompt,
@@ -174,7 +174,6 @@ export function SearchPlaylistPanel({
   collapsed: boolean;
   onToggleCollapsed: () => void;
   seedTracks: Track[];
-  onActivity: ReturnType<typeof useActivityLog>["appendActivity"];
   textQuery: string;
   textNegativeQuery: string;
   textUseNegativePrompt: boolean;
@@ -262,6 +261,8 @@ export function SearchPlaylistPanel({
     seedTracks,
     limit: filters.limit,
   });
+  const djSet = useDjSet({ databaseIdentity, seedTracks, embeddingCounts });
+  const djSetResult = activeSearchTab === "djset" ? djSet.result : null;
   const showGenericSearchResults = genericSearchResultIsCurrent(
     activeSearchTab,
     genericSearchResultOrigin,
@@ -385,20 +386,13 @@ export function SearchPlaylistPanel({
           })}
           {seedTracks.length ? <button className="icon-button seed-clear-button" type="button" onClick={clearSeeds} title="Убрать все seed-треки; сет останется без изменений" aria-label="Убрать все seed-треки"><Trash2 size={13} /></button> : null}
         </div>
-        {activeSearchTab === "lab" && (
-          <div id="search-panel-lab" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-lab">
-            <ReferenceComparePanel
-              seedTracks={seedTracks}
-              onActivity={onActivity}
+        {activeSearchTab === "djset" && (
+          <div id="search-panel-djset" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-djset">
+            <DjSetTab
+              djSet={djSet}
               busy={busy}
-              seedSet={seedSet}
-              playlistSet={playlistSet}
               playingTrackId={playingTrackId}
-              onSeed={addSeed}
-              onToggleLiked={toggleLiked}
-              onTogglePlaylist={togglePlaylist}
-              onPreview={setPreview}
-              onDetails={setMetadataTrack}
+              onSlotSelect={(slot) => setPreview(slot.track, djSet.result?.slots.map(({ track }) => track))}
             />
           </div>
         )}
@@ -576,6 +570,50 @@ export function SearchPlaylistPanel({
             )}
           </div>
         )}
+        {djSetResult ? (
+          /* The set is listed in the order the server built it: the row index
+             is the slot, and nothing here reorders or drops a row. */
+          <div className="generic-search-results">
+            <div className="generic-search-result-provenance" role="status">
+              DJ SET results
+              <span>{djSetResult.slots.length}</span>
+              <SearchCandidatesAddButton
+                results={djSetResult.slots}
+                playlist={playlist}
+                busy={busy}
+                modelLabel="DJ SET"
+                onAdd={onAddSearchCandidates}
+              />
+            </div>
+            {djSetResult.failure ? <div className="embedding-search-requirement error" role="alert">{djSetResult.failure}</div> : null}
+            {djSetResult.funnel.length ? <DjSetFunnel funnel={djSetResult.funnel} /> : null}
+            <div className="djset-summary">{djSetAuditText(djSetResult)}</div>
+            <div className="results-list">
+              {djSetResult.slots.length ? djSetResult.slots.map((slot) => (
+                <ResultRow
+                  key={slot.slot}
+                  track={slot.track}
+                  rowIndex={slot.slot}
+                  score={slot.score}
+                  scoreBreakdown={slot.score_breakdown}
+                  reason={djSetSlotReason(slot, djSetResult.preset, djSetResult.stages)}
+                  playingTrackId={playingTrackId}
+                  isSeed={seedSet.has(slot.track.track_id)}
+                  inPlaylist={playlistSet.has(slot.track.track_id)}
+                  onSeed={addSeed}
+                  onToggleLiked={(track) => void toggleLiked(track).then((updated) => {
+                    if (updated) djSet.adoptTrack(updated);
+                  })}
+                  onTogglePlaylist={togglePlaylist}
+                  onPreview={(selected) => setPreview(selected, djSetResult.slots.map(({ track }) => track))}
+                  onDetails={setMetadataTrack}
+                />
+              )) : (
+                <div className="empty-state">Сет не собран.</div>
+              )}
+            </div>
+          </div>
+        ) : null}
         {showGenericSearchResults && genericSearchResultOrigin && textComparison ? (
           /* One bank, two models, two orders. Nothing is merged: rank fusion
              was measured and rejected, so the lists stay apart and the ear

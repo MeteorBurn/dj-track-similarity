@@ -400,42 +400,87 @@ export type EmbeddingRandomTrackPayload = {
   exclude_track_ids: number[];
 };
 
-export type ReferenceCompareModel = "clap" | "mert_v2" | "sheetsage2" | "muq" | "mulan" | "maest" | "sonara";
-export type ReferenceCompareVerdict = "mood" | "palette" | "instruments" | "groove" | "genre" | "transition" | "miss";
-export type ReferenceComparePayload = {
-  seed_track_id: number;
-  models?: ReferenceCompareModel[];
-  limit?: number;
+/** DJ SET builder, `POST /api/djset/build`. The server rejects unknown fields. */
+export type DjSetDirectionAxis =
+  | "energy" | "valence" | "acousticness" | "brightness"
+  | "rhythm_density" | "dynamic_range" | "loudness" | "aggression";
+export type DjSetDirectionRelation = "lower" | "similar" | "higher";
+/** One stretch of the set: the targets at its first and last slot. */
+export type DjSetStage = {
+  key: string;
+  /** Above 0, at most 100: a relative weight, the server normalises the shares by their sum. */
+  share: number;
+  /** 0..1, calm to dense, on the scale of the row score. */
+  intensity_start: number;
+  intensity_end: number;
+  /** 60..200. */
+  bpm_start: number;
+  bpm_end: number;
+  /** Camelot steps (-11..11) from the key the set opens in; null leaves the key free. */
+  key_step: number | null;
+  /** The mode flips against that opening key (A to B or back). */
+  key_flip: boolean;
+  /** Score ranges (0..1) every track of the stage has to sit in; at most 4. */
+  classifiers: { classifier_key: string; low: number; high: number }[];
 };
-export type ReferenceCompareResult = SearchResult & {
-  saved_verdict: ReferenceCompareVerdict | null;
+/** `GET /api/djset/presets`: one way a set develops; the only source of its numbers and rules. */
+export type DjSetPreset = { key: string; stages: DjSetStage[] };
+export type DjSetBuildPayload = {
+  /** 5..60, at least one per stage. */
+  tracks: number;
+  preset: string;
+  /** 2..8 stages; null = the preset's own. */
+  stages: DjSetStage[] | null;
+  /** At most 5, unique ids; `slot` (1..tracks) only with role "pinned". */
+  references: { track_id: number; role: "reference" | "pinned"; slot: number | null }[];
+  /** Read only when some reference has role "reference". */
+  pool_model: EmbeddingSource;
+  /** 100..20000. */
+  pool_size: number;
+  /** Needs a role "reference" track; `margin` is 0..50 library percentile points. */
+  direction: { axis: DjSetDirectionAxis; relation: DjSetDirectionRelation; margin: number } | null;
+  /** 0..1. */
+  variety: number;
+  /** 0..4294967295; null = the server draws one and reports it. */
+  seed: number | null;
 };
-export type ReferenceCompareGroup = {
-  model: ReferenceCompareModel;
-  available: boolean;
-  reason?: string | null;
-  results: ReferenceCompareResult[];
+export type DjSetFunnelKey = "library" | "sonara" | "bpm_band" | "tempo" | "grid" | "pool" | "direction";
+export type DjSetSlot = {
+  slot: number;
+  /** The key of the stage the slot belongs to. */
+  stage: string;
+  /** The plan steps the tempo down hard into this slot. */
+  drop_entry: boolean;
+  pinned: boolean;
+  track: Track;
+  /** The track's intensity inside the candidate pool, 0..1 (calm to dense). */
+  score: number;
+  /** `transition_*` describe the step into this track, so slot 1 has none. */
+  score_breakdown: {
+    bpm: number;
+    bpm_target: number;
+    intensity_target: number;
+    slot_fit: number;
+    transition_bpm?: number;
+    transition_handoff?: number;
+    transition_direction?: number;
+    transition_timbre?: number;
+  };
+  /** The tempo step into this track exceeds the tolerance. */
+  out_of_tolerance: boolean;
 };
-export type ReferenceCompareResponse = {
-  seed_track_id: number;
-  groups: ReferenceCompareGroup[];
-};
-export type ReferenceCompareVerdictPayload = {
-  seed: TrackIdentity;
-  candidate: TrackIdentity;
-  model: ReferenceCompareModel;
-  verdict: ReferenceCompareVerdict;
-  notes?: string | null;
-};
-export type ReferenceCompareVerdictResult = {
-  id: number;
-  seed_track_id: number;
-  candidate_track_id: number;
-  model: ReferenceCompareModel;
-  verdict: ReferenceCompareVerdict;
-  source: string;
-  rating: number;
-  notes?: string | null;
+export type DjSetBuildResponse = {
+  seed: number;
+  preset: string;
+  /** The stages the build ran on. */
+  stages: DjSetStage[];
+  /** Candidates left after each gate, in order; a gate that did not apply is absent. */
+  funnel: { key: DjSetFunnelKey; remaining: number }[];
+  /** Why the set could not be built; `slots` is then empty. */
+  failure: string | null;
+  slots: DjSetSlot[];
+  audit: { transitions: number; out_of_tolerance: number; worst_slot: number | null };
+  elapsed_seconds: number;
 };
 export type TrackPage = {
   items: Track[];

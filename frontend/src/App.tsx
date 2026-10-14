@@ -690,12 +690,13 @@ export function App() {
   function addSearchCandidatesToPlaylist(tracks: Track[], modelLabel: string) {
     if (
       busy || genericSearchPending
-      || !genericSearchResultIsCurrent(
+      // DJ SET shows its own list, which the search panel keeps to the open library.
+      || (activeSearchTab !== "djset" && !genericSearchResultIsCurrent(
         activeSearchTab,
         genericSearchResultState?.origin ?? null,
         genericSearchResultState?.requestKey ?? "",
         genericSearchInputKey,
-      )
+      ))
     ) return;
     const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
     const added = nextPlaylist.length - playlist.length;
@@ -704,7 +705,7 @@ export function App() {
       return;
     }
     setPlaylist(nextPlaylist);
-    const sourceLabel = genericSearchResultState?.origin === "text" ? "PROMPT" : "REFERENCE";
+    const sourceLabel = activeSearchTab === "djset" ? "DJ SET" : genericSearchResultState?.origin === "text" ? "PROMPT" : "REFERENCE";
     appendActivity("ok", `Кандидаты ${sourceLabel} добавлены в сет`, `${modelLabel} · ${added} новых · показано ${tracks.length}`);
     setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
@@ -1565,7 +1566,6 @@ export function App() {
           collapsed={searchCollapsed}
           onToggleCollapsed={() => togglePanel("search")}
           seedTracks={seedTracks}
-          onActivity={appendActivity}
           textQuery={textQuery}
           textNegativeQuery={textNegativeQuery}
           textUseNegativePrompt={textUseNegativePrompt}

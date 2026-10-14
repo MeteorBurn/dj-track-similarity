@@ -1,11 +1,11 @@
-export type PrimarySearchTab = "similarity" | "text" | "class" | "lab";
+export type PrimarySearchTab = "similarity" | "text" | "class" | "djset";
 export type SeedEmbeddingFamily = "maest" | "mert_v2" | "sheetsage2" | "muq" | "mulan" | "clap";
 export type SeedSearchModel = "sonara" | SeedEmbeddingFamily;
 export type GenericSearchTab = "text" | SeedSearchModel;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
 
 export const primarySearchTabs: readonly PrimarySearchTab[] = [
-  "lab",
+  "djset",
   "similarity",
   "text",
   "class"

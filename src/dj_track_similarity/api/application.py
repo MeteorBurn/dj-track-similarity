@@ -13,10 +13,10 @@ from .routes_docs import register_docs_routes
 from .routes_analysis import register_analysis_routes
 from .routes_audio_dedup import register_audio_dedup_routes
 from .routes_database import register_database_routes
+from .routes_djset import register_djset_routes
 from .routes_evaluation import register_evaluation_routes
 from .routes_library import register_library_routes
 from .routes_prompt_decisions import register_prompt_decision_routes
-from .routes_reference_compare import register_reference_compare_routes
 from .routes_rhythm_lab import register_rhythm_lab_routes
 from .routes_search import register_search_routes
 from .text_search_context import TextSearchRunCache
@@ -149,7 +149,7 @@ def create_app(
     )
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_evaluation_routes(app, state)
-    register_reference_compare_routes(app, state)
+    register_djset_routes(app, state)
     text_adapters = TextEmbeddingAdapterCache(_text_embedding_adapter)
 
     async def close_runtime_owners() -> None:

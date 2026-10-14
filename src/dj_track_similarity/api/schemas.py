@@ -38,10 +38,6 @@ from ..scanner import SUPPORTED_AUDIO_EXTENSIONS
 
 EmbeddingSource = Literal["mert_v2", "sheetsage2", "maest", "muq", "mulan", "clap"]
 EvaluationSource = Literal["mert_v2", "maest", "muq", "mulan", "sonara", "clap"]
-ReferenceCompareModel = Literal["clap", "mert_v2", "sheetsage2", "muq", "mulan", "maest", "sonara"]
-ReferenceCompareVerdict = Literal[
-    "mood", "palette", "instruments", "groove", "genre", "transition", "miss"
-]
 EvaluationPairReasonTag = Literal[
     "good_groove",
     "good_density",
@@ -407,6 +403,75 @@ class SonaraRandomTrackRequest(BaseModel):
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
 
 
+class DjSetReferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    track_id: TrackId
+    # "reference" steers the set and stays out of it; "pinned" is placed in it.
+    role: Literal["reference", "pinned"]
+    slot: int | None = Field(default=None, ge=1)
+
+
+class DjSetDirectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    axis: Literal[
+        "energy",
+        "valence",
+        "acousticness",
+        "brightness",
+        "rhythm_density",
+        "dynamic_range",
+        "loudness",
+        "aggression",
+    ]
+    relation: Literal["lower", "similar", "higher"]
+    # Library percentile points.
+    margin: float = Field(default=10.0, ge=0.0, le=50.0)
+
+
+class DjSetClassifierRangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    classifier_key: str = Field(min_length=1)
+    low: float = Field(ge=0.0, le=1.0)
+    high: float = Field(ge=0.0, le=1.0)
+
+
+class DjSetStageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=r"^[a-z0-9_]{1,32}$")
+    # A relative weight: the shares are normalised by their sum.
+    share: float = Field(gt=0.0, le=100.0)
+    intensity_start: float = Field(ge=0.0, le=1.0)
+    intensity_end: float = Field(ge=0.0, le=1.0)
+    bpm_start: float = Field(ge=60.0, le=200.0)
+    bpm_end: float = Field(ge=60.0, le=200.0)
+    # Camelot steps from the key the set opens in; None leaves the key free.
+    key_step: int | None = Field(default=None, ge=-11, le=11)
+    # Whether the mode flips against that opening key (A <-> B).
+    key_flip: bool = False
+    # Score ranges every track of the stage has to sit in.
+    classifiers: list[DjSetClassifierRangeRequest] = Field(default_factory=list, max_length=4)
+
+
+class DjSetBuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tracks: int = Field(default=15, ge=5, le=60)
+    preset: str = "arch"
+    # None builds on the preset's own stages.
+    stages: list[DjSetStageRequest] | None = Field(default=None, min_length=2, max_length=8)
+    references: list[DjSetReferenceRequest] = Field(default_factory=list, max_length=5)
+    pool_model: EmbeddingSource = "mert_v2"
+    pool_size: int = Field(default=2000, ge=100, le=20000)
+    direction: DjSetDirectionRequest | None = None
+    variety: float = Field(default=0.35, ge=0.0, le=1.0)
+    # None draws a seed; the response returns it so the set can be rebuilt.
+    seed: int | None = Field(default=None, ge=0, le=2**32 - 1)
+
+
 class TextSearchRequest(BaseModel):
     """One prompt bank searched against one text-embedding family.
 
@@ -595,28 +660,6 @@ class TrackIdentityRequest(BaseModel):
     track_id: TrackId
     catalog_uuid: str = Field(min_length=1)
     track_uuid: str = Field(min_length=1)
-
-
-class ReferenceCompareRequest(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
-    seed_track_id: EvaluationTrackId
-    models: Annotated[list[ReferenceCompareModel], _unique] = Field(
-        default_factory=lambda: ["clap", "mert_v2", "sheetsage2", "muq", "mulan", "maest", "sonara"],
-        min_length=1,
-        max_length=7,
-    )
-    limit: int = Field(default=10, ge=1, le=100)
-
-
-class ReferenceCompareVerdictRequest(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
-    seed: TrackIdentityRequest
-    candidate: TrackIdentityRequest
-    model: ReferenceCompareModel
-    verdict: ReferenceCompareVerdict
-    notes: str | None = None
 
 
 class FilteredTracksRequest(BaseModel):
@@ -1002,6 +1045,65 @@ class SimilaritySearchResultResponse(_ResponseModel):
     track: TrackSummaryResponse
     score: float
     score_breakdown: dict[str, float] | None = None
+
+
+class DjSetClassifierRangeResponse(_ResponseModel):
+    classifier_key: str
+    low: float
+    high: float
+
+
+class DjSetStageResponse(_ResponseModel):
+    key: str
+    share: float
+    intensity_start: float
+    intensity_end: float
+    bpm_start: float
+    bpm_end: float
+    key_step: int | None
+    key_flip: bool
+    classifiers: list[DjSetClassifierRangeResponse]
+
+
+class DjSetPresetResponse(_ResponseModel):
+    key: str
+    stages: list[DjSetStageResponse]
+
+
+class DjSetFunnelStageResponse(_ResponseModel):
+    key: str
+    remaining: int
+
+
+class DjSetSlotResponse(_ResponseModel):
+    slot: int
+    stage: str
+    drop_entry: bool
+    pinned: bool
+    track: TrackSummaryResponse
+    # The track's intensity inside the candidate pool, calm 0 to dense 1.
+    score: float
+    score_breakdown: dict[str, float]
+    out_of_tolerance: bool
+
+
+class DjSetAuditResponse(_ResponseModel):
+    transitions: int
+    out_of_tolerance: int
+    worst_slot: int | None
+
+
+class DjSetBuildResponse(_ResponseModel):
+    seed: int
+    preset: str
+    # The stages the build ran on, after the request's own were applied.
+    stages: list[DjSetStageResponse]
+    funnel: list[DjSetFunnelStageResponse]
+    # Why no set could be built; ``slots`` is then empty and the funnel says where.
+    failure: str | None
+    slots: list[DjSetSlotResponse]
+    audit: DjSetAuditResponse
+    elapsed_seconds: float
 
 
 class ClusterMapFacetResponse(_ResponseModel):

@@ -19,6 +19,9 @@ import type {
   DatabaseOptimizationJobStatus,
   DatabaseSelection,
   DatabaseValidationJobStatus,
+  DjSetBuildPayload,
+  DjSetBuildResponse,
+  DjSetPreset,
   EmbeddingLayersResponse,
   EmbeddingRandomTrackPayload,
   EmbeddingSearchPayload,
@@ -28,10 +31,6 @@ import type {
   MaestMelExportRequest,
   PreviewInfo,
   PromotedClassifier,
-  ReferenceComparePayload,
-  ReferenceCompareResponse,
-  ReferenceCompareVerdictPayload,
-  ReferenceCompareVerdictResult,
   RhythmLabCollectionSaveResult,
   RhythmLabLaunchResult,
   RhythmLabStatus,
@@ -437,19 +436,15 @@ const searchApi = {
     request<void>(`/api/search/text/decisions/${presetKey}`, { method: "DELETE" }),
 };
 
-const referenceCompareApi = {
-  referenceCompare: (payload: ReferenceComparePayload, options?: { signal?: AbortSignal }) =>
-    request<ReferenceCompareResponse>("/api/reference/compare", {
+const djSetApi = {
+  djsetPresets: (options?: { signal?: AbortSignal }) =>
+    request<DjSetPreset[]>("/api/djset/presets", { signal: options?.signal }),
+  djsetBuild: (payload: DjSetBuildPayload, options?: { signal?: AbortSignal }) =>
+    request<DjSetBuildResponse>("/api/djset/build", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,
     }),
-  referenceCompareVerdict: (payload: ReferenceCompareVerdictPayload, options?: { signal?: AbortSignal }) =>
-    request<ReferenceCompareVerdictResult>("/api/reference/compare/verdict", {
-      method: "POST",
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    })
 };
 
 const playlistApi = {
@@ -533,7 +528,7 @@ export const api = {
   ...shellApi,
   ...analysisApi,
   ...searchApi,
-  ...referenceCompareApi,
+  ...djSetApi,
   ...playlistApi,
   ...tagApi,
   ...audioDedupApi

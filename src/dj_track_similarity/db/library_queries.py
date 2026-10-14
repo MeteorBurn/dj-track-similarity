@@ -96,6 +96,36 @@ class LibraryQueryRepository:
                 counts[classifier_key] = int(row["score_count"])
         return counts
 
+    def classifier_score_values(
+        self,
+        classifier_keys: Sequence[str],
+    ) -> dict[str, dict[int, float]]:
+        """Stored scores of current tracks, by classifier key and track id.
+
+        A score written for an earlier identity of a track is left out.
+        """
+
+        scores: dict[str, dict[int, float]] = {key: {} for key in classifier_keys}
+        if not scores:
+            return scores
+        placeholders = ", ".join("?" for _ in scores)
+        with closing(self.connect()) as core_connection:
+            rows = core_connection.execute(
+                f"""
+                SELECT cs.classifier_key, cs.track_id, cs.score
+                FROM classifier_scores AS cs
+                JOIN tracks AS t
+                  ON t.track_id = cs.track_id
+                 AND t.track_uuid = cs.track_uuid
+                 AND t.missing_since IS NULL
+                WHERE cs.classifier_key IN ({placeholders})
+                """,
+                tuple(scores),
+            ).fetchall()
+        for row in rows:
+            scores[str(row["classifier_key"])][int(row["track_id"])] = float(row["score"])
+        return scores
+
     @contextmanager
     def _open_library(
         self,
@@ -513,6 +543,34 @@ class LibraryQueryRepository:
                     )
                 )
             return tuple(candidates)
+
+    def get_track_artist_titles(
+        self,
+        track_ids: Sequence[int],
+    ) -> dict[int, tuple[str | None, str | None]]:
+        """Artist and title tags of current tracks; an unknown or missing id is left out."""
+
+        requested = tuple(int(track_id) for track_id in track_ids)
+        if not requested:
+            return {}
+        with self._open_library() as (connection, _context):
+            rows = connection.execute(
+                """
+                SELECT t.track_id, ft.artist, ft.title
+                FROM tracks t
+                LEFT JOIN tags ft ON ft.track_id = t.track_id
+                WHERE t.track_id IN (
+                    SELECT CAST(value AS INTEGER)
+                    FROM json_each(?)
+                )
+                AND t.missing_since IS NULL
+                """,
+                (_json_ids(requested),),
+            ).fetchall()
+        return {
+            int(row["track_id"]): (_optional_text(row["artist"]), _optional_text(row["title"]))
+            for row in rows
+        }
 
     def export_track_rows(
         self,

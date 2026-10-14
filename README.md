@@ -7,16 +7,39 @@
 
 <p align="center"><img src="img/dj-track-similarity-hero.png" alt="DJ Track Similarity" width="100%"></p>
 
-DJTS – `dj-track-similarity` is a local-first workbench for large music folders. It scans them into a SQLite library and runs audio-model analysis on your own machine. Search ranks candidates around seed tracks or text prompts, the DJ SET tab drafts an ordered set along a development you choose, and the set you assemble by ear exports as M3U or CSV. The server binds to `127.0.0.1` by default, and model assets load only from the local `models/` directory with downloads disabled. Model scores and set drafts are ranking evidence for listening, not DJ decisions.
+**Rediscover your music. Find your sound. Build sets that tell a story.**
+
+Somewhere in your music library is the perfect next track. You might already own it — buried among thousands of files, forgotten folders, and years of collecting. The challenge isn't finding more music. It's discovering the connections hidden within the music you already have.
+
+**DJ Track Similarity (DJTS)** is a free, local-first music discovery and DJ set preparation tool powered by audio analysis, machine learning, and music information retrieval (MIR). It goes beyond traditional tags, genres, BPM, and key to explore what makes tracks sound and feel alike — their rhythm, groove, timbre, texture, energy, atmosphere, and musical character.
+
+Find tracks that share a particular sound. Search your collection using natural language. Explore different interpretations of musical similarity through multiple AI models. Train your own classifiers to recognize the qualities that matter to you. Or let DJTS suggest a sequence of tracks shaped around a musical journey you want to create.
+
+All analysis happens locally, using your own music collection. No need to upload your tracks to a cloud service.
 
 ---
 
-## ✨ The core idea
+## ✨ The core idea — Beyond similarity
 
-Large personal libraries hide music you forgot you own. BPM, key, energy, tags, and crates are the usual DJ toolkit. This project keeps that layer and adds a second one:
+**Two tracks can share the same BPM, key, and genre — yet sound completely different. Two others can belong to different genres and still feel like they were made for each other.**
 
-1. **Technical compatibility.** BPM, key, duration, energy, and related metadata from SONARA analysis and file tags.
-2. **Sonic compatibility.** Rhythm, timbre, density, dynamics, and audio similarity from SONARA features and MAEST, MERT-v2, SheetSage2, MuQ, MuQ-MuLan, and CLAP embeddings, plus texture and atmosphere through text prompts.
+Traditional DJ tools are excellent at organizing music and identifying technical compatibility. But musical selection involves something more subtle: the way a bassline moves, the swing of a percussion pattern, the space between sounds, the tension of a groove, or the atmosphere a track creates.
+
+DJTS is built to explore those relationships.
+
+It combines signal processing with multiple neural audio models — including MERT, MAEST, MuQ, MuQ-MuLan, CLAP, and SheetSage2 — alongside SONARA's musical features. Each provides a different perspective on the same audio, revealing similarities that conventional metadata may never capture.
+
+But **finding similar tracks is only the beginning.**
+
+A compelling DJ set isn't simply a collection of matching songs. It's a journey through sound — a gradual shift in mood, a subtle change in rhythm, a moment of tension, a release of energy, an unexpected turn that somehow feels exactly right.
+
+DJTS helps you explore those possibilities. Start with a reference track, follow its sonic connections, discover unexpected candidates, or generate a draft set around a chosen energy and tempo progression. Listen, experiment, refine, and build a sequence that reflects your musical vision.
+
+**The algorithms explore the possibilities. Your ears make the decisions.**
+
+DJTS doesn't try to replace a DJ's intuition, taste, or creativity. It gives you new ways to explore your collection, uncover forgotten gems, and find musical connections you might otherwise miss.
+
+**Your library is more than a collection of tracks. It's a world of possibilities waiting to be explored.**
 
 The app proposes, and you decide by ear. You seed a search, preview the candidates, add one to the set, seed the next search from it, and shape the story by listening rather than by score. The DJ SET tab can draft a whole ordered set, but the draft is a proposal to listen through: its tracks join your set only when you add them. Model outputs are stored separately per model so you can inspect them. The author claims no ML or music-information-retrieval expertise; the background lives in the [project idea](docs/dj-track-similarity/concepts/project-idea.md) page.
 

@@ -111,7 +111,7 @@ Package versions and sources follow [pyproject.toml](pyproject.toml), [uv.lock](
 
 SONARA engine extracts audio features such as BPM, key, energy, rhythm, timbre, together with an acoustic fingerprint. CPU analysis provides the track data required before ML processing.
 
-The installer includes **SONARA 0.3.7** with decoder patches (RIFF-chunk padding) from the [MeteorBurn/sonara fork](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.7-bpm-precision-20261005). It is installed as a Python package and needs no separate model checkpoint download.
+The installer includes **SONARA 0.3.7** from the [MeteorBurn/sonara fork](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.7-bpm-precision-20261005). The fork changes tempo and beat tracking, so BPM is the tempo of the tracked beats, and carries decoder patches (RIFF-chunk padding). It is installed as a Python package and needs no separate model checkpoint download.
 
 > **📚 Citation:** original [SONARA project by kkollsga](https://github.com/kkollsga/sonara).
 
@@ -164,9 +164,9 @@ The analysis panel holds three stage cards: **DATABASE** (scan), **SONARA**, and
 
 1. **Scan.** The DATABASE card's import settings choose the music folder, file formats, and duration bounds.
 2. **SONARA.** Before the first run, pick the BPM range in its settings: Rekordbox 70–180, **Mixed In Key 79–192** (the default), a custom range spanning an octave (upper bound + 1 at least twice the lower one, as in Rekordbox's 68–135), or none. SONARA chooses each track's tempo without the range; a tempo outside it is folded in by octaves, and the beats follow the folded tempo. The first run locks the choice to the library; changing it later requires resetting SONARA analysis.
-3. **ML models.** Tick models on the ML models card once SONARA results exist; tracks without SONARA are skipped. The ML settings dialog holds the device (AUTO, CPU, or CUDA), the read mode, and the batch sizes.
+3. **ML models.** Tick models on the ML models card once SONARA results exist; tracks without SONARA are skipped. The ML settings dialog holds the device (AUTO, CPU, or CUDA), file reading, and the batch sizes.
 
-Both settings dialogs offer **Direct Mode**, which reads the original files in place, and **Staged Mode**, which can help with slow disks by analyzing temporary copies in a folder you choose. The original audio is unchanged. The music and staging folders are not remembered, so choose them again after each page reload.
+Both settings dialogs have a file reading section with two choices: **Direct** reads the original files in place, and **Staged** can help with slow disks by analyzing temporary copies in a folder you choose. The original audio is unchanged. The music and staging folders are not remembered, so choose them again after each page reload.
 
 On a library created before SONARA stored timelines, SONARA analysis stops with an explicit error about the missing `sonara_timeline` table, and the app never adds that table itself. See [Analyze library](docs/dj-track-similarity/user-guide/analyze-library.md).
 
@@ -236,13 +236,13 @@ The analysis panel's Tools row holds **Refresh Tags**, **Save Genres**, **Valida
 - **✅ Validate DB** checks SQLite integrity, track identities and files, SONARA Core, fingerprint, and embedding rows, ML embeddings, and each stored SheetSage2 analysis (its timeline, the features derived from it, and all 24 layers) without changing the library. It skips SONARA timelines, MAEST genres, and classifier scores, and checks only the default layer of MAEST (13), MERT-v2 (24), and MuQ (13).
 - **🗃️ Database optimization** is offered after validation reports zero errors. A verified backup protects the database during compaction and index maintenance; it is removed after a verified result and kept if verification fails. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
 
-Starting the app never converts an older database, and the project ships no migration command. A library created before SheetSage2 storage was added does not open: the app reports the missing SheetSage2 tables and never adds them itself.
+Starting the app never converts an older database. The project ships one migration, the manual script [scripts/migrate_layered_embeddings.py](scripts/migrate_layered_embeddings.py), for a library that still stores MuQ or MAEST as one vector per track: by default it only reports what would change, and it rewrites those tables only when told to apply, with the server stopped and after a verified backup. A library created before SheetSage2 storage was added does not open: the app reports the missing SheetSage2 tables and never adds them itself, and the script refuses such a library as well.
 
 ---
 
 ## 🛡️ Safety model
 
-Normal workflows read source audio and never modify it. Scan, Refresh Tags, analysis, search, preview, resets, database clear, catalog removal, library relocation, export, and classifier scoring write only SQLite rows, logs, reports, temporary preview or Staged Mode files, and the playlists you export.
+Normal workflows read source audio and never modify it. Scan, Refresh Tags, analysis, search, preview, resets, database clear, catalog removal, library relocation, export, and classifier scoring write only SQLite rows, logs, reports, temporary preview files or Staged copies, and the playlists you export.
 
 Only three workflows touch source audio:
 

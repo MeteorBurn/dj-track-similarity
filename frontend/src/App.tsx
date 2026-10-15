@@ -213,6 +213,7 @@ export function App() {
   const [serverShutdownAccepted, setServerShutdownAccepted] = useState(false);
   const [libraryPlaybackShuffle, setLibraryPlaybackShuffle] = useState(false);
   const [repeatTrack, setRepeatTrack] = useState(false);
+  const [likedTrackUpdate, setLikedTrackUpdate] = useState<Track | null>(null);
   const [filters, setFilters] = useState<SearchFiltersState>({
     limit: 20,
     sonaraMixer: {
@@ -1339,6 +1340,7 @@ export function App() {
       setSeedTracks((current) => current.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
       updateCandidateTracks((tracks) => tracks.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
       updatePreviewTrack(updated);
+      setLikedTrackUpdate(updated);
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
       return updated;
     } catch (error) {
@@ -1651,6 +1653,7 @@ export function App() {
           handleEmbeddingSearch={handleEmbeddingSearch}
           addSeed={addSeed}
           toggleLiked={handleToggleTrackLiked}
+          likedTrackUpdate={likedTrackUpdate}
           togglePlaylist={togglePlaylist}
           onAddSearchCandidates={addSearchCandidatesToPlaylist}
           playingTrackId={playingTrackId}

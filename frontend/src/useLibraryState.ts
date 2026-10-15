@@ -296,7 +296,17 @@ export function useLibraryState({
   function updateTrackLiked(updated: Track) {
     const updatedKey = libraryTrackIdentityKey(updated);
     const previous = tracks.find((track) => libraryTrackIdentityKey(track) === updatedKey);
-    if (!previous) return;
+    if (!previous) {
+      // Liked from search, DJ SET or the player: the row is not on this page, so
+      // the like flipped its old state, and an open liked view must reload to
+      // gain or lose the row in the server's order.
+      setLibrarySummary((current) => ({
+        ...current,
+        liked: Math.max(0, current.liked + (updated.liked ? 1 : -1))
+      }));
+      if (likedOnly) void refreshLibrary(libraryOffset);
+      return;
+    }
 
     setTracks((current) => {
       if (likedOnly && !updated.liked) {

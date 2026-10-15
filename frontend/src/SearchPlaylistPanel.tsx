@@ -161,6 +161,7 @@ export function SearchPlaylistPanel({
   handleEmbeddingSearch,
   addSeed,
   toggleLiked,
+  likedTrackUpdate,
   togglePlaylist,
   onAddSearchCandidates,
   playingTrackId,
@@ -244,6 +245,8 @@ export function SearchPlaylistPanel({
   handleEmbeddingSearch: (analysisFamily: EmbeddingSource) => Promise<void>;
   addSeed: (track: Track) => void;
   toggleLiked: (track: Track) => Promise<Track | null>;
+  /** The latest like change from any panel or the player. */
+  likedTrackUpdate: Track | null;
   togglePlaylist: (track: Track) => void;
   onAddSearchCandidates: (tracks: Track[], modelLabel: string) => void;
   playingTrackId: number | null;
@@ -284,6 +287,12 @@ export function SearchPlaylistPanel({
     setEmbeddingSearchErrors({});
     setEmbeddingSearchPending({});
   }, [databaseIdentity, embeddingLayers.label]);
+
+  // The built set keeps its own track copies: a like from the player, the
+  // library or another list must reach its rows too.
+  useEffect(() => {
+    if (likedTrackUpdate) djSet.adoptTrack(likedTrackUpdate);
+  }, [likedTrackUpdate]);
 
   function handlePrimaryTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const target = tabAfterKey(primarySearchTabs, activeSearchTab, event.key);
@@ -601,9 +610,7 @@ export function SearchPlaylistPanel({
                   isSeed={seedSet.has(slot.track.track_id)}
                   inPlaylist={playlistSet.has(slot.track.track_id)}
                   onSeed={addSeed}
-                  onToggleLiked={(track) => void toggleLiked(track).then((updated) => {
-                    if (updated) djSet.adoptTrack(updated);
-                  })}
+                  onToggleLiked={toggleLiked}
                   onTogglePlaylist={togglePlaylist}
                   onPreview={(selected) => setPreview(selected, djSetResult.slots.map(({ track }) => track))}
                   onDetails={setMetadataTrack}

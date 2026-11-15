@@ -2,13 +2,11 @@ from __future__ import annotations
 
 
 import numpy as np
-import pytest
 
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
 )
 from dj_track_similarity.search.vector_index import (
-    ExactVectorSearchBackend,
     ExactVectorQuery,
 )
 
@@ -17,9 +15,8 @@ _NOW = "2026-07-24T10:00:00.000000Z"
 _CATALOG_UUID = "00000000-0000-4000-8000-000000000001"
 
 
-def test_exact_backend_preserves_stable_input_order_for_ties() -> None:
+def test_exact_query_preserves_stable_input_order_for_ties() -> None:
     query = _small_unit_vector(1.0, 0.0)
-    backend = ExactVectorSearchBackend()
     nearby = np.nextafter(np.float32(0.5), np.float32(1.0))
     for cosines in (
         [],
@@ -39,20 +36,11 @@ def test_exact_backend_preserves_stable_input_order_for_ties() -> None:
             indices = np.argsort(-scores, kind="stable")[:limit].tolist()
             expected = [(index, targets[index], float(scores[index])) for index in indices]
             for hits in (
-                backend.search(matrix, targets, query, limit=limit),
                 prepared.search(limit),
                 prepared.search(limit),
             ):
                 assert [(hit.index, hit.target, hit.score) for hit in hits] == expected
         np.testing.assert_array_equal(prepared.scores, scores)
-
-    # Empty output still validates matrix and identities, but never the query.
-    matrix = np.asarray([[1.0, 0.0]], dtype=np.float32)
-    assert backend.search(matrix, _targets(101), np.asarray([np.nan]), limit=0) == []
-    with pytest.raises(ValueError, match="targets length mismatch"):
-        backend.search(matrix, (), query, limit=0)
-    with pytest.raises(ValueError, match="unit-normalized matrix"):
-        backend.search(matrix * 2, _targets(101), query, limit=0)
 
     # Contrast scores retain the old full-sort ordering for non-finite values.
     scores = np.asarray([np.nan, 0.5, np.inf, -np.inf, 0.5, np.nan], dtype=np.float32)

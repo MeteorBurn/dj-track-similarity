@@ -26,7 +26,6 @@ from .arguments import (
     validate_targets,
 )
 from .vector_index import (
-    ExactVectorSearchBackend,
     ExactVectorQuery,
     VectorIndexUnavailable,
     VectorSearchHit,
@@ -132,7 +131,6 @@ class SimilaritySearch:
         analysis_family: EmbeddingFamily,
         *,
         analysis_output: AnalysisOutput,
-        vector_backend: ExactVectorSearchBackend | None = None,
         layer: int | None = None,
         blend_layer: int | None = None,
     ) -> None:
@@ -161,11 +159,6 @@ class SimilaritySearch:
                 "normalization='l2'"
             )
         self.analysis_output = analysis_output
-        self.vector_backend = (
-            vector_backend
-            if vector_backend is not None
-            else ExactVectorSearchBackend()
-        )
         self._full_rows: tuple[AnalysisOutput, tuple[AnalysisVectorRow, ...]] | None = None
         self.active_output()
 
@@ -529,8 +522,8 @@ class SimilaritySearch:
     ) -> list[SimilaritySearchResult]:
         """Read only as deep into the descending score order as needed.
 
-        Asking the backend for k = N built a hit object for all 45,000 tracks
-        in order to return fifty of them. How deep the answer actually reaches
+        Asking for k = N built a hit object for all 45,000 tracks in order to
+        return fifty of them. How deep the answer actually reaches
         is bounded: hits arrive in descending score, ``min_similarity`` and
         ``epsilon`` only ever cut a suffix of that order, the excluded seeds
         remove at most ``len(excluded)`` of them, and the deterministic noise
@@ -542,29 +535,21 @@ class SimilaritySearch:
         bounded_limit = result_limit(limit)
         total = len(prepared.targets)
         requested = min(total, bounded_limit + len(excluded))
-        check_finite = not isinstance(query, ExactVectorQuery)
-        if isinstance(query, ExactVectorQuery) and not bool(
-            np.all(np.isfinite(query.scores))
-        ):
+        if not isinstance(query, ExactVectorQuery):
+            # Scored once: each deeper read is a longer prefix of one order.
+            # The matrix and the query are both validated unit vectors, so
+            # the scores are finite.
+            query = ExactVectorQuery(prepared.targets, prepared.matrix @ query)
+        elif not bool(np.all(np.isfinite(query.scores))):
             # Contrast previously sorted the full array without rejecting
             # non-finite arithmetic. Such values cannot use the prefix proof.
             requested = total
         while True:
-            if isinstance(query, ExactVectorQuery):
-                hits = query.search(requested)
-            else:
-                hits = self.vector_backend.search(
-                    prepared.matrix,
-                    prepared.targets,
-                    query,
-                    limit=requested,
-                )
+            hits = query.search(requested)
             candidates, below_threshold = self._candidates(
                 hits,
-                prepared,
                 excluded=excluded,
                 filters=filters,
-                check_finite=check_finite,
             )
             if requested >= total or _ranking_is_settled(
                 hits,
@@ -594,29 +579,17 @@ class SimilaritySearch:
     def _candidates(
         self,
         hits: Sequence[VectorSearchHit],
-        prepared: _Prepared,
         *,
         excluded: frozenset[AnalysisTarget],
         filters: SearchFilters,
-        check_finite: bool = True,
     ) -> tuple[list[tuple[AnalysisTarget, float, float]], bool]:
-        targets = prepared.targets
-        target_to_index = prepared.target_to_index
         candidates: list[tuple[AnalysisTarget, float, float]] = []
         below_threshold = False
         for hit in hits:
-            target = _target_for_hit(
-                hit,
-                targets,
-                target_to_index,
-            )
+            target = hit.target
             if target in excluded:
                 continue
-            score = float(hit.score)
-            if check_finite and not math.isfinite(score):
-                raise ValueError(
-                    "Vector search backend returned a non-finite score"
-                )
+            score = hit.score
             if not _passes_score_filter(score, filters):
                 below_threshold = True
                 continue
@@ -999,34 +972,6 @@ def _contrast_score_breakdown(
         "contrast": float(contrast_scores[index]),
         "negative_weight": negative_weight,
     }
-
-
-def _target_for_hit(
-    hit: VectorSearchHit,
-    targets: Sequence[AnalysisTarget],
-    target_to_index: Mapping[AnalysisTarget, int],
-) -> AnalysisTarget:
-    if not isinstance(hit, VectorSearchHit):
-        raise TypeError(
-            "Vector search backend returned a non-VectorSearchHit value"
-        )
-    if hit.index is not None:
-        if hit.index < 0 or hit.index >= len(targets):
-            raise ValueError(
-                "Vector search backend returned out-of-range index: "
-                f"{hit.index}"
-            )
-        target = targets[hit.index]
-        if target != hit.target:
-            raise ValueError(
-                "Vector search backend returned a mismatched target/index"
-            )
-        return target
-    if hit.target not in target_to_index:
-        raise ValueError(
-            "Vector search backend returned an unknown target identity"
-        )
-    return hit.target
 
 
 def _passes_score_filter(

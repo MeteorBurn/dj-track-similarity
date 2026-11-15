@@ -21,7 +21,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.search.engine import SearchFilters, SimilaritySearch
-from dj_track_similarity.search.vector_index import ExactVectorQuery, ExactVectorSearchBackend, VectorSearchHit
+from dj_track_similarity.search.vector_index import ExactVectorQuery, VectorSearchHit
 from dj_track_similarity.track_models import FileTags, ScannedFile
 from embedding_test_support import same_vector_layers
 
@@ -367,15 +367,6 @@ class _FullDepthSearch(SimilaritySearch):
         return super()._rank(prepared, _FullDepthQuery(prepared.targets, scores), **kwargs)
 
 
-class _DepthRecordingBackend(ExactVectorSearchBackend):
-    def __init__(self) -> None:
-        self.requested: list[int] = []
-
-    def search(self, matrix, targets, query, limit):  # noqa: ANN001, ANN201
-        self.requested.append(limit)
-        return super().search(matrix, targets, query, limit)
-
-
 def test_bounded_ranking_depth_matches_ranking_the_whole_library(
     tmp_path: Path,
     monkeypatch,
@@ -412,13 +403,18 @@ def test_bounded_ranking_depth_matches_ranking_the_whole_library(
     )
 
     filters = SearchFilters(noise=0.2, epsilon=1.0)
-    recorder = _DepthRecordingBackend()
-    bounded = SimilaritySearch(
-        db,
-        "clap",
-        analysis_output=output,
-        vector_backend=recorder,
-    ).search((seed,), filters=filters, limit=3)
+    requested: list[int] = []
+    read_prefix = ExactVectorQuery.search
+    with monkeypatch.context() as recording:
+        recording.setattr(
+            ExactVectorQuery, "search",
+            lambda query, limit: requested.append(limit) or read_prefix(query, limit),
+        )
+        bounded = SimilaritySearch(
+            db,
+            "clap",
+            analysis_output=output,
+        ).search((seed,), filters=filters, limit=3)
     whole = _FullDepthSearch(
         db,
         "clap",
@@ -426,10 +422,10 @@ def test_bounded_ranking_depth_matches_ranking_the_whole_library(
     ).search((seed,), filters=filters, limit=3)
 
     assert bounded == whole
-    assert len(recorder.requested) > 1
-    assert max(recorder.requested) < 13
+    assert len(requested) > 1
+    assert max(requested) < 13
 
-    # The contrast path bypasses the vector backend, but must obey the same bound.
+    # The contrast path hands over ready scores, but must obey the same bound.
     positive = [_query(output, [1.0, 0.0, 0.0]), _query(output, [1.0, 0.05, 0.0])]
     negative = [_query(output, [0.0, 1.0, 0.0]), _query(output, [0.0, 0.0, 1.0])]
     history = {"relevant": [target.track_id for target in tracks[:engine.FEEDBACK_MINIMUM_TRACKS]], "irrelevant": []}

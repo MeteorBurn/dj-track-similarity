@@ -434,12 +434,17 @@ def _library_vector_fingerprint(
     generation = int(
         connection.execute("PRAGMA user_version").fetchone()[0]
     )
+    # A cached load holds default-layer rows only. Spelling that layer as a
+    # literal lets its partial index answer instead of every stored layer.
+    layers = EMBEDDING_LAYERS.get(output.analysis_family)
+    layer_filter = "" if layers is None else f"WHERE layer = {int(layers.default)}"
     embeddings = connection.execute(
         f"""
         SELECT
             COUNT(*),
             COALESCE(MAX(track_uuid), '')
         FROM {table}
+        {layer_filter}
         """
     ).fetchone()
     # Keep the exact ordered identities, but avoid rebuilding tens of thousands

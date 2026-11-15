@@ -251,6 +251,10 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
 
     first = db.load_analysis_vectors(output)
     assert db.load_analysis_vectors(output) is first
+    # Another stored layer is cached the same way, under an entry of its own.
+    first_layer = db.load_analysis_vectors(output, layer=5)
+    assert db.load_analysis_vectors(output, layer=5) is first_layer
+    assert db.load_analysis_vectors(output) is first
 
     rewritten = _query(output, [0.0, 0.0, 1.0])
     foreign = LibraryDatabase(tmp_path / "library.sqlite")
@@ -271,6 +275,10 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
     reloaded = db.load_analysis_vectors(output)
     vectors = {row.target.track_id: row.vector for row in reloaded}
     assert np.array_equal(vectors[moved.track_id], rewritten)
+    assert np.array_equal(
+        next(row.vector for row in db.load_analysis_vectors(output, layer=5) if row.target == moved),
+        rewritten,
+    )
     assert np.array_equal(
         vectors[kept.track_id],
         next(row.vector for row in first if row.target.track_id == kept.track_id),

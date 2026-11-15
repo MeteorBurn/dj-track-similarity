@@ -24,6 +24,7 @@ from dj_track_similarity.analysis_models import (
     current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db.analysis import _bump_write_generation
 from dj_track_similarity.db.analysis_candidates import collect_analysis_candidates
 from dj_track_similarity.db.ddl import SonaraRow
 from dj_track_similarity.db.embeddings import (
@@ -342,6 +343,8 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
             connection.execute(
                 f"UPDATE {family}_embeddings SET track_uuid='stale' WHERE layer=12"
             )
+            # As every embedding writer does: it dates the cached layer loads.
+            _bump_write_generation(connection)
         assert database.load_analysis_vectors(output, layer=12) == ()
         assert _save_embedding_output(database, write_target, write)
         if family == "sheetsage2":

@@ -378,11 +378,11 @@ def _readonly(vector: np.ndarray) -> np.ndarray:
     return _readonly_copy(vector)
 
 
-# One cached family at 45k tracks costs 92 MB (CLAP) to 185 MB (MuQ), and at
-# 100k tracks 410 MB. The budget holds the working set of a single-model
+# One cached family layer at 45k tracks costs 92 MB (CLAP) to 185 MB (MuQ), and
+# at 100k tracks 410 MB. The budget holds the working set of a single-model
 # session and the two or three families a reference comparison touches in one
-# request, and evicts before a five-family sweep pins the whole library in
-# memory five times over.
+# request, and evicts before a sweep over five families, or over the layers of
+# one, pins the whole library in memory five times over.
 _LIBRARY_VECTOR_CACHE_BYTES = 512 * 1024 * 1024
 
 
@@ -415,6 +415,7 @@ def _library_vector_fingerprint(
     table: str,
     catalog_uuid: str,
     output: AnalysisOutput,
+    layer: int | None,
 ) -> tuple[object, ...]:
     """Summarise everything a cached full-library load depends on.
 
@@ -434,10 +435,15 @@ def _library_vector_fingerprint(
     generation = int(
         connection.execute("PRAGMA user_version").fetchone()[0]
     )
-    # A cached load holds default-layer rows only. Spelling that layer as a
-    # literal lets its partial index answer instead of every stored layer.
+    # The default layer spelled as a literal is answered by its partial index.
+    # No other layer has one, so a load of those counts every stored layer:
+    # filtering on the layer there would walk the table instead of an index.
     layers = EMBEDDING_LAYERS.get(output.analysis_family)
-    layer_filter = "" if layers is None else f"WHERE layer = {int(layers.default)}"
+    layer_filter = (
+        f"WHERE layer = {int(layers.default)}"
+        if layers is not None and layer == layers.default
+        else ""
+    )
     embeddings = connection.execute(
         f"""
         SELECT
@@ -521,28 +527,29 @@ class AnalysisRepository:
                 missing_since=None,
             )
 
+    # Keyed by family, output kind and stored layer (None without layers).
     _library_vector_cache: dict[
-        tuple[str, str],
+        tuple[str, str, int | None],
         tuple[tuple[object, ...], tuple[AnalysisVectorRow, ...], int],
     ] | None = None
 
     def _cached_library_vectors(
         self,
-        output: AnalysisOutput,
+        key: tuple[str, str, int | None],
         fingerprint: tuple[object, ...],
     ) -> tuple[AnalysisVectorRow, ...] | None:
         cache = self._library_vector_cache
         if not cache:
             return None
-        entry = cache.get(output.key)
+        entry = cache.get(key)
         if entry is None or entry[0] != fingerprint:
             return None
-        cache[output.key] = cache.pop(output.key)
+        cache[key] = cache.pop(key)
         return entry[1]
 
     def _store_library_vectors(
         self,
-        output: AnalysisOutput,
+        key: tuple[str, str, int | None],
         fingerprint: tuple[object, ...],
         rows: tuple[AnalysisVectorRow, ...],
     ) -> None:
@@ -550,11 +557,11 @@ class AnalysisRepository:
         if cache is None:
             cache = {}
             self._library_vector_cache = cache
-        cache.pop(output.key, None)
+        cache.pop(key, None)
         nbytes = _vector_rows_nbytes(rows)
         if nbytes > _LIBRARY_VECTOR_CACHE_BYTES:
             return
-        cache[output.key] = (fingerprint, rows, nbytes)
+        cache[key] = (fingerprint, rows, nbytes)
         total = sum(entry[2] for entry in cache.values())
         while total > _LIBRARY_VECTOR_CACHE_BYTES and len(cache) > 1:
             total -= cache.pop(next(iter(cache)))[2]
@@ -903,7 +910,7 @@ class AnalysisRepository:
         if output.output_kind != "embedding":
             raise ValueError("vector loading requires an embedding output")
         layer = validate_embedding_layer(output.analysis_family, layer)
-        layers = EMBEDDING_LAYERS.get(output.analysis_family)
+        cache_key = (*output.key, layer)
         with self._write_lock:
             with closing(self.connect()) as connection:
                 connection.execute("BEGIN")
@@ -911,20 +918,16 @@ class AnalysisRepository:
                 normalize_analysis_outputs((output,))
                 table = table_for_output(output)
                 fingerprint: tuple[object, ...] | None = None
-                # Only the one vector per track that searches read by default
-                # is cached; another layer is an explicit, uncached request.
-                if (
-                    targets is None
-                    and table is not None
-                    and (layers is None or layer == layers.default)
-                ):
+                # Every full-library load is cached, one entry per layer read.
+                if targets is None and table is not None:
                     fingerprint = _library_vector_fingerprint(
                         connection,
                         table=table,
                         catalog_uuid=catalog_uuid,
                         output=output,
+                        layer=layer,
                     )
-                    cached = self._cached_library_vectors(output, fingerprint)
+                    cached = self._cached_library_vectors(cache_key, fingerprint)
                     if cached is not None:
                         return cached
                 selected = _selected_targets(
@@ -952,7 +955,7 @@ class AnalysisRepository:
                     if target.track_id in vectors
                 )
                 if fingerprint is not None:
-                    self._store_library_vectors(output, fingerprint, rows)
+                    self._store_library_vectors(cache_key, fingerprint, rows)
                 return rows
 
     def embedding_layers_capability(self, family: str) -> str:

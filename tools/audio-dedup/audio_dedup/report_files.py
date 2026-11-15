@@ -48,16 +48,6 @@ def _write_report_files(result: models_module.ReportResult, *, apply_result: mod
     write_text_log(result.log_path, result.payload, apply_result=apply_result)
 
 
-def apply_result_payload(result: models_module.ApplyResult) -> dict[str, object]:
-    return {
-        "deleted_track_ids": list(result.deleted_track_ids),
-        "deleted_paths": list(result.deleted_paths),
-        "skipped": list(result.skipped),
-        "failed": list(result.failed),
-        "rhythm_lab_deleted_rows": result.rhythm_lab_deleted_rows,
-    }
-
-
 def _unique_report_dir(path: Path) -> Path:
     if not path.exists():
         return path

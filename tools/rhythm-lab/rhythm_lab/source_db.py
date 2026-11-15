@@ -419,18 +419,6 @@ class SourceDatabase:
         assert row is not None
         return int(row[0])
 
-    def current_track_ids(self) -> tuple[int, ...]:
-        with closing(self.connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT track_id
-                FROM tracks
-                WHERE missing_since IS NULL
-                ORDER BY track_id
-                """
-            ).fetchall()
-        return tuple(int(row[0]) for row in rows)
-
     def rhythm_lab_track_ids(
         self,
         required_sources: Iterable[str] | None = None,
@@ -534,15 +522,6 @@ class SourceDatabase:
                     catalog_uuid=self.catalog_uuid,
                 )
             )
-
-    def embedding_track_ids(self, family: EmbeddingFamily) -> set[int]:
-        clean_family = _embedding_family(family)
-        with closing(self.connect()) as connection:
-            vectors = _ready_embedding_vectors(
-                connection,
-                family=clean_family,
-            )
-        return set(vectors)
 
     def load_embedding_matrix(
         self,

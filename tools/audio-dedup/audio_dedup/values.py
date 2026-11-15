@@ -1,20 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Iterable, TypeVar
 
 from . import models as models_module
 
 _T = TypeVar("_T")
-
-
-def normalize_path_text(path: str | Path) -> str:
-    text = str(path).strip()
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
-        text = text[1:-1].strip()
-    normalized = text.replace("\\", "/").rstrip("/")
-    return normalized or text.replace("\\", "/")
 
 
 def _duration_distance(left: models_module.TrackRecord, right: models_module.TrackRecord) -> tuple[float | None, float | None]:
